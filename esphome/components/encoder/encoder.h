@@ -15,12 +15,17 @@ class StepperEncoder : public stepper::Stepper, public Component {
   void loop() override;
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
+  void set_target(int32_t steps);
+
+
   void set_stepper(stepper::Stepper *stepper) { this->_stepper = stepper; };
   void set_encoder(sensor::Sensor *encoder) { this->_encoder = encoder; };
+  void set_ratio_hint(float ratio) { this->_ratio_hint = ratio; };
 
  protected:
-  stepper::Stepper *_stepper;
-  sensor::Sensor *_encoder;
+  float _ratio_hint;
+  stepper::Stepper *_stepper{nullptr};
+  sensor::Sensor *_encoder{nullptr};
 };
 
 }  // namespace encoder
