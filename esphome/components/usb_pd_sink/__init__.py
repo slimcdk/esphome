@@ -1,25 +1,79 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
-from esphome.const import CONF_ID, CONF_VOLTAGE, CONF_AMPERAGE
+from esphome.const import CONF_ID, CONF_VOLTAGE, CONF_AMPERE, CONF_TRIGGER_ID
 from esphome.core import CORE, coroutine_with_priority
+
+# Useful links
+# General knowledge: https://www.digikey.com/en/articles/designing-in-usb-type-c-and-using-power-delivery-for-rapid-charging
+# USB PD Power Rules: https://www.chromium.org/chromium-os/cable-and-adapter-tips-and-tricks#:~:text=DCP%20or%20CDP.-,USB%20PD%20Power%20Rules,-Power%20adapters%20with
 
 
 IS_PLATFORM_COMPONENT = True
 
-usb_pd_sink_ns = cg.esphome_ns.namespace("usb_pd_sink")
-UsbPdSink = usb_pd_sink_ns.class_("UsbPdSink")
+CONF_PDO_PROFILES = "pdo_profiles"
+CONF_ON_VOLTAGE_CHANGE = "on_voltage_change"
+CONF_ON_AMPERE_CHANGE = "on_ampere_change"
+CONF_ON_CONNECTOR_CONNECTED = "on_connector_connected"
+CONF_ON_CONNECTOR_DISCONNECTED = "on_connector_disconnected"
 
-NegotiateAction = usb_pd_sink_ns.class_("NegotiateAction", automation.Action)
+pd_sink_ns = cg.esphome_ns.namespace("usb_pd_sink")
+UsbPdSink = pd_sink_ns.class_("UsbPdSink")
+
+OnVoltageChangeTrigger = pd_sink_ns.class_("OnVoltageChangeTrigger", automation.Trigger)
+OnAmpereChangeTrigger = pd_sink_ns.class_("OnAmpereChangeTrigger", automation.Trigger)
+OnConnectorConnectedTrigger = pd_sink_ns.class_(
+    "OnConnectorConnectedTrigger", automation.Trigger
+)
+OnConnectorDisconnectedTrigger = pd_sink_ns.class_(
+    "OnConnectorDisconnectedTrigger", automation.Trigger
+)
+
+NegotiateAction = pd_sink_ns.class_("NegotiateAction", automation.Action)
 
 
-USB_PD_VOLTAGES = [5, 9, 12, 15, 20]
+def validate_voltage(value):
+    mV = cv.voltage(value) * 1000
+    return cv.one_of(5000, 9000, 15000, 20000, int=True)(mV)
 
-USB_PD_SINK_SCHEMA = cv.Schema({cv.Optional(CONF_VOLTAGE, default=5): cv.int_})
+
+def validate_ampere(value):
+    return cv.int_(cv.current(value) * 1000)
 
 
-async def setup_usb_pd_sink_core_(usb_pd_sink_var, config):
-    cg.add(usb_pd_sink_var.set_voltage(config[CONF_VOLTAGE]))
+PD_SINK_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_ON_VOLTAGE_CHANGE): automation.validate_automation(
+            {
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(OnVoltageChangeTrigger),
+            }
+        ),
+        cv.Optional(CONF_ON_AMPERE_CHANGE): automation.validate_automation(
+            {
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(OnAmpereChangeTrigger),
+            }
+        ),
+        cv.Optional(CONF_ON_CONNECTOR_CONNECTED): automation.validate_automation(
+            {
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
+                    OnConnectorConnectedTrigger
+                ),
+            }
+        ),
+        cv.Optional(CONF_ON_CONNECTOR_DISCONNECTED): automation.validate_automation(
+            {
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
+                    OnConnectorDisconnectedTrigger
+                ),
+            }
+        ),
+    }
+)
+
+
+async def setup_usb_pd_sink_core_(pd_sink_var, config):
+    cg.add(pd_sink_var.set_milli_voltage(5000))
+    cg.add(pd_sink_var.set_milli_ampere(3000))
 
 
 async def register_usb_pd_sink(var, config):
@@ -34,27 +88,23 @@ async def register_usb_pd_sink(var, config):
     cv.Schema(
         {
             cv.Required(CONF_ID): cv.use_id(UsbPdSink),
-            cv.Optional(CONF_VOLTAGE): cv.templatable(cv.int_),
-            cv.Optional(CONF_AMPERAGE): cv.templatable(cv.float_),
+            cv.Optional(CONF_VOLTAGE): cv.templatable(validate_voltage),
+            cv.Optional(CONF_AMPERE): cv.templatable(validate_ampere),
         }
     ),
 )
 async def usb_pd_sink_negotiate_to_code(config, action_id, template_arg, args):
     paren = await cg.get_variable(config[CONF_ID])
     var = cg.new_Pvariable(action_id, template_arg, paren)
-    # yield cg.register_parented(var, config[CONF_ID]) # https://github.com/glmnet/esphome/blob/f26f53a82343986b7c9cc064efc54d629f622b05/esphome/components/tmc2209/stepper.py#L56
-
     if CONF_VOLTAGE in config:
-        template_ = await cg.templatable(config[CONF_VOLTAGE], args, cg.int32)
-        cg.add(var.set_voltage(template_))
-
-    if CONF_AMPERAGE in config:
-        template_ = await cg.templatable(config[CONF_AMPERAGE], args, cg.int32)
-        cg.add(var.set_amperage(template_))
-
+        template_ = await cg.templatable(config[CONF_VOLTAGE], args, cg.uint16)
+        cg.add(var.set_milli_voltage(template_))
+    if CONF_AMPERE in config:
+        template_ = await cg.templatable(config[CONF_AMPERE], args, cg.uint16)
+        cg.add(var.set_milli_ampere(template_))
     return var
 
 
 @coroutine_with_priority(100.0)
 async def to_code(config):
-    cg.add_global(usb_pd_sink_ns.using)
+    cg.add_global(pd_sink_ns.using)
