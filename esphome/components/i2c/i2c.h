@@ -31,6 +31,9 @@ class I2CComponent : public Component {
   void set_scl_pin(uint8_t scl_pin) { scl_pin_ = scl_pin; }
   void set_frequency(uint32_t frequency) { frequency_ = frequency; }
   void set_scan(bool scan) { scan_ = scan; }
+  
+  /// Opens access to the native TwoWire instance used for communication.
+  TwoWire &get_wire() { return *wire_; }
 
   /** Read len amount of bytes from a register into data. Optionally with a conversion time after
    * writing the register value to the bus.
