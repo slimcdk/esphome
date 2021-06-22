@@ -1,4 +1,5 @@
 #include "esphome/core/log.h"
+
 #include "stusb4500.h"
 
 namespace esphome {

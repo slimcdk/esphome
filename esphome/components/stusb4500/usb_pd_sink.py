@@ -3,6 +3,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import i2c, usb_pd_sink
 from esphome.const import CONF_ID, CONF_RESET_PIN
+from . import STUSB4500Component
 
 
 CODEOWNERS = ["@slimcdk"]
@@ -10,11 +11,6 @@ DEPENDENCIES = ["i2c"]
 
 CONF_PROFILES = "pdo_profiles"
 CONF_ALERT_PIN = "alert_pin"
-
-stusb4500_ns = cg.esphome_ns.namespace("stusb4500")
-STUSB4500Component = stusb4500_ns.class_(
-    "STUSB4500Component", usb_pd_sink.UsbPdSink, cg.Component, i2c.I2CDevice
-)
 
 
 CONFIG_SCHEMA = (
