@@ -17,15 +17,10 @@ template<typename... Ts> class NegotiateAction : public Action<Ts...> {
   TEMPLATABLE_VALUE(uint16_t, milli_ampere);
 
   void play(Ts... x) override {
-    if (this->milli_voltage_.has_value()) {
-      // ESP_LOGI(TAG, "voltage %d mV", this->milli_voltage_.value(x...));
-      this->parent_->set_milli_voltage(this->milli_voltage_.value(x...)); 
-    }
+    // Set parameters
+    if (this->milli_voltage_.has_value()) this->parent_->set_milli_voltage(this->milli_voltage_.value(x...));
+    if (this->milli_ampere_.has_value()) this->parent_->set_milli_ampere(this->milli_ampere_.value(x...));
 
-    if (this->milli_ampere_.has_value()) {
-      // ESP_LOGI(TAG, "ampere %d mA", this->milli_ampere_.value(x...));
-      this->parent_->set_milli_ampere(this->milli_ampere_.value(x...)); 
-    }
     this->parent_->negotiate();
   }
 

@@ -8,14 +8,15 @@ from esphome.core import CORE, coroutine_with_priority
 # General knowledge: https://www.digikey.com/en/articles/designing-in-usb-type-c-and-using-power-delivery-for-rapid-charging
 # USB PD Power Rules: https://www.chromium.org/chromium-os/cable-and-adapter-tips-and-tricks#:~:text=DCP%20or%20CDP.-,USB%20PD%20Power%20Rules,-Power%20adapters%20with
 
-
 IS_PLATFORM_COMPONENT = True
 
+CONF_USB_PD_SINK_ID = "usb_pd_sink_id"
 CONF_PDO_PROFILES = "pdo_profiles"
 CONF_ON_VOLTAGE_CHANGE = "on_voltage_change"
 CONF_ON_AMPERE_CHANGE = "on_ampere_change"
 CONF_ON_CONNECTOR_CONNECTED = "on_connector_connected"
 CONF_ON_CONNECTOR_DISCONNECTED = "on_connector_disconnected"
+
 
 pd_sink_ns = cg.esphome_ns.namespace("usb_pd_sink")
 UsbPdSink = pd_sink_ns.class_("UsbPdSink")
