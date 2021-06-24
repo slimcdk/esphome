@@ -11,8 +11,8 @@ namespace esphome {
 namespace climate {
 
 #define LOG_CLIMATE(prefix, type, obj) \
-  if (obj != nullptr) { \
-    ESP_LOGCONFIG(TAG, "%s%s '%s'", prefix, type, obj->get_name().c_str()); \
+  if ((obj) != nullptr) { \
+    ESP_LOGCONFIG(TAG, "%s%s '%s'", prefix, type, (obj)->get_name().c_str()); \
   }
 
 class Climate;
@@ -159,7 +159,7 @@ struct ClimateDeviceRestoreState {
  *
  * The entire state of the climate device is encoded in public properties of the base class (current_temperature,
  * mode etc). These are read-only for the user and rw for integrations. The reason these are public
- * is for simple access to them from lambdas `if (id(my_climate).mode == climate::CLIMATE_MODE_AUTO) ...`
+ * is for simple access to them from lambdas `if (id(my_climate).mode == climate::CLIMATE_MODE_HEAT_COOL) ...`
  */
 class Climate : public Nameable {
  public:
