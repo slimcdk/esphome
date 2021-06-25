@@ -5,6 +5,8 @@ from esphome.components import binary_sensor
 from esphome.const import CONF_ID, CONF_PIN
 from .. import gpio_ns
 
+CONF_USE_INTERRUPT = "use_interrupt"
+
 GPIOBinarySensor = gpio_ns.class_(
     "GPIOBinarySensor", binary_sensor.BinarySensor, cg.Component
 )
@@ -13,6 +15,7 @@ CONFIG_SCHEMA = binary_sensor.BINARY_SENSOR_SCHEMA.extend(
     {
         cv.GenerateID(): cv.declare_id(GPIOBinarySensor),
         cv.Required(CONF_PIN): pins.gpio_input_pin_schema,
+        cv.Optional(CONF_USE_INTERRUPT, default=False): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -24,3 +27,4 @@ async def to_code(config):
 
     pin = await cg.gpio_pin_expression(config[CONF_PIN])
     cg.add(var.set_pin(pin))
+    cg.add(var.set_use_interrupt(config[CONF_USE_INTERRUPT]))
