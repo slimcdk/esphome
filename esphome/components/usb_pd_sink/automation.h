@@ -7,31 +7,30 @@
 namespace esphome {
 namespace usb_pd_sink {
 
-class OnVoltageChangeTrigger : public Trigger<float> {
+
+class OnNegotiationTrigger : public Trigger<uint16_t, uint16_t> {
  public:
-  explicit OnVoltageChangeTrigger(UsbPdSink *parent) {
-    //parent->add_on_state_callback([this](float value) { this->trigger(value); });
+  explicit OnNegotiationTrigger(UsbPdSink *parent) {
+    parent->add_on_negotiation_callback([this, parent](uint16_t mV, uint16_t mA) {
+      parent->last_negotiation_ = millis();
+      this->trigger(mV, mA);
+    });
   }
 };
 
-class OnAmpereChangeTrigger : public Trigger<float> {
+
+class OnSourceConnectedTrigger : public Trigger<> {
  public:
-  explicit OnAmpereChangeTrigger(UsbPdSink *parent) {
-    //parent->add_on_state_callback([this](float value) { this->trigger(value); });
+  explicit OnSourceConnectedTrigger(UsbPdSink *parent) {
+    parent->add_on_source_connected_callback([this]() { this->trigger(); });
   }
 };
 
-class OnConnectorConnectedTrigger : public Trigger<float> {
- public:
-  explicit OnConnectorConnectedTrigger(UsbPdSink *parent) {
-    //parent->add_on_state_callback([this](float value) { this->trigger(value); });
-  }
-};
 
-class OnConnectorDisconnectedTrigger : public Trigger<float> {
+class OnSourceDisconnectedTrigger : public Trigger<> {
  public:
-  explicit OnConnectorDisconnectedTrigger(UsbPdSink *parent) {
-    //parent->add_on_state_callback([this](float value) { this->trigger(value); });
+  explicit OnSourceDisconnectedTrigger(UsbPdSink *parent) {
+    parent->add_on_source_disconnected_callback([this]() { this->trigger(); });
   }
 };
 

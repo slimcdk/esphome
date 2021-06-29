@@ -5,67 +5,91 @@ from esphome.const import CONF_ID, CONF_VOLTAGE, CONF_AMPERE, CONF_TRIGGER_ID
 from esphome.core import CORE, coroutine_with_priority
 
 # Useful links
-# General knowledge: https://www.digikey.com/en/articles/designing-in-usb-type-c-and-using-power-delivery-for-rapid-charging
-# USB PD Power Rules: https://www.chromium.org/chromium-os/cable-and-adapter-tips-and-tricks#:~:text=DCP%20or%20CDP.-,USB%20PD%20Power%20Rules,-Power%20adapters%20with
-
+# General knowledge:    https://www.digikey.com/en/articles/designing-in-usb-type-c-and-using-power-delivery-for-rapid-charging
+#                       https://medium.com/@kolluru.nathan/usb-pd-power-reserve-and-you-71cf4d18505c
+# USB PD Power Rules:   https://www.chromium.org/chromium-os/cable-and-adapter-tips-and-tricks#:~:text=DCP%20or%20CDP.-,USB%20PD%20Power%20Rules,-Power%20adapters%20with
+#                       https://www.usb.org/sites/default/files/D2T2-1%20-%20USB%20Power%20Delivery.pdf#page=14
 
 IS_PLATFORM_COMPONENT = True
 
+# Configuration parameters
+CONF_USB_PD_SINK_ID = "usb_pd_sink_id"
 CONF_PDO_PROFILES = "pdo_profiles"
-CONF_ON_VOLTAGE_CHANGE = "on_voltage_change"
-CONF_ON_AMPERE_CHANGE = "on_ampere_change"
-CONF_ON_CONNECTOR_CONNECTED = "on_connector_connected"
-CONF_ON_CONNECTOR_DISCONNECTED = "on_connector_disconnected"
+CONF_ON_NEGOTIATION = "on_negotiation"
+CONF_ON_CONNECTOR_CONNECTED = "on_source_connected"
+CONF_ON_CONNECTOR_DISCONNECTED = "on_source_disconnected"
 
+# Objects
 pd_sink_ns = cg.esphome_ns.namespace("usb_pd_sink")
 UsbPdSink = pd_sink_ns.class_("UsbPdSink")
 
-OnVoltageChangeTrigger = pd_sink_ns.class_("OnVoltageChangeTrigger", automation.Trigger)
-OnAmpereChangeTrigger = pd_sink_ns.class_("OnAmpereChangeTrigger", automation.Trigger)
-OnConnectorConnectedTrigger = pd_sink_ns.class_(
-    "OnConnectorConnectedTrigger", automation.Trigger
-)
-OnConnectorDisconnectedTrigger = pd_sink_ns.class_(
-    "OnConnectorDisconnectedTrigger", automation.Trigger
-)
 
+# Actions
 NegotiateAction = pd_sink_ns.class_("NegotiateAction", automation.Action)
 
 
+# Automations
+OnNegotiationTrigger = pd_sink_ns.class_(
+    "OnNegotiationTrigger", automation.Trigger.template()
+)
+OnSourceConnectedTrigger = pd_sink_ns.class_(
+    "OnSourceConnectedTrigger", automation.Trigger.template()
+)
+OnSourceDisconnectedTrigger = pd_sink_ns.class_(
+    "OnSourceDisconnectedTrigger", automation.Trigger.template()
+)
+
+
+# Validations
 def validate_voltage(value):
-    mV = cv.voltage(value) * 1000
-    return cv.one_of(5000, 9000, 15000, 20000, int=True)(mV)
+    return cv.voltage(value) * 1000
 
 
 def validate_ampere(value):
     return cv.int_(cv.current(value) * 1000)
 
 
+def validate_wattage(value):
+    return cv.int_(cv.wattage(value) * 1000)
+
+
+def validate_duplicates(configs):
+    for i, iconfig in enumerate(configs):
+        for j, jconfig in enumerate(configs):
+            if i == j:
+                continue  # skip self check
+            if iconfig == jconfig:
+                raise cv.Invalid("Identical power rules can not be specified together")
+    return configs
+
+
+# Schemas
+USB_PD_SINK_TEMPLATABLE_POWER_RULE_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_VOLTAGE): cv.templatable(validate_voltage),
+        cv.Optional(CONF_AMPERE): cv.templatable(validate_ampere),
+    }
+)
+
+
 PD_SINK_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_ON_VOLTAGE_CHANGE): automation.validate_automation(
-            {
-                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(OnVoltageChangeTrigger),
-            }
+        cv.GenerateID(): cv.declare_id(UsbPdSink),
+        cv.Optional(CONF_PDO_PROFILES): cv.All(
+            cv.ensure_list(USB_PD_SINK_TEMPLATABLE_POWER_RULE_SCHEMA),
+            cv.Length(min=1, max=3),
+            validate_duplicates,
         ),
-        cv.Optional(CONF_ON_AMPERE_CHANGE): automation.validate_automation(
+        cv.Optional(CONF_ON_NEGOTIATION): automation.validate_automation(
             {
-                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(OnAmpereChangeTrigger),
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(OnNegotiationTrigger),
             }
         ),
         cv.Optional(CONF_ON_CONNECTOR_CONNECTED): automation.validate_automation(
-            {
-                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
-                    OnConnectorConnectedTrigger
-                ),
-            }
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(OnSourceConnectedTrigger)}
         ),
         cv.Optional(CONF_ON_CONNECTOR_DISCONNECTED): automation.validate_automation(
-            {
-                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
-                    OnConnectorDisconnectedTrigger
-                ),
-            }
+            {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(OnSourceDisconnectedTrigger)}
         ),
     }
 )
@@ -85,12 +109,8 @@ async def register_usb_pd_sink(var, config):
 @automation.register_action(
     "usb_pd_sink.negotiate",
     NegotiateAction,
-    cv.Schema(
-        {
-            cv.Required(CONF_ID): cv.use_id(UsbPdSink),
-            cv.Optional(CONF_VOLTAGE): cv.templatable(validate_voltage),
-            cv.Optional(CONF_AMPERE): cv.templatable(validate_ampere),
-        }
+    USB_PD_SINK_TEMPLATABLE_POWER_RULE_SCHEMA.extend(
+        {cv.Required(CONF_ID): cv.use_id(UsbPdSink)}
     ),
 )
 async def usb_pd_sink_negotiate_to_code(config, action_id, template_arg, args):
