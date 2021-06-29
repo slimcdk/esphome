@@ -6,13 +6,28 @@ namespace usb_pd_sink {
 
 static const char *const TAG = "usb_pd_sink";
 
-// void UsbPdSink::publish_voltage_state() {
-    // if (this->voltage_sensor_ != nullptr) this->voltage_sensor_->publish_state(this->milli_voltage_);
-// };
-// 
-// void UsbPdSink::publish_ampere_state() {
-    // if (this->ampere_sensor_ != nullptr) this->ampere_sensor_->publish_state(this->milli_ampere_);
-// };
+
+void UsbPdSink::has_source(bool present) {
+
+    // Trigger actions
+    if (this->has_source_ != present) {
+        if (present) on_source_connected_callback.call();
+        else on_source_disconnected_callback.call();
+        this->has_source_ = present;
+    }
+}
+
+void UsbPdSink::add_on_negotiation_callback(std::function<void(uint16_t, uint16_t)> &&callback) {
+    this->on_negotiation_callback.add(std::move(callback));
+}
+
+void UsbPdSink::add_on_source_connected_callback(std::function<void()> &&callback) {
+    this->on_source_connected_callback.add(std::move(callback));
+}
+void UsbPdSink::add_on_source_disconnected_callback(std::function<void()> &&callback) {
+    this->on_source_disconnected_callback.add(std::move(callback));
+}
+
 
 }  // namespace usb_pd_sink
 }  // namespace esphome

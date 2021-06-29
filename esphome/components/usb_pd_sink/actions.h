@@ -22,6 +22,7 @@ template<typename... Ts> class NegotiateAction : public Action<Ts...> {
     if (this->milli_ampere_.has_value()) this->parent_->set_milli_ampere(this->milli_ampere_.value(x...));
 
     this->parent_->negotiate();
+    this->parent_->last_negotiation_ = millis();
   }
 
  protected:

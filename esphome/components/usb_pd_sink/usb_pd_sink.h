@@ -1,50 +1,71 @@
 #pragma once
-
-#include "esphome/components/usb_pd_sink/usb_pd_sink.h"
 #include "esphome/core/component.h"
-#include "esphome/core/automation.h"
-// #include "esphome/components/sensor/sensor.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/preferences.h"
+#include "esphome/core/log.h"
 
 namespace esphome {
 namespace usb_pd_sink {
 
 #define LOG_USB_PD_SINK(this) \
   ESP_LOGCONFIG(TAG, "  Voltage: %d mV", this->milli_voltage_); \
-  ESP_LOGCONFIG(TAG, "  Ampere: %d mA", this->milli_ampere_); \
-  // LOG_SENSOR("  ", "Voltage Sensor", this->voltage_sensor_); \
-  // LOG_SENSOR("  ", "Ampere Sensor", this->ampere_sensor_);
+  ESP_LOGCONFIG(TAG, "  Ampere: %d mA", this->milli_ampere_);
 
+class PowerObject {
+ public:
+  PowerObject() = default;
+ protected:
+  uint16_t milli_voltage_{5000};
+  uint16_t milli_ampere_{0};
+  uint32_t milli_wattage_{0};
+};
+
+class SourceCapabilities : PowerObject{};
+
+class UsbPdSinkState {
+ public:
+  UsbPdSinkState() = default;
+};
 
 
 class UsbPdSink {
  public:
-
+  UsbPdSink() = default;
+  
+  // Parameter settings
   void set_milli_voltage(uint16_t mV) { this->milli_voltage_ = mV; }
   void set_milli_ampere(uint16_t mA) { this->milli_ampere_ = mA; }
-
-  // void set_voltage_sensor(sensor::Sensor *voltage_sensor) { this->voltage_sensor_ = voltage_sensor; }
-  // void set_ampere_sensor(sensor::Sensor *ampere_sensor) { this->ampere_sensor_ = ampere_sensor; }
-  // void publish_voltage_state();
-  // void publish_ampere_state();
-
   uint16_t milli_voltage() { return this->milli_voltage_; }
   uint16_t milli_ampere() { return this->milli_ampere_; }
-  bool has_connection() { return this->has_connection_; }
-  
-  virtual void negotiate() {}
+
+  virtual void negotiate() {};
+  void has_source(bool present);
+  bool has_source() { return this->has_source_; }
+
+  // Action adders
+  void add_on_negotiation_callback(std::function<void(uint16_t, uint16_t)> &&callback);
+  void add_on_source_connected_callback(std::function<void()> &&callback);
+  void add_on_source_disconnected_callback(std::function<void()> &&callback);
+
+  uint32_t last_negotiation_{0};
 
  protected:
-
+  bool should_renegotiate() { return (millis()-this->last_negotiation_) > 10000; /*10s*/ }
   void received_voltage_capabilities();
   void received_ampere_capabilities();
 
-  uint16_t milli_voltage_{5000}, milli_ampere_{3000};
-  uint16_t source_milli_voltage_{5000}, source_milli_ampere_{3000};
-  bool has_connection_{false};
+  PowerObject SinkPDOs[3];
 
-  // sensor::Sensor *voltage_sensor_, *ampere_sensor_;
+  uint16_t milli_voltage_{5000};
+  uint16_t milli_ampere_{1500};
+  bool has_source_{false};
+
+  // Action managers
+  CallbackManager<void(uint16_t, uint16_t)> on_negotiation_callback;
+  CallbackManager<void()> on_source_connected_callback;
+  CallbackManager<void()> on_source_disconnected_callback;
 };
-
+ 
 }  // namespace usb_pd_sink
 }  // namespace esphome
 
