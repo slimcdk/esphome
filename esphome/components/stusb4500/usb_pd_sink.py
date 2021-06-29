@@ -41,32 +41,3 @@ async def to_code(config):
         cg.add(var.set_alert_pin(alert_pin))
 
     cg.add_library("sparkfun/SparkFun STUSB4500", "1.1.4")
-
-
-"""
-Example config
-
-esphome:
-  on_boot:
-    - usb_pd_sink.negotiate:
-        id: stusb4500_id
-        voltage: 5
-        amperage: 5.0
-
-i2c:
-  sda: GPIO21
-  scl: GPIO22
-
-
-usb_pd_sink:
-  - platform: stusb4500
-    id: stusb4500_id
-    reset_pin: GPIO4
-    pdo_profiles:
-      - voltage: 12
-        amperage: 2
-      - voltage: 20
-        amperage: 3
-      - voltage: 5
-        amperage: 1
-"""

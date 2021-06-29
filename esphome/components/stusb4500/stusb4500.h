@@ -27,15 +27,15 @@ class STUSB4500Component : public usb_pd_sink::UsbPdSink, public Component, publ
   void set_alert_pin(GPIOPin *pin) { this->alert_pin_ = pin; }
   // void set_source_connectior_binary_sensor(binary_sensor::BinarySensor source_connection) { this->source_connection_ = source_connection; }
 
-  void negotiate();
+  void negotiate() override;
 
  protected:
+
   void reset();
 
   STUSB4500 *stusb4500_ = new STUSB4500();
-  GPIOPin *reset_pin_, *alert_pin_;
-
-  // binary_sensor::BinarySensor *source_connection_{nullptr};
+  GPIOPin *reset_pin_;
+  GPIOPin *alert_pin_;
 };
 
 

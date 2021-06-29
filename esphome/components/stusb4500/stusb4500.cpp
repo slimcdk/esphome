@@ -54,9 +54,11 @@ void STUSB4500Component::setup() {
 
 void STUSB4500Component::loop() {
     uint8_t ext_power = this->stusb4500_->getExternalPower();
-    if (this->has_connection_ != (bool) ext_power) {
-        this->has_connection_ == (bool) ext_power;
-        ESP_LOGCONFIG(TAG, "Has power supply? %b", this->has_connection_);
+    if (this->has_source_ != (bool) ext_power) {
+        this->has_source((bool) ext_power);
+        ESP_LOGCONFIG(TAG, "Has power supply? %b", this->has_source_);
+
+        if (this->should_renegotiate()) this->negotiate();
     }
 }
 
@@ -74,13 +76,16 @@ void STUSB4500Component::reset() {
 
 void STUSB4500Component::negotiate() {
 
-    ESP_LOGCONFIG(TAG, "Requesting %dmA @ %dmV", this->milli_ampere_, this->milli_voltage_);
+    ESP_LOGI(TAG, "Requesting %dmA @ %dmV", this->milli_ampere_, this->milli_voltage_);
     this->stusb4500_->setVoltage(3, this->milli_voltage_ / 1000);
     this->stusb4500_->setCurrent(3, this->milli_ampere_ / 1000);
     this->stusb4500_->setPdoNumber(3);
 
     // Reset STUSB4500 to initialize negotiation with source
     reset();
+
+    this->on_negotiation_callback.call(this->milli_voltage_, this->milli_ampere_);
+    // ESP_LOGI(TAG, "Last negotiation time was %d", (uint16_t)this->last_negotiation_);
 }
 
 
