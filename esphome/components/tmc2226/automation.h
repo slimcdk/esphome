@@ -1,15 +1,15 @@
 #pragma once
-#include "tmc2209_api_registers.h"
-#include "tmc2209_component.h"
+#include "tmc2226_api_registers.h"
+#include "tmc2226_component.h"
 #include "events.h"
 #include "esphome/core/automation.h"
 
 #include <vector>
 
 namespace esphome {
-namespace tmc2209 {
+namespace tmc2226 {
 
-template<typename... Ts> class ConfigureAction : public Action<Ts...>, public Parented<TMC2209Component> {
+template<typename... Ts> class ConfigureAction : public Action<Ts...>, public Parented<TMC2226Component> {
  public:
   TEMPLATABLE_VALUE(ShaftDirection, inverse_direction)
   TEMPLATABLE_VALUE(uint16_t, microsteps)
@@ -39,7 +39,7 @@ template<typename... Ts> class ConfigureAction : public Action<Ts...>, public Pa
   }
 };
 
-template<typename... Ts> class ActivationAction : public Action<Ts...>, public Parented<TMC2209Component> {
+template<typename... Ts> class ActivationAction : public Action<Ts...>, public Parented<TMC2226Component> {
   TEMPLATABLE_VALUE(bool, activate)
   TEMPLATABLE_VALUE(bool, toff_recovery)
 
@@ -53,7 +53,7 @@ template<typename... Ts> class ActivationAction : public Action<Ts...>, public P
   }
 };
 
-template<typename... Ts> class CurrentsAction : public Action<Ts...>, public Parented<TMC2209Component> {
+template<typename... Ts> class CurrentsAction : public Action<Ts...>, public Parented<TMC2226Component> {
  public:
   TEMPLATABLE_VALUE(StandstillMode, standstill_mode)
   TEMPLATABLE_VALUE(uint8_t, irun)
@@ -95,7 +95,7 @@ template<typename... Ts> class CurrentsAction : public Action<Ts...>, public Par
   }
 };
 
-template<typename... Ts> class StallGuardAction : public Action<Ts...>, public Parented<TMC2209Component> {
+template<typename... Ts> class StallGuardAction : public Action<Ts...>, public Parented<TMC2226Component> {
  public:
   TEMPLATABLE_VALUE(int32_t, stallguard_threshold)
 
@@ -105,7 +105,7 @@ template<typename... Ts> class StallGuardAction : public Action<Ts...>, public P
   }
 };
 
-template<typename... Ts> class CoolConfAction : public Action<Ts...>, public Parented<TMC2209Component> {
+template<typename... Ts> class CoolConfAction : public Action<Ts...>, public Parented<TMC2226Component> {
  public:
   TEMPLATABLE_VALUE(bool, seimin)
   TEMPLATABLE_VALUE(uint8_t, semax)
@@ -131,7 +131,7 @@ template<typename... Ts> class CoolConfAction : public Action<Ts...>, public Par
   }
 };
 
-template<typename... Ts> class ChopConfAction : public Action<Ts...>, public Parented<TMC2209Component> {
+template<typename... Ts> class ChopConfAction : public Action<Ts...>, public Parented<TMC2226Component> {
  public:
   TEMPLATABLE_VALUE(uint8_t, tbl)
   TEMPLATABLE_VALUE(uint8_t, hend)
@@ -149,7 +149,7 @@ template<typename... Ts> class ChopConfAction : public Action<Ts...>, public Par
   }
 };
 
-template<typename... Ts> class PWMConfAction : public Action<Ts...>, public Parented<TMC2209Component> {
+template<typename... Ts> class PWMConfAction : public Action<Ts...>, public Parented<TMC2226Component> {
  public:
   TEMPLATABLE_VALUE(uint8_t, pwmlim)
   TEMPLATABLE_VALUE(uint8_t, pwmreg)
@@ -183,11 +183,11 @@ template<typename... Ts> class PWMConfAction : public Action<Ts...>, public Pare
   }
 };
 
-template<typename... Ts> class SyncAction : public Action<Ts...>, public Parented<TMC2209Component> {
+template<typename... Ts> class SyncAction : public Action<Ts...>, public Parented<TMC2226Component> {
  public:
-  TEMPLATABLE_VALUE(std::vector<TMC2209Component *>, drivers);
+  TEMPLATABLE_VALUE(std::vector<TMC2226Component *>, drivers);
 
-  void set_drivers(const std::vector<TMC2209Component *> &drivers) { drivers_ = drivers; }
+  void set_drivers(const std::vector<TMC2226Component *> &drivers) { drivers_ = drivers; }
 
   void play(const Ts &...x) override {
     ESP_LOGV(TAG, "reading register values from 'master'");
@@ -204,7 +204,7 @@ template<typename... Ts> class SyncAction : public Action<Ts...>, public Parente
     const uint32_t factory_conf_ottrim = this->parent_->read_field(OTTRIM_FIELD);
 
     ESP_LOGV(TAG, "writing register values to others");
-    for (TMC2209Component *driver : this->drivers_.value()) {
+    for (TMC2226Component *driver : this->drivers_.value()) {
       ESP_LOGV(TAG, "writing to driver on address: 0x%x", driver->get_address());
 
       driver->write_register(GSTAT, gstat);
@@ -224,17 +224,17 @@ template<typename... Ts> class SyncAction : public Action<Ts...>, public Parente
 
 class OnDriverStatusTrigger : public Trigger<DriverStatusEvent> {
  public:
-  explicit OnDriverStatusTrigger(TMC2209Component *parent) {
+  explicit OnDriverStatusTrigger(TMC2226Component *parent) {
     parent->add_on_driver_status_callback([this](DriverStatusEvent code) { this->trigger(code); });
   }
 };
 
 class OnStallTrigger : public Trigger<> {
  public:
-  explicit OnStallTrigger(TMC2209Component *parent) {
+  explicit OnStallTrigger(TMC2226Component *parent) {
     parent->add_on_stall_callback([this]() { this->trigger(); });
   }
 };
 
-}  // namespace tmc2209
+}  // namespace tmc2226
 }  // namespace esphome

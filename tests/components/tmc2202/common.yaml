@@ -1,0 +1,30 @@
+stepper:
+  - platform: tmc2202
+    id: tmc2202_stepper_1
+    max_speed: 250 steps/s
+    acceleration: 100 steps/s^2
+    deceleration: 200 steps/s^2
+    step_pin: ${step_pin}
+    dir_pin: ${dir_pin}
+    enn_pin: ${enn_pin}
+    diag_pin: ${diag_pin}
+    index_pin: ${index_pin}
+    config_dump_include_registers: true
+    on_status:
+      - logger.log:
+          format: "Driver is reporting an update! (code %d)"
+          args: ["code"]
+
+  # - platform: tmc2202
+  #   id: tmc2202_stepper_2
+  #   max_speed: 250 steps/s
+  #   acceleration: 100 steps/s^2
+  #   deceleration: 200 steps/s^2
+  #   enn_pin: ${enn_pin}
+  #   diag_pin: ${diag_pin}
+  #   index_pin: ${index_pin}
+  #   config_dump_include_registers: true
+  #   on_status:
+  #     - logger.log:
+  #         format: "Driver is reporting an update! (code %d)"
+  #         args: ["code"]

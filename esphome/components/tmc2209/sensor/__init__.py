@@ -1,15 +1,15 @@
+import esphome.codegen as cg
+from esphome.components import sensor
+import esphome.config_validation as cv
 from esphome.const import (
     ENTITY_CATEGORY_DIAGNOSTIC,
-    STATE_CLASS_MEASUREMENT,
-    UNIT_PERCENT,
-    UNIT_MILLIAMP,
     ICON_PERCENT,
+    STATE_CLASS_MEASUREMENT,
+    UNIT_MILLIAMP,
+    UNIT_PERCENT,
 )
-import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import sensor
 
-from .. import tmc2209_ns, TMC2209Component, DEVICE_SCHEMA, CONF_TMC2209_ID
+from .. import CONF_TMC2209_ID, DEVICE_SCHEMA, TMC2209Component, tmc2209_ns
 
 CODEOWNERS = ["@slimcdk"]
 
