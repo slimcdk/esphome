@@ -1,9 +1,9 @@
 #pragma once
-#include "tmc2209_api_registers.h"
+#include "tmc2224_api_registers.h"
 #include "esphome/core/helpers.h"
 
 namespace esphome {
-namespace tmc2209 {
+namespace tmc2224 {
 
 enum DriverStatusEvent {
   DIAG_TRIGGERED = 0,
@@ -85,5 +85,5 @@ class EventHandler {
   std::function<void()> callback_fall_;
 };
 
-}  // namespace tmc2209
+}  // namespace tmc2224
 }  // namespace esphome

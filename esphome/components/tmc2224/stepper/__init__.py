@@ -1,31 +1,32 @@
+import esphome.codegen as cg
+from esphome.components import stepper
+import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.core import EsphomeError
-import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import stepper
+
 from .. import (
-    CONF_TMC2209_ID,
-    CONF_INDEX_PIN,
     CONF_DIR_PIN,
+    CONF_INDEX_PIN,
     CONF_STEP_PIN,
-    tmc2209_ns,
-    TMC2209Component,
-    TMC2209_BASE_CONFIG_SCHEMA,
-    register_tmc2209_base,
-    validate_tmc2209_base,
+    CONF_TMC2224_ID,
+    TMC2224_BASE_CONFIG_SCHEMA,
+    TMC2224Component,
+    register_tmc2224_base,
+    tmc2224_ns,
+    validate_tmc2224_base,
 )
 
 CODEOWNERS = ["@slimcdk"]
 
-AUTO_LOAD = ["tmc2209_hub", "tmc2209"]
+AUTO_LOAD = ["tmc2224_hub", "tmc2224"]
 
-TMC2209Stepper = tmc2209_ns.class_("TMC2209Stepper", TMC2209Component, stepper.Stepper)
-ControlMethod = tmc2209_ns.enum("ControlMethod")
+TMC2224Stepper = tmc2224_ns.class_("TMC2224Stepper", TMC2224Component, stepper.Stepper)
+ControlMethod = tmc2224_ns.enum("ControlMethod")
 
 
 DEVICE_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_TMC2209_ID): cv.use_id(TMC2209Stepper),
+        cv.GenerateID(CONF_TMC2224_ID): cv.use_id(TMC2224Stepper),
     }
 )
 
@@ -44,19 +45,19 @@ def validate_control_method_(config):
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
-            cv.GenerateID(CONF_ID): cv.declare_id(TMC2209Stepper),
+            cv.GenerateID(CONF_ID): cv.declare_id(TMC2224Stepper),
         }
-    ).extend(TMC2209_BASE_CONFIG_SCHEMA, stepper.STEPPER_SCHEMA),
+    ).extend(TMC2224_BASE_CONFIG_SCHEMA, stepper.STEPPER_SCHEMA),
     cv.has_none_or_all_keys(CONF_STEP_PIN, CONF_DIR_PIN),
     validate_control_method_,
-    validate_tmc2209_base,
+    validate_tmc2224_base,
 )
 
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
 
-    await register_tmc2209_base(var, config)
+    await register_tmc2224_base(var, config)
     await stepper.register_stepper(var, config)
 
     has_index_pin = CONF_INDEX_PIN in config

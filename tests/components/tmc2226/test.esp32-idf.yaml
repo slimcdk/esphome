@@ -1,0 +1,11 @@
+substitutions:
+  step_pin: GPIO20
+  dir_pin: GPIO21
+  index_pin: GPIO32
+  diag_pin: GPIO22
+  enn_pin: GPIO25
+
+packages:
+  uart: !include ../../test_build_components/common/uart/esp32-idf.yaml
+
+<<: !include common.yaml

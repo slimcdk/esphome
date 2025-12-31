@@ -1,20 +1,20 @@
 import logging
 
-from esphome.const import (
-    CONF_TRIGGER_ID,
-    CONF_ADDRESS,
-    CONF_ID,
-    CONF_STEP_PIN,
-    CONF_DIR_PIN,
-    CONF_DIRECTION,
-    CONF_THRESHOLD,
-    CONF_TO,
-)
-import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import tmc_hub
 from esphome import automation, pins
 from esphome.automation import maybe_simple_id
+import esphome.codegen as cg
+from esphome.components import tmc2209_hub
+import esphome.config_validation as cv
+from esphome.const import (
+    CONF_ADDRESS,
+    CONF_DIR_PIN,
+    CONF_DIRECTION,
+    CONF_ID,
+    CONF_STEP_PIN,
+    CONF_THRESHOLD,
+    CONF_TO,
+    CONF_TRIGGER_ID,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ CONF_RESTORE_TOFF = "restore_toff"
 
 tmc2209_ns = cg.esphome_ns.namespace("tmc2209")
 TMC2209API = tmc2209_ns.class_(
-    "TMC2209API", cg.Parented.template(tmc_hub.TMC2209Hub)
+    "TMC2209API", cg.Parented.template(tmc2209_hub.TMC2209Hub)
 )
 TMC2209Component = tmc2209_ns.class_("TMC2209Component", TMC2209API, cg.Component)
 
@@ -136,13 +136,12 @@ TMC2209_BASE_CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional(CONF_INCLUDE_REGISTERS, default=False): cv.boolean,
     },
-).extend(cv.COMPONENT_SCHEMA, tmc_hub.TMC2209_HUB_DEVICE_SCHEMA)
+).extend(cv.COMPONENT_SCHEMA, tmc2209_hub.TMC2209_HUB_DEVICE_SCHEMA)
 
 
 async def register_tmc2209_base(var, config):
-
     await cg.register_component(var, config)
-    await tmc_hub.register_tmc2209_hub_device(var, config)
+    await tmc2209_hub.register_tmc2209_hub_device(var, config)
 
     cg.add(var.set_address(config[CONF_ADDRESS]))
     cg.add(var.set_clk_freq(config[CONF_CLOCK_FREQUENCY]))
@@ -531,7 +530,6 @@ async def tmc2209_pwmconf_to_code(config, action_id, template_arg, args):
     ),
 )
 async def tmc2209_sync_to_code(config, action_id, template_arg, args):
-
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
 

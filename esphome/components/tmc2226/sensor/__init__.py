@@ -1,33 +1,33 @@
+import esphome.codegen as cg
+from esphome.components import sensor
+import esphome.config_validation as cv
 from esphome.const import (
     ENTITY_CATEGORY_DIAGNOSTIC,
-    STATE_CLASS_MEASUREMENT,
-    UNIT_PERCENT,
-    UNIT_MILLIAMP,
     ICON_PERCENT,
+    STATE_CLASS_MEASUREMENT,
+    UNIT_MILLIAMP,
+    UNIT_PERCENT,
 )
-import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import sensor
 
-from .. import tmc2209_ns, TMC2209Component, DEVICE_SCHEMA, CONF_TMC2209_ID
+from .. import CONF_TMC2226_ID, DEVICE_SCHEMA, TMC2226Component, tmc2226_ns
 
 CODEOWNERS = ["@slimcdk"]
 
-AUTO_LOAD = ["tmc2209"]
+AUTO_LOAD = ["tmc2226"]
 
 sensor_base = (
     cg.PollingComponent,
     sensor.Sensor,
-    cg.Parented.template(TMC2209Component),
+    cg.Parented.template(TMC2226Component),
 )
 
-StallGuardResultSensor = tmc2209_ns.class_("StallGuardResultSensor", *sensor_base)
-MotorLoadSensor = tmc2209_ns.class_("MotorLoadSensor", *sensor_base)
-ActualCurrentSensor = tmc2209_ns.class_("ActualCurrentSensor", *sensor_base)
-PWMScaleSumSensor = tmc2209_ns.class_("PWMScaleSumSensor", *sensor_base)
-PWMScaleAutoSensor = tmc2209_ns.class_("PWMScaleAutoSensor", *sensor_base)
-PWMOFSAutoSensor = tmc2209_ns.class_("PWMOFSAutoSensor", *sensor_base)
-PWMGradAutoSensor = tmc2209_ns.class_("PWMGradAutoSensor", *sensor_base)
+StallGuardResultSensor = tmc2226_ns.class_("StallGuardResultSensor", *sensor_base)
+MotorLoadSensor = tmc2226_ns.class_("MotorLoadSensor", *sensor_base)
+ActualCurrentSensor = tmc2226_ns.class_("ActualCurrentSensor", *sensor_base)
+PWMScaleSumSensor = tmc2226_ns.class_("PWMScaleSumSensor", *sensor_base)
+PWMScaleAutoSensor = tmc2226_ns.class_("PWMScaleAutoSensor", *sensor_base)
+PWMOFSAutoSensor = tmc2226_ns.class_("PWMOFSAutoSensor", *sensor_base)
+PWMGradAutoSensor = tmc2226_ns.class_("PWMGradAutoSensor", *sensor_base)
 
 
 UNIT_MILLIVOLT = "mV"
@@ -93,4 +93,4 @@ CONFIG_SCHEMA = cv.typed_schema(
 async def to_code(config):
     var = await sensor.new_sensor(config)
     await cg.register_component(var, config)
-    await cg.register_parented(var, config[CONF_TMC2209_ID])
+    await cg.register_parented(var, config[CONF_TMC2226_ID])

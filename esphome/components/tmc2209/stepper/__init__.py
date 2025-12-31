@@ -1,17 +1,18 @@
+import esphome.codegen as cg
+from esphome.components import stepper
+import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.core import EsphomeError
-import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import stepper
+
 from .. import (
-    CONF_TMC2209_ID,
-    CONF_INDEX_PIN,
     CONF_DIR_PIN,
+    CONF_INDEX_PIN,
     CONF_STEP_PIN,
-    tmc2209_ns,
-    TMC2209Component,
+    CONF_TMC2209_ID,
     TMC2209_BASE_CONFIG_SCHEMA,
+    TMC2209Component,
     register_tmc2209_base,
+    tmc2209_ns,
     validate_tmc2209_base,
 )
 
