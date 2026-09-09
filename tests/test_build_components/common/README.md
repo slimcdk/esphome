@@ -39,6 +39,11 @@ common/
 ├── modbus_server/    # Modbus server (includes uart via packages)
 │   ├── esp32-idf.yaml
 │   └── esp8266-ard.yaml
+├── canbus/           # CAN bus at 250 kbit/s (includes spi where MCP2515 is used)
+│   ├── esp32-idf.yaml
+│   ├── esp32-c3-idf.yaml
+│   ├── esp8266-ard.yaml
+│   └── rp2040-ard.yaml
 └── ble/
     ├── esp32-idf.yaml
     ├── esp32-ard.yaml
@@ -146,6 +151,16 @@ Same pin allocations as standard I2C, but with 10kHz frequency for components re
 ### Modbus (includes UART)
 Same UART pins as above, plus:
 - **flow_control_pin**: GPIO4 (all platforms)
+
+### CAN bus (250 kbit/s)
+Provides a shared `canbus_bus`. The ESP32 uses its built-in controller; platforms without one
+use an MCP2515 over the shared SPI bus, so the package pulls `spi` in as well:
+- **ESP32 IDF**: TX=GPIO25, RX=GPIO26
+- **ESP32-C3 IDF**: TX=GPIO3, RX=GPIO1
+- **ESP8266**: MCP2515, CS=GPIO15 (SPI pins from the `spi` package)
+- **RP2040**: MCP2515, CS=GPIO17 (SPI pins from the `spi` package)
+
+250 kbit/s is the MasterBus rate. Add a rate variant if a component needs a different one.
 
 ### I2S Audio
 Provides a shared `i2s_audio_bus` (clock pins only); ESP32 family only:

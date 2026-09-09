@@ -1,0 +1,16 @@
+# Common CAN bus configuration for RP2040 Arduino tests
+# The RP2040 has no CAN controller, so the bus is an MCP2515 over the shared SPI bus
+
+packages:
+  spi: !include ../spi/rp2040-ard.yaml
+
+substitutions:
+  can_cs_pin: GPIO17
+
+canbus:
+  - platform: mcp2515
+    id: canbus_bus
+    spi_id: spi_bus
+    cs_pin: ${can_cs_pin}
+    can_id: 4
+    bit_rate: 250kbps
