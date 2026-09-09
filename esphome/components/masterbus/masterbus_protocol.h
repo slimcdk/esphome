@@ -206,6 +206,24 @@ enum class MasterbusTab : uint8_t {
   MASTERBUS_TAB_CONFIGURATION = 3,
 };
 
+/// How a device asks for a field to be displayed, and what decides which ESPHome platform the
+/// field becomes. Read from property 0x02. The numbering is the vendor's own, confirmed against
+/// its example device where field N carries display type N, and against a live bus where float,
+/// time, date, checkbox and button fields all answered as listed here.
+enum class MasterbusDisplayType : uint8_t {
+  MASTERBUS_DISPLAY_TYPE_FLOAT = 1,
+  MASTERBUS_DISPLAY_TYPE_RADIO = 2,
+  MASTERBUS_DISPLAY_TYPE_DROPDOWN = 3,
+  MASTERBUS_DISPLAY_TYPE_CHECKBOX = 4,
+  MASTERBUS_DISPLAY_TYPE_BUTTON = 5,
+  MASTERBUS_DISPLAY_TYPE_TEXT = 6,
+  MASTERBUS_DISPLAY_TYPE_TIME = 7,
+  MASTERBUS_DISPLAY_TYPE_DATE = 8,
+  MASTERBUS_DISPLAY_TYPE_DEVICE_LIST = 9,
+  MASTERBUS_DISPLAY_TYPE_EVENT = 10,
+  MASTERBUS_DISPLAY_TYPE_SWITCH = 11,
+};
+
 /// The value types the vendor API distinguishes. An entity declares which one it expects, and the
 /// declaration is what turns the float on the wire into a boolean or a list index.
 enum class MasterbusValueType : uint8_t {
