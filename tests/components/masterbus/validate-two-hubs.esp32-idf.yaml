@@ -1,16 +1,8 @@
-# One microcontroller bridging two buses. The second CAN bus is declared here rather than taken
-# from a package because there is only one shared package and this file is never compiled.
+# One microcontroller bridging two buses. The ESP32 has a single CAN controller, so the second bus
+# comes from the shared secondary package, which puts an MCP2515 on SPI.
 
 packages:
-  canbus: !include ../../test_build_components/common/canbus/esp32-idf.yaml
-
-canbus:
-  - platform: esp32_can
-    id: canbus_bus_2
-    tx_pin: GPIO27
-    rx_pin: GPIO14
-    can_id: 5
-    bit_rate: 250kbps
+  canbus_secondary: !include ../../test_build_components/common/canbus_secondary/esp32-idf.yaml
 
 masterbus:
   - id: mb_port
