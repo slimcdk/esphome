@@ -1,0 +1,9 @@
+# A bus nobody has catalogued yet: turn the scan on, declare nothing, and read the log.
+
+packages:
+  canbus: !include ../../test_build_components/common/canbus/esp32-idf.yaml
+
+masterbus:
+  id: mb
+  canbus_id: canbus_bus
+  scan: true

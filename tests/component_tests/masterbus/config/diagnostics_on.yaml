@@ -1,0 +1,8 @@
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+    scan: true
+    log_all_frames: true
