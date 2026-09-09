@@ -4,7 +4,7 @@ import esphome.config_validation as cv
 from esphome.const import CONF_MAX_VALUE, CONF_MIN_VALUE, CONF_STEP
 from esphome.types import ConfigType
 
-from .. import entity_args, entity_schema, masterbus_ns, register_entity
+from .. import entity_schema, masterbus_ns, new_entity
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
@@ -29,11 +29,10 @@ CONFIG_SCHEMA = (
 
 
 async def to_code(config: ConfigType) -> None:
-    var = await number.new_number(
+    await new_entity(
+        number.new_number,
         config,
-        *await entity_args(config),
         min_value=config[CONF_MIN_VALUE],
         max_value=config[CONF_MAX_VALUE],
         step=config[CONF_STEP],
     )
-    await register_entity(var, config)
