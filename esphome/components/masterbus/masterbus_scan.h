@@ -48,7 +48,7 @@ class MasterbusScanner {
 
   /// Begin walking the devices discovered so far. Does nothing if a walk is already running.
   void start();
-  bool is_running() const { return this->phase_ != Phase::IDLE; }
+  bool is_running() const { return this->phase_ != Phase::PHASE_IDLE; }
 
   /// Drive one step. Sends at most one request per call.
   void loop();
@@ -65,19 +65,19 @@ class MasterbusScanner {
 
  protected:
   enum class Phase : uint8_t {
-    IDLE,
-    GROUP_FIELD_COUNT,
-    GROUP_NAME_ID,
-    GROUP_NAME_TEXT,
-    FIELD_NUMBER,
-    FIELD_DISPLAY_TYPE,
-    FIELD_NAME_ID,
-    FIELD_UNIT_ID,
-    FIELD_MINIMUM,
-    FIELD_MAXIMUM,
-    FIELD_STEP,
-    FIELD_NAME_TEXT,
-    FIELD_UNIT_TEXT,
+    PHASE_IDLE,
+    PHASE_GROUP_FIELD_COUNT,
+    PHASE_GROUP_NAME_ID,
+    PHASE_GROUP_NAME_TEXT,
+    PHASE_FIELD_NUMBER,
+    PHASE_FIELD_DISPLAY_TYPE,
+    PHASE_FIELD_NAME_ID,
+    PHASE_FIELD_UNIT_ID,
+    PHASE_FIELD_MINIMUM,
+    PHASE_FIELD_MAXIMUM,
+    PHASE_FIELD_STEP,
+    PHASE_FIELD_NAME_TEXT,
+    PHASE_FIELD_UNIT_TEXT,
   };
 
   void send_current_();
@@ -88,7 +88,7 @@ class MasterbusScanner {
   bool take_string_chunk_(const std::vector<uint8_t> &data, char *out, uint8_t capacity);
 
   MasterbusHub *hub_;
-  Phase phase_{Phase::IDLE};
+  Phase phase_{Phase::PHASE_IDLE};
   // A separate flag rather than a zero timestamp: the clock legitimately reads zero.
   bool waiting_{false};
   uint32_t sent_at_{0};
