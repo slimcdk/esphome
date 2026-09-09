@@ -328,4 +328,30 @@ TEST_F(MasterbusTest, ScanReassemblesAStringFromItsChunks) {
   EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
 }
 
+TEST_F(MasterbusTest, ScanPlacesStringChunksByTheirOwnHeader) {
+  // Chunks are placed where the answer says they belong, not where a counter guesses. A chunk of
+  // some other string is not ours to take: reading it as the next piece of this one produced
+  // names like "Batt%" on real equipment.
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  this->hub_->report_scan();
+
+  answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // group has no name
+  answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name string 97
+  answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});  // unit string 10
+  answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});
+  answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});
+
+  // A chunk of string 98 arrives in the middle; it belongs to nobody here.
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x62, 0x00, 0x00, 'Z', 'Z', 'Z', 'Z'});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+
+  EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
+}
+
 }  // namespace esphome::masterbus::testing
