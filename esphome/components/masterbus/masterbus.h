@@ -187,6 +187,7 @@ class MasterbusHub : public Component {
   /// rather than wait for a scheduler to fire.
   void scan_step() { this->scanner_.loop(); }
   const MasterbusScannedField &get_scanned_field() const { return this->scanner_.get_last_field(); }
+  const char *get_scanned_group_name() const { return this->scanner_.get_group_name(); }
 #endif
 
   /// Ask a device to set one of its boolean fields. Returns whether the request reached the bus.
