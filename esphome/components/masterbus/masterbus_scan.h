@@ -60,11 +60,15 @@ class MasterbusScanner {
   /// than on the wording of a log line.
   const MasterbusScannedField &get_last_field() const { return this->field_; }
   uint16_t get_field_count() const { return this->completed_; }
+  /// The name of the group being walked, for the same reason.
+  const char *get_group_name() const { return this->group_name_; }
 
  protected:
   enum class Phase : uint8_t {
     IDLE,
     GROUP_FIELD_COUNT,
+    GROUP_NAME_ID,
+    GROUP_NAME_TEXT,
     FIELD_NUMBER,
     FIELD_DISPLAY_TYPE,
     FIELD_NAME_ID,
@@ -91,8 +95,14 @@ class MasterbusScanner {
 
   uint8_t device_index_{0};
   uint16_t group_{0};
+  /// The name of the group being walked, printed once above its fields. Empty when the device
+  /// does not name the group.
+  char group_name_[SCAN_NAME_LENGTH]{};
+  bool group_reported_{false};
   uint16_t field_index_{0};
   uint16_t fields_in_group_{0};
+  /// The string being fetched, whether that is a group's name or a field's. Only one string is
+  /// ever in flight, so one slot is enough.
   uint16_t name_string_{0};
   uint16_t unit_string_{0};
   uint8_t chunk_{0};

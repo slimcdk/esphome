@@ -279,6 +279,9 @@ TEST_F(MasterbusTest, ScanReadsAFieldsMetadataAndNames) {
   this->hub_->scan_step();
   this->hub_->on_frame(frame_id(GROUP_INFORMATION_TYPE, BATTERY_1), true, false,
                        {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  // String 0 means the group has no name, which is normal and does not stop the walk.
+  this->hub_->scan_step();
+  this->hub_->on_frame(frame_id(GROUP_INFORMATION_TYPE, BATTERY_1), true, false, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
   // Index 0 is field 1.
   this->hub_->scan_step();
   this->hub_->on_frame(frame_id(GROUP_INFORMATION_TYPE, BATTERY_1), true, false, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
@@ -306,6 +309,9 @@ TEST_F(MasterbusTest, ScanReassemblesAStringFromItsChunks) {
 
   // Answer every question in turn so the walk reaches the string reads without waiting on a clock.
   answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x50, 0x00});  // group name is string 80
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x01, 0x00});
   answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
   answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
   answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name string 97
@@ -318,6 +324,7 @@ TEST_F(MasterbusTest, ScanReassemblesAStringFromItsChunks) {
   answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
   answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
 
+  EXPECT_STREQ(this->hub_->get_scanned_group_name(), "Bank");
   EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
 }
 
