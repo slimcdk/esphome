@@ -153,6 +153,25 @@ TEST_F(MasterbusTest, AnAnswerMeantForSomeoneElseSuppressesOurOwnRequest) {
   EXPECT_TRUE(this->canbus_.sent.empty());
 }
 
+TEST_F(MasterbusTest, OurOwnAnswerDoesNotSuppressTheNextRequest) {
+  // The answer to a request is a full cadence old by the time the next one is due, so treating it
+  // as a fresh reading from somebody else would halve the polling rate. Measured on a live bus:
+  // a field nobody else wanted was asked for every 20 s under a 10 s update_interval.
+  auto *voltage = add_sensor(1);
+  voltage->set_update_interval(10000);
+
+  voltage->update();
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  ASSERT_EQ(voltage->values.size(), 1u);
+  this->canbus_.clear();
+
+  voltage->update();
+
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_EQ(this->canbus_.sent[0].can_id, 0x186D56EA);
+}
+
 TEST_F(MasterbusTest, AnAnswerOlderThanTheCadenceDoesNotSuppressOurRequest) {
   // Same setup, except the cadence has already elapsed since that answer, so the value is no
   // longer fresh enough to stand in for one of our own.
