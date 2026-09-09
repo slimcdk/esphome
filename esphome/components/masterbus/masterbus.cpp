@@ -271,6 +271,19 @@ void MasterbusEntity::update() {
   this->device_->get_hub()->request_field(*this);
 }
 
+void MasterbusEntity::check_stale(uint32_t now) {
+  // Nothing to report for a field that follows its device, has never had a value, or has already
+  // been reported. A device that has gone quiet altogether reports through the device instead.
+  if (this->stale_timeout_ms_ == 0 || !this->had_value_ || this->stale_ || !this->device_->is_online())
+    return;
+  if (now - this->last_value_at_ < this->stale_timeout_ms_)
+    return;
+  ESP_LOGD(TAG, "Field %u of device 0x%06" PRIX32 " has not been answered for %" PRIu32 " ms", this->param_,
+           this->device_->get_address(), this->stale_timeout_ms_);
+  this->stale_ = true;
+  this->publish_masterbus_unavailable();
+}
+
 bool MasterbusHub::request_field(const MasterbusEntity &entity) {
   // Only monitoring requests have a known layout.
   if (entity.get_tab() != MasterbusTab::MASTERBUS_TAB_MONITORING) {
@@ -341,6 +354,12 @@ void MasterbusHub::check_availability_() {
     if (device->is_timed_out(now))
       device->mark_offline();
   }
+#ifdef MASTERBUS_ENTITY_COUNT
+  // A device that is still answering can hold a field that is not. Only the entities given a
+  // timeout of their own are asked; the rest follow their device.
+  for (auto *entity : this->entities_)
+    entity->check_stale(now);
+#endif
 }
 #endif
 
