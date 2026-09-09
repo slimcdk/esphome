@@ -45,8 +45,9 @@ class RecordingEntity : public MasterbusEntity {
   void publish_masterbus_unavailable() override { this->unavailable_count++; }
 };
 
-/// Build a monitoring answer the way a device does: type 0x08, field little-endian, float32
-/// little-endian.
+/// Build the payload of a monitoring answer the way a device does: field number little-endian,
+/// then the four value bytes little-endian. The message type belongs to the identifier, which
+/// frame_id() below builds.
 inline std::vector<uint8_t> monitoring_answer(uint16_t param, float value) {
   uint32_t bits;
   memcpy(&bits, &value, sizeof(bits));
