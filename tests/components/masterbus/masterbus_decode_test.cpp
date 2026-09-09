@@ -138,6 +138,37 @@ TEST_F(MasterbusTest, AnEntityAsksForItsOwnField) {
   EXPECT_EQ(encode_uint16(frame.data[1], frame.data[0]), 1);
 }
 
+TEST_F(MasterbusTest, AnAnswerMeantForSomeoneElseSuppressesOurOwnRequest) {
+  // A MasterBus answer is broadcast, so a bridge or a display panel asking the same device for the
+  // same field updates this entity too. Asking again straight after adds traffic and nothing else.
+  auto *voltage = add_sensor(1);
+  voltage->set_update_interval(10000);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  ASSERT_EQ(voltage->values.size(), 1u);
+  this->canbus_.clear();
+
+  voltage->update();
+
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
+TEST_F(MasterbusTest, AnAnswerOlderThanTheCadenceDoesNotSuppressOurRequest) {
+  // Same setup, except the cadence has already elapsed since that answer, so the value is no
+  // longer fresh enough to stand in for one of our own.
+  auto *voltage = add_sensor(1);
+  voltage->set_update_interval(0);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  ASSERT_EQ(voltage->values.size(), 1u);
+  this->canbus_.clear();
+
+  voltage->update();
+
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_EQ(this->canbus_.sent[0].can_id, 0x186D56EA);
+}
+
 TEST_F(MasterbusTest, PollSkipsTabsWithNoKnownRequestFormat) {
   auto *setting =
       add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);

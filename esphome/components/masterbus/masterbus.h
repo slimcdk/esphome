@@ -46,7 +46,18 @@ class MasterbusEntity : public PollingComponent {
   /// asked, so this is what makes an entity update on its own rather than on someone else's
   /// polling. Left without an update_interval a PollingComponent never runs, so an entity is
   /// silent until the user asks for a cadence.
+  ///
+  /// An answer meant for someone else counts: a MasterBus answer is broadcast, so a display panel
+  /// or a bridge asking the same device for the same field updates this entity too. When that has
+  /// already happened within the cadence there is nothing to gain by asking again, and the request
+  /// is skipped - on a busy bus that is most of them.
   void update() override;
+
+  /// Note that a value arrived, whoever asked for it.
+  void mark_value_received(uint32_t now) {
+    this->last_value_at_ = now;
+    this->had_value_ = true;
+  }
 
   /// Publish a value the hub decoded for this entity's field.
   virtual void publish_masterbus_value(const MasterbusValue &value) = 0;
@@ -68,6 +79,9 @@ class MasterbusEntity : public PollingComponent {
  protected:
   MasterbusDevice *device_;
   uint32_t stale_timeout_ms_{0};
+  uint32_t last_value_at_{0};
+  // A separate flag rather than a zero timestamp: the clock legitimately reads zero.
+  bool had_value_{false};
   uint16_t param_;
   MasterbusTab tab_;
   MasterbusValueType value_type_;
