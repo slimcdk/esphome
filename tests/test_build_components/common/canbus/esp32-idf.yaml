@@ -1,0 +1,15 @@
+# Common CAN bus configuration for ESP32 IDF tests
+# Provides a shared CAN bus on the ESP32's built-in controller
+# 250 kbit/s is the MasterBus rate; add a rate variant if another component needs a different one
+
+substitutions:
+  can_tx_pin: GPIO25
+  can_rx_pin: GPIO26
+
+canbus:
+  - platform: esp32_can
+    id: canbus_bus
+    tx_pin: ${can_tx_pin}
+    rx_pin: ${can_rx_pin}
+    can_id: 4
+    bit_rate: 250kbps
