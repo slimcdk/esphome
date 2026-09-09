@@ -243,9 +243,11 @@ void MasterbusHub::dump_config() {
 void MasterbusEntity::update() {
   const uint32_t now = App.get_loop_component_start_time();
   // Somebody else already asked recently and we heard the answer, so asking again would add
-  // traffic without adding information.
-  if (this->had_value_ && now - this->last_value_at_ < this->get_update_interval())
+  // traffic without adding information. An answer to our own request is a cadence old by now and
+  // says nothing about whether anyone else is covering this field.
+  if (this->had_value_ && !this->value_was_ours_ && now - this->last_value_at_ < this->get_update_interval())
     return;
+  this->poll_outstanding_ = true;
   this->device_->get_hub()->request_field(*this);
 }
 

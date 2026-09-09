@@ -51,12 +51,19 @@ class MasterbusEntity : public PollingComponent {
   /// or a bridge asking the same device for the same field updates this entity too. When that has
   /// already happened within the cadence there is nothing to gain by asking again, and the request
   /// is skipped - on a busy bus that is most of them.
+  ///
+  /// Our own answer does not count. It arrives one cadence after the request that caused it, so
+  /// letting it stand in for the next request would stretch every interval to twice its length
+  /// whenever nobody else is asking - exactly the case the request exists for.
   void update() override;
 
-  /// Note that a value arrived, whoever asked for it.
+  /// Note that a value arrived. Whether it answers our own request decides whether it may stand
+  /// in for the next one.
   void mark_value_received(uint32_t now) {
     this->last_value_at_ = now;
     this->had_value_ = true;
+    this->value_was_ours_ = this->poll_outstanding_;
+    this->poll_outstanding_ = false;
   }
 
   /// Publish a value the hub decoded for this entity's field.
@@ -82,6 +89,9 @@ class MasterbusEntity : public PollingComponent {
   uint32_t last_value_at_{0};
   // A separate flag rather than a zero timestamp: the clock legitimately reads zero.
   bool had_value_{false};
+  // We have asked and not yet seen an answer, so the next value to arrive is ours.
+  bool poll_outstanding_{false};
+  bool value_was_ours_{false};
   uint16_t param_;
   MasterbusTab tab_;
   MasterbusValueType value_type_;
