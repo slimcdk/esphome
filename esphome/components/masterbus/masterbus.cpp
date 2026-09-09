@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace esphome::masterbus {
@@ -22,6 +23,12 @@ static constexpr uint32_t SCAN_SETTLE_MS = 10000;
 /// How often a hub looks for devices that have gone silent. Timeouts are configured in seconds, so
 /// checking once a second is as fine grained as it needs to be.
 static constexpr uint32_t AVAILABILITY_INTERVAL_MS = 1000;
+#endif
+
+#ifdef USE_MASTERBUS_TEXT
+/// How long a string read may go unanswered before the field it belongs to is given up on and the
+/// slot handed to whoever asks next. Measured turnaround is under a millisecond.
+static constexpr uint32_t TEXT_READ_TIMEOUT_MS = 1000;
 #endif
 
 const char *masterbus_tab_to_string(MasterbusTab tab) {
@@ -221,6 +228,10 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   device->mark_seen(MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON);
 
 #ifdef MASTERBUS_ENTITY_COUNT
+#ifdef USE_MASTERBUS_TEXT
+  if (this->take_text_frame_(type, address, data))
+    return;
+#endif
   if (type != MONITORING_INFORMATION_TYPE || data.size() < MONITORING_INFORMATION_LENGTH)
     return;
   const uint16_t param = encode_uint16(data[1], data[0]);
@@ -338,6 +349,15 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
   for (auto *entity : this->entities_) {
     if (entity->get_masterbus_device() != device || entity->get_tab() != tab || entity->get_param() != param)
       continue;
+    // The answer arrived, whatever we end up able to make of it. Recording that before decoding
+    // is what clears the outstanding poll, so a field whose value needs a second read is not left
+    // waiting on an answer that already came.
+    entity->mark_value_received(App.get_loop_component_start_time());
+    if (std::isnan(value)) {
+      entity->publish_masterbus_unavailable();
+      continue;
+    }
+
     // Monitoring always arrives as a float on the wire. The entity's declared type says how to
     // read it, so a checkbox field becomes a boolean rather than a 1.0.
     MasterbusValue decoded{};
@@ -352,25 +372,113 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION:
         decoded.as_raw = static_cast<uint32_t>(value);
         break;
+#ifdef USE_MASTERBUS_TEXT
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT:
+        // A text field answers with the number of an entry in the device's string table, not with
+        // the text. Reading that entry is a second exchange, so the entity is published from
+        // finish_text_read_() rather than from here.
+        this->begin_text_read_(entity, static_cast<uint16_t>(value));
+        continue;
+#endif
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME:
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE:
+        // What the number in a time or date field counts is not decoded - see the note in
+        // masterbus_protocol.h. It is published as the device sent it, so it can be compared
+        // against what a Mastervolt display shows for the same field, which is where a decoding
+        // would have to start. Rendering it as a clock would only look right.
+        snprintf(this->value_text_, sizeof(this->value_text_), "%.6g", value);
+        decoded.as_text = this->value_text_;
+        break;
       default:
-        // Text, time and date do not fit a six byte monitoring frame; nothing here can carry them.
+        // Device identifier and eventable have no entity that declares them.
         entity->publish_masterbus_unavailable();
         continue;
-    }
-    entity->mark_value_received(App.get_loop_component_start_time());
-    if (std::isnan(value)) {
-      entity->publish_masterbus_unavailable();
-      continue;
     }
     entity->publish_masterbus_value(decoded);
   }
 }
 
 void MasterbusHub::publish_device_unavailable(const MasterbusDevice *device) {
+#ifdef USE_MASTERBUS_TEXT
+  // The device that owes us the rest of a string has stopped answering, so nothing is coming.
+  if (this->text_entity_ != nullptr && this->text_entity_->get_masterbus_device() == device)
+    this->text_entity_ = nullptr;
+#endif
   for (auto *entity : this->entities_) {
     if (entity->get_masterbus_device() == device)
       entity->publish_masterbus_unavailable();
   }
+}
+#endif
+
+#ifdef USE_MASTERBUS_TEXT
+void MasterbusHub::begin_text_read_(MasterbusEntity *entity, uint16_t string_id) {
+  if (string_id == 0) {
+    // A device answers zero for a field whose text it does not hold.
+    entity->publish_masterbus_unavailable();
+    return;
+  }
+  const uint32_t now = App.get_loop_component_start_time();
+  if (this->text_entity_ != nullptr) {
+    if (now - this->text_sent_at_ < TEXT_READ_TIMEOUT_MS) {
+      // A device answers one question at a time. Whichever field lost the race keeps the text it
+      // already has and asks again on its own cadence.
+      ESP_LOGV(TAG, "Field %u waits for the string read already in flight", entity->get_param());
+      return;
+    }
+    this->finish_text_read_(false);
+  }
+
+  this->text_entity_ = entity;
+  this->text_string_ = string_id;
+  this->text_sent_at_ = now;
+  this->value_text_[0] = '\0';
+  if (!this->request_string(entity->get_masterbus_device()->get_address(), string_id, 0)) {
+    ESP_LOGW(TAG, "Could not ask for the text of field %u", entity->get_param());
+    this->finish_text_read_(false);
+  }
+}
+
+bool MasterbusHub::take_text_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data) {
+  if (this->text_entity_ == nullptr || address != this->text_entity_->get_masterbus_device()->get_address())
+    return false;
+  if (type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE)
+    return false;
+  // The answer echoes the request header, so it says which string and which chunk it carries.
+  // Without that check a chunk of somebody else's string lands in the middle of ours.
+  if (data.size() < STRING_CHUNK_LENGTH || data[0] != STRING_REQUEST_MARKER ||
+      encode_uint16(data[2], data[1]) != this->text_string_)
+    return false;
+
+  if (type == STRING_NOT_AVAILABLE_TYPE) {
+    this->finish_text_read_(false);
+    return true;
+  }
+  if (take_string_chunk(data.data(), data.size(), this->value_text_, MASTERBUS_TEXT_LENGTH)) {
+    this->finish_text_read_(true);
+    return true;
+  }
+  // More to come. The chunk number is the answer's, not a counter of our own.
+  this->text_sent_at_ = App.get_loop_component_start_time();
+  if (!this->request_string(address, this->text_string_, data[3] + 1))
+    this->finish_text_read_(false);
+  return true;
+}
+
+void MasterbusHub::finish_text_read_(bool found) {
+  MasterbusEntity *entity = this->text_entity_;
+  this->text_entity_ = nullptr;
+  if (entity == nullptr)
+    return;
+  if (!found || this->value_text_[0] == '\0') {
+    ESP_LOGD(TAG, "Field %u has no text under string %u", entity->get_param(), this->text_string_);
+    entity->publish_masterbus_unavailable();
+    return;
+  }
+  MasterbusValue decoded{};
+  decoded.type = MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT;
+  decoded.as_text = this->value_text_;
+  entity->publish_masterbus_value(decoded);
 }
 #endif
 
