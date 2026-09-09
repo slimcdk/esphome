@@ -94,8 +94,8 @@ inline const uint8_t *monitoring_write_commit() {
 // ---------------------------------------------------------------------------
 
 /// VERIFIED: asking every device to announce itself is a frame with no payload at all. The whole
-/// message is the identifier - type 0x05 against a fixed broadcast address that belongs to no
-/// device. Captured while the vendor library opened a fresh context: it sends the request three
+/// message is the identifier - the node request type against a fixed broadcast address that
+/// belongs to no device. Captured while the vendor library opened a fresh context: it sends the request three
 /// times in a row, and every device answers within about four milliseconds.
 ///
 /// Measured over 1797 requests in a 10 minute capture: exactly eight distinct devices answered
@@ -215,9 +215,11 @@ enum class MasterbusGroupSelector : uint8_t {
 // announcement payload carries bytes past the address that have not been read - the count may
 // well be in there.
 //
-// UNKNOWN: how a value is written. The vendor API exposes one write call, for boolean fields, and
-// no frame from it has been recorded.
-// and none of their messages have been identified.
+// UNVERIFIED: what the frame that follows every write means. Its shape is recorded above; only its
+// purpose is open.
+//
+// UNKNOWN: which fields a device will accept a write for. No read-only flag has been found among
+// the properties, so a write the device ignores looks exactly like one it acted on.
 
 // ---------------------------------------------------------------------------
 // Bounds the configuration validates against
