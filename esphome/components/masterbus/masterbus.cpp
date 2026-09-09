@@ -15,9 +15,6 @@ static const char *const TAG = "masterbus";
 /// How long to listen before reporting. Announcements arrive about three times a second per
 /// device, so this is many times longer than it needs to be.
 static constexpr uint32_t SCAN_REQUEST_MS = 2000;
-/// One question per tick. A device answers in under a millisecond, so this paces the walk rather
-/// than waiting for anything.
-static constexpr uint32_t SCAN_STEP_MS = 20;
 static constexpr uint32_t SCAN_SETTLE_MS = 10000;
 #endif
 
@@ -170,6 +167,15 @@ void MasterbusHub::report_scan() {
   }
   // Walking each device for its fields is the second half of the scan, and it transmits.
   this->scanner_.start();
+  this->enable_loop();
+}
+
+void MasterbusHub::loop() {
+  this->scanner_.loop();
+  // The walk sends one question and waits for its answer, so it wants the loop for as long as it
+  // runs and not a moment longer. Before it starts and after it finishes there is nothing to do.
+  if (!this->scanner_.is_running())
+    this->disable_loop();
 }
 #endif
 
@@ -181,8 +187,6 @@ void MasterbusHub::setup() {
   this->set_interval(AVAILABILITY_INTERVAL_MS, [this]() { this->check_availability_(); });
 #endif
 #ifdef USE_MASTERBUS_SCAN
-  // The walk sends one question at a time and waits for the answer, so it needs a steady tick.
-  this->set_interval(SCAN_STEP_MS, [this]() { this->scanner_.loop(); });
   // Ask once the bus has settled after boot, then report what answered. A device that announces
   // itself unprompted is picked up either way, but asking is what makes the list complete.
   this->set_timeout(SCAN_REQUEST_MS, [this]() { this->request_nodes(); });
