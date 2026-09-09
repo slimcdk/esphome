@@ -250,9 +250,10 @@ enum class MasterbusGroupSelector : uint8_t {
 //
 // Mirrored in __init__.py, which is where they are enforced.
 
-/// The identifier gives the address 23 bits. Every device seen fits, and the vendor's own example
-/// data does not - its 28 bit BusID must be a different number from the one on the wire.
-static constexpr uint32_t MAX_DEVICE_ADDRESS = 0x007FFFFF;
+/// The identifier gives the address 23 bits, so the mask above is also the largest address there
+/// can be. Every device seen fits, and the vendor's own example data does not - its 28 bit BusID
+/// must be a different number from the one on the wire.
+static constexpr uint32_t MAX_DEVICE_ADDRESS = DEVICE_ADDRESS_MASK;
 
 /// A field number occupies two bytes of the monitoring payload.
 static constexpr uint16_t MAX_PARAM = 0xFFFF;

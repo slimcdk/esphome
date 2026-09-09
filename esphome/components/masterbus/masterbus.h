@@ -31,7 +31,7 @@ struct MasterbusValue {
   union {
     float as_float;
     bool as_boolean;
-    uint32_t as_raw;      // time, date, list index and device identifier all arrive as 32 bits
+    uint32_t as_raw;      // a list index, as the number the device numbers its options by
     const char *as_text;  // NUL terminated, used for the text, time and date types
   };
 };
@@ -126,7 +126,6 @@ class MasterbusDevice {
   uint32_t get_address() const { return this->address_; }
   MasterbusHub *get_hub() const { return this->hub_; }
 
-  MasterbusDeviceStatus get_status() const { return this->status_; }
   bool is_online() const { return this->status_ != MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE; }
 
   /// Milliseconds of silence after which the device is treated as gone, for when its own status
@@ -272,9 +271,14 @@ class MasterbusHub : public Component {
 #endif
 
   /// Put one MasterBus message on the bus. Returns whether it was accepted for transmission.
-  bool send_(uint8_t type, uint32_t address, const std::vector<uint8_t> &payload);
+  ///
+  /// The payload goes into a buffer the hub keeps rather than a fresh vector each time. The canbus
+  /// API takes a vector and copies it into a frame, so a poll would otherwise allocate and free
+  /// once per field - every few seconds, for months, on a heap shared with Wi-Fi and lwIP.
+  bool send_(uint8_t type, uint32_t address, std::initializer_list<uint8_t> payload);
 
   canbus::Canbus *canbus_;
+  std::vector<uint8_t> tx_;
 #ifdef USE_MASTERBUS_SCAN
   StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> discovered_;
   MasterbusScanner scanner_{this};

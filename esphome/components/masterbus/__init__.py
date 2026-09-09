@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from esphome import automation
@@ -144,24 +145,35 @@ def entity_schema(
     ).extend(cv.COMPONENT_SCHEMA)
 
 
-async def entity_args(config: ConfigType) -> list[Any]:
-    """The constructor arguments shared by every MasterBus entity."""
+async def new_entity(
+    creator: Callable[..., Awaitable[MockObj]], config: ConfigType, **kwargs: Any
+) -> MockObj:
+    """Build one MasterBus entity and attach it to its device.
+
+    `creator` is the platform's own `new_*` helper, which is handed the address every MasterBus
+    entity carries; `kwargs` are whatever that platform needs on top.
+    """
     device = await cg.get_variable(config[CONF_MASTERBUS_DEVICE_ID])
-    return [device, config[CONF_PARAM], config[CONF_TAB], config[CONF_VALUE_TYPE]]
-
-
-async def register_entity(var: MockObj, config: ConfigType) -> None:
-    """Claim a slot on the hub, attach the entity to its device and give it its cadence."""
+    var = await creator(
+        config,
+        device,
+        config[CONF_PARAM],
+        config[CONF_TAB],
+        config[CONF_VALUE_TYPE],
+        **kwargs,
+    )
     _request_entity_slot()
     await cg.register_component(var, config)
-    device = await cg.get_variable(config[CONF_MASTERBUS_DEVICE_ID])
     if config[CONF_VALUE_TYPE] == VALUE_TYPE_TEXT:
         # A text field answers with a string table entry number, so the hub needs the second read
         # that turns it into text. Nothing else needs it, so nothing else pays for it.
         cg.add_define("USE_MASTERBUS_TEXT")
     if (timeout := config.get(CONF_TIMEOUT)) is not None:
         cg.add(var.set_stale_timeout(timeout))
+    # Registration goes through the device rather than the hub so that a platform needs only the
+    # one id the user writes; the device knows which hub it belongs to and the hub does not.
     cg.add(device.register_entity(var))
+    return var
 
 
 async def to_code(config: ConfigType) -> None:
