@@ -1,0 +1,91 @@
+masterbus:
+  - id: mb
+    canbus_id: canbus_bus
+    log_all_frames: true
+    devices:
+      - id: mb_battery
+        device: 0x6D56EA
+        on_online:
+          - logger.log: "Battery bank answered"
+        on_offline:
+          - logger.log: "Battery bank stopped answering"
+      - id: mb_charger
+        device: 0x535E30
+        timeout: 5min
+
+sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0000
+    name: State of charge
+    unit_of_measurement: "%"
+    device_class: battery
+    accuracy_decimals: 1
+    filters:
+      - throttle: 10s
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0001
+    name: Battery voltage
+    update_interval: 5s
+    unit_of_measurement: V
+    device_class: voltage
+    accuracy_decimals: 2
+  - platform: masterbus
+    masterbus_device_id: mb_charger
+    param: 0x0012
+    name: Charger state index
+    value_type: list_option
+    icon: mdi:battery-charging
+
+binary_sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0075
+    name: Battery relay closed
+    update_interval: 5min
+
+text_sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x005E
+    name: Battery clock
+    value_type: time
+  - platform: masterbus
+    masterbus_device_id: mb_charger
+    param: 0x0018
+    name: Charger battery name
+    timeout: 30min
+
+switch:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0075
+    name: Close battery relay
+
+button:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x00A7
+    name: Stop charging
+
+number:
+  - platform: masterbus
+    masterbus_device_id: mb_charger
+    param: 0x0014
+    name: Maximum charge current
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 1
+
+select:
+  - platform: masterbus
+    masterbus_device_id: mb_charger
+    param: 0x0012
+    name: Charger phase
+    tab: configuration
+    options:
+      - Bulk
+      - Absorption
+      - Float

@@ -1,0 +1,15 @@
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+    devices:
+      - id: mb_battery
+        device: 0x6D56EA
+
+sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_inverter
+    param: 0x0001
+    name: Battery voltage

@@ -1,0 +1,3 @@
+packages:
+  canbus: !include ../../test_build_components/common/canbus/esp32-idf.yaml
+  masterbus: !include common.yaml
