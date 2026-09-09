@@ -106,15 +106,22 @@ static constexpr uint32_t NODE_REQUEST_ADDRESS = 0x500001;
 static constexpr uint8_t NODE_REQUEST_REPEATS = 3;
 
 /// VERIFIED: a device answers with its own address in the first four payload bytes, in an odd
-/// packing: the top six bits, then the low sixteen little-endian, then the two remaining bits in
-/// the low end of the fourth byte. All eight addresses in a 15216 frame sample rebuilt exactly,
-/// and they were precisely the eight devices the vendor library reports for this bus.
+/// packing: the high bits in the first byte, then the low sixteen little-endian, then the two
+/// remaining bits in the low end of the fourth byte. All eight addresses in a 15216 frame sample
+/// rebuilt exactly, and they were precisely the eight devices the vendor library reports for this
+/// bus.
+///
+/// The first byte has room for six bits but the address only has five left to give: sixteen plus
+/// two plus five is the 23 bits the identifier carries. Every announcement seen leaves that sixth
+/// bit clear, so what it means is unknown - it is masked off rather than shifted into an address
+/// no configured device could ever match.
 static constexpr uint8_t DEVICE_ANNOUNCEMENT_TYPE = 0x08;
 static constexpr uint8_t DEVICE_ANNOUNCEMENT_LENGTH = 8;
 
 inline uint32_t decode_announced_address(const uint8_t *data) {
-  return (static_cast<uint32_t>(data[0]) << 18) | (static_cast<uint32_t>(data[3] & 0x03) << 16) |
-         (static_cast<uint32_t>(data[2]) << 8) | static_cast<uint32_t>(data[1]);
+  const uint32_t address = (static_cast<uint32_t>(data[0]) << 18) | (static_cast<uint32_t>(data[3] & 0x03) << 16) |
+                           (static_cast<uint32_t>(data[2]) << 8) | static_cast<uint32_t>(data[1]);
+  return address & DEVICE_ADDRESS_MASK;
 }
 
 // ---------------------------------------------------------------------------

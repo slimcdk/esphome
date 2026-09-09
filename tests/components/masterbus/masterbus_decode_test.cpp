@@ -255,6 +255,19 @@ TEST_F(MasterbusTest, ScanFindsDevicesNobodyDeclared) {
   EXPECT_EQ(found[0].address, 0x535E30u);
 }
 
+TEST_F(MasterbusTest, AnnouncementKeepsToTheAddressBitsTheIdentifierCarries) {
+  // The first payload byte has room for six bits, but sixteen plus two plus five is the 23 bits
+  // the identifier gives the address. Shifting a sixth bit in would put the device above the
+  // range any configuration can declare, so it could never be matched again.
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x3B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+
+  const auto &found = this->hub_->get_discovered_devices();
+  ASSERT_EQ(found.size(), 1u);
+  EXPECT_LE(found[0].address, MAX_DEVICE_ADDRESS);
+  EXPECT_EQ(found[0].address, BATTERY_1);
+}
+
 TEST_F(MasterbusTest, RepeatedAnnouncementsCountRatherThanDuplicate) {
   for (int i = 0; i < 3; i++) {
     this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
@@ -275,7 +288,8 @@ TEST_F(MasterbusTest, ReportingTheScanTransmitsNothing) {
 }
 
 TEST_F(MasterbusTest, NodeRequestIsAnEmptyFrameToTheBroadcastAddress) {
-  // The whole message is the identifier: type 0x05 against an address that belongs to no device.
+  // The whole message is the identifier: the node request type against an address that belongs to
+  // no device.
   // Captured from the vendor library, which repeats it so a device that missed one still answers.
   EXPECT_TRUE(this->hub_->request_nodes());
 
