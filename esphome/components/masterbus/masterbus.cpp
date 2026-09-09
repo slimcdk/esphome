@@ -100,15 +100,16 @@ bool MasterbusDevice::is_timed_out(uint32_t now) const {
   return this->last_seen_ != 0 && now - this->last_seen_ >= this->timeout_ms_;
 }
 
-bool MasterbusHub::send_(uint8_t type, uint32_t address, const std::vector<uint8_t> &payload) {
+bool MasterbusHub::send_(uint8_t type, uint32_t address, std::initializer_list<uint8_t> payload) {
+  this->tx_.assign(payload);
   const uint32_t can_id = (static_cast<uint32_t>(type) << MESSAGE_TYPE_SHIFT) | address;
-  return this->canbus_->send_data(can_id, true, false, payload) == canbus::ERROR_OK;
+  return this->canbus_->send_data(can_id, true, false, this->tx_) == canbus::ERROR_OK;
 }
 
 bool MasterbusHub::request_string(uint32_t address, uint16_t string_id, uint8_t chunk) {
-  const std::vector<uint8_t> payload{STRING_REQUEST_MARKER, static_cast<uint8_t>(string_id & 0xFF),
-                                     static_cast<uint8_t>(string_id >> 8), chunk};
-  return this->send_(STRING_REQUEST_TYPE, address, payload);
+  return this->send_(
+      STRING_REQUEST_TYPE, address,
+      {STRING_REQUEST_MARKER, static_cast<uint8_t>(string_id & 0xFF), static_cast<uint8_t>(string_id >> 8), chunk});
 }
 
 #ifdef USE_MASTERBUS_SCAN
@@ -141,22 +142,22 @@ bool MasterbusHub::request_nodes() {
 }
 
 bool MasterbusHub::request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group) {
-  const std::vector<uint8_t> payload{static_cast<uint8_t>(selector), static_cast<uint8_t>(group & 0xFF),
-                                     static_cast<uint8_t>(group >> 8)};
-  return this->send_(GROUP_REQUEST_TYPE, address, payload);
+  return this->send_(
+      GROUP_REQUEST_TYPE, address,
+      {static_cast<uint8_t>(selector), static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8)});
 }
 
 bool MasterbusHub::request_group_index(uint32_t address, uint16_t group, uint16_t index) {
-  const std::vector<uint8_t> payload{
-      static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX),
-      static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8), static_cast<uint8_t>(index)};
-  return this->send_(GROUP_REQUEST_TYPE, address, payload);
+  return this->send_(
+      GROUP_REQUEST_TYPE, address,
+      {static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX),
+       static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8), static_cast<uint8_t>(index)});
 }
 
 bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property, uint16_t param) {
-  const std::vector<uint8_t> payload{static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF),
-                                     static_cast<uint8_t>(param >> 8)};
-  return this->send_(PROPERTY_REQUEST_TYPE, address, payload);
+  return this->send_(
+      PROPERTY_REQUEST_TYPE, address,
+      {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
 void MasterbusHub::report_scan() {
@@ -187,6 +188,8 @@ void MasterbusHub::loop() {
 #endif
 
 void MasterbusHub::setup() {
+  // The transmit buffer never grows after this: a MasterBus payload is at most a full CAN frame.
+  this->tx_.reserve(canbus::CAN_MAX_DATA_LENGTH);
   this->canbus_->add_callback([this](uint32_t can_id, bool extended_id, bool rtr, const std::vector<uint8_t> &data) {
     this->on_frame(can_id, extended_id, rtr, data);
   });
@@ -293,8 +296,8 @@ bool MasterbusHub::request_field(const MasterbusEntity &entity) {
   }
   const uint16_t param = entity.get_param();
   ESP_LOGV(TAG, "Asking device 0x%06" PRIX32 " for field %u", entity.get_masterbus_device()->get_address(), param);
-  const std::vector<uint8_t> payload{static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)};
-  return this->send_(MONITORING_REQUEST_TYPE, entity.get_masterbus_device()->get_address(), payload);
+  return this->send_(MONITORING_REQUEST_TYPE, entity.get_masterbus_device()->get_address(),
+                     {static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
 bool MasterbusHub::write_boolean(const MasterbusEntity &entity, bool state) {
@@ -314,10 +317,10 @@ bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
 
   uint32_t bits;
   memcpy(&bits, &value, sizeof(bits));
-  const std::vector<uint8_t> payload{static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8),
-                                     static_cast<uint8_t>(bits & 0xFF),  static_cast<uint8_t>(bits >> 8),
-                                     static_cast<uint8_t>(bits >> 16),   static_cast<uint8_t>(bits >> 24)};
-  if (!this->send_(MONITORING_REQUEST_TYPE, address, payload)) {
+  if (!this->send_(
+          MONITORING_REQUEST_TYPE, address,
+          {static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8), static_cast<uint8_t>(bits & 0xFF),
+           static_cast<uint8_t>(bits >> 8), static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)})) {
     ESP_LOGW(TAG, "Could not put the write for field %u on the bus", param);
     return false;
   }
@@ -326,13 +329,9 @@ bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
   // number. See masterbus_protocol.h: it is sent because the library sends it.
   const uint16_t commit_param = static_cast<uint16_t>(param + 1);
   const uint8_t *commit = monitoring_write_commit();
-  const std::vector<uint8_t> commit_payload{static_cast<uint8_t>(commit_param & 0xFF),
-                                            static_cast<uint8_t>(commit_param >> 8),
-                                            commit[0],
-                                            commit[1],
-                                            commit[2],
-                                            commit[3]};
-  if (!this->send_(MONITORING_REQUEST_TYPE, address, commit_payload)) {
+  if (!this->send_(MONITORING_REQUEST_TYPE, address,
+                   {static_cast<uint8_t>(commit_param & 0xFF), static_cast<uint8_t>(commit_param >> 8), commit[0],
+                    commit[1], commit[2], commit[3]})) {
     ESP_LOGW(TAG, "Wrote field %u but could not send the frame that follows it", param);
     return false;
   }
