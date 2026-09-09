@@ -300,7 +300,8 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       // leaving "Batt" followed by whatever a stray chunk held.
       if (data[0] != STRING_REQUEST_MARKER || value16(1) != wanted)
         return false;
-      const bool ended = this->take_string_chunk_(data, out, capacity);
+      const bool ended = take_string_chunk(data.data(), data.size(), out, capacity);
+      this->chunk_ = data[3] + 1;
       this->waiting_ = false;
       if (ended)
         this->advance_(false);  // the string is complete, move on the same way a refusal would
@@ -369,24 +370,6 @@ void MasterbusScanner::report_field_() {
   if (this->field_.has_limits && this->field_.maximum > this->field_.minimum) {
     ESP_LOGI(TAG, "    # range %.4g to %.4g step %.4g", this->field_.minimum, this->field_.maximum, this->field_.step);
   }
-}
-
-bool MasterbusScanner::take_string_chunk_(const std::vector<uint8_t> &data, char *out, uint8_t capacity) {
-  // The header is four bytes; what follows is up to four bytes of ASCII, NUL terminated when the
-  // string ends inside this chunk. Where the text belongs is the chunk number the answer carries.
-  bool ended = data.size() < STRING_CHUNK_LENGTH + 4;
-  size_t at = static_cast<size_t>(data[3]) * 4;
-  for (size_t i = STRING_CHUNK_LENGTH; i < data.size(); i++) {
-    if (data[i] == 0) {
-      ended = true;
-      break;
-    }
-    if (at < static_cast<size_t>(capacity) - 1)
-      out[at++] = static_cast<char>(data[i]);
-  }
-  out[std::min<size_t>(at, capacity - 1)] = '\0';
-  this->chunk_ = data[3] + 1;
-  return ended;
 }
 
 }  // namespace esphome::masterbus

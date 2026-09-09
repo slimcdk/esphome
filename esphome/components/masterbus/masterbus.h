@@ -181,6 +181,10 @@ class MasterbusHub : public Component {
   /// Ask a device for one field's current value. Returns whether the request reached the bus.
   bool request_field(const MasterbusEntity &entity);
 
+  /// Ask a device for one chunk of one entry in its string table. Both the scan and a text field's
+  /// value need it: neither carries text of its own, only the id of an entry in that table.
+  bool request_string(uint32_t address, uint16_t string_id, uint8_t chunk);
+
 #ifdef USE_MASTERBUS_SCAN
   /// Every device heard announcing itself since boot, in the order they were first heard.
   const StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> &get_discovered_devices() const {
@@ -191,12 +195,10 @@ class MasterbusHub : public Component {
   /// Write the discovered devices out as configuration the user can paste.
   void report_scan();
 
-  /// The three questions a scan asks about a device's structure, and the string table read that
-  /// turns the ids they return into text.
+  /// The three questions a scan asks about a device's structure.
   bool request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group);
   bool request_group_index(uint32_t address, uint16_t group, uint16_t index);
   bool request_property(uint32_t address, MasterbusProperty property, uint16_t param);
-  bool request_string(uint32_t address, uint16_t string_id, uint8_t chunk);
 
   /// Drive the field walk one step. Called from a tick; public so a test can step it deliberately
   /// rather than wait for a scheduler to fire.

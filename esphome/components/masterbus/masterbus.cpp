@@ -93,6 +93,17 @@ bool MasterbusDevice::is_timed_out(uint32_t now) const {
   return this->last_seen_ != 0 && now - this->last_seen_ >= this->timeout_ms_;
 }
 
+bool MasterbusHub::send_(uint8_t type, uint32_t address, const std::vector<uint8_t> &payload) {
+  const uint32_t can_id = (static_cast<uint32_t>(type) << MESSAGE_TYPE_SHIFT) | address;
+  return this->canbus_->send_data(can_id, true, false, payload) == canbus::ERROR_OK;
+}
+
+bool MasterbusHub::request_string(uint32_t address, uint16_t string_id, uint8_t chunk) {
+  const std::vector<uint8_t> payload{STRING_REQUEST_MARKER, static_cast<uint8_t>(string_id & 0xFF),
+                                     static_cast<uint8_t>(string_id >> 8), chunk};
+  return this->send_(STRING_REQUEST_TYPE, address, payload);
+}
+
 #ifdef USE_MASTERBUS_SCAN
 void MasterbusHub::record_announcement_(uint32_t address) {
   for (auto &found : this->discovered_) {
@@ -108,11 +119,6 @@ void MasterbusHub::record_announcement_(uint32_t address) {
   }
   ESP_LOGI(TAG, "Scan found device 0x%06" PRIX32, address);
   this->discovered_.push_back({address, 1});
-}
-
-bool MasterbusHub::send_(uint8_t type, uint32_t address, const std::vector<uint8_t> &payload) {
-  const uint32_t can_id = (static_cast<uint32_t>(type) << MESSAGE_TYPE_SHIFT) | address;
-  return this->canbus_->send_data(can_id, true, false, payload) == canbus::ERROR_OK;
 }
 
 bool MasterbusHub::request_nodes() {
@@ -144,12 +150,6 @@ bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property
   const std::vector<uint8_t> payload{static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF),
                                      static_cast<uint8_t>(param >> 8)};
   return this->send_(PROPERTY_REQUEST_TYPE, address, payload);
-}
-
-bool MasterbusHub::request_string(uint32_t address, uint16_t string_id, uint8_t chunk) {
-  const std::vector<uint8_t> payload{STRING_REQUEST_MARKER, static_cast<uint8_t>(string_id & 0xFF),
-                                     static_cast<uint8_t>(string_id >> 8), chunk};
-  return this->send_(STRING_REQUEST_TYPE, address, payload);
 }
 
 void MasterbusHub::report_scan() {
@@ -270,9 +270,7 @@ bool MasterbusHub::request_field(const MasterbusEntity &entity) {
   const uint16_t param = entity.get_param();
   ESP_LOGV(TAG, "Asking device 0x%06" PRIX32 " for field %u", entity.get_masterbus_device()->get_address(), param);
   const std::vector<uint8_t> payload{static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)};
-  const uint32_t can_id = (static_cast<uint32_t>(MONITORING_REQUEST_TYPE) << MESSAGE_TYPE_SHIFT) |
-                          entity.get_masterbus_device()->get_address();
-  return this->canbus_->send_data(can_id, true, false, payload) == canbus::ERROR_OK;
+  return this->send_(MONITORING_REQUEST_TYPE, entity.get_masterbus_device()->get_address(), payload);
 }
 
 bool MasterbusHub::write_boolean(const MasterbusEntity &entity, bool state) {
@@ -290,13 +288,12 @@ bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
   const uint32_t address = entity.get_masterbus_device()->get_address();
   ESP_LOGD(TAG, "Writing %.4g to field %u of device 0x%06" PRIX32, value, param, address);
 
-  const uint32_t can_id = (static_cast<uint32_t>(MONITORING_REQUEST_TYPE) << MESSAGE_TYPE_SHIFT) | address;
   uint32_t bits;
   memcpy(&bits, &value, sizeof(bits));
   const std::vector<uint8_t> payload{static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8),
                                      static_cast<uint8_t>(bits & 0xFF),  static_cast<uint8_t>(bits >> 8),
                                      static_cast<uint8_t>(bits >> 16),   static_cast<uint8_t>(bits >> 24)};
-  if (this->canbus_->send_data(can_id, true, false, payload) != canbus::ERROR_OK) {
+  if (!this->send_(MONITORING_REQUEST_TYPE, address, payload)) {
     ESP_LOGW(TAG, "Could not put the write for field %u on the bus", param);
     return false;
   }
@@ -311,7 +308,7 @@ bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
                                             commit[1],
                                             commit[2],
                                             commit[3]};
-  if (this->canbus_->send_data(can_id, true, false, commit_payload) != canbus::ERROR_OK) {
+  if (!this->send_(MONITORING_REQUEST_TYPE, address, commit_payload)) {
     ESP_LOGW(TAG, "Wrote field %u but could not send the frame that follows it", param);
     return false;
   }

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <cinttypes>
+#include <cstddef>
 
 namespace esphome::masterbus {
 
@@ -142,6 +144,27 @@ static constexpr uint8_t STRING_INFORMATION_TYPE = 0x0C;
 static constexpr uint8_t STRING_NOT_AVAILABLE_TYPE = 0x0D;
 static constexpr uint8_t STRING_REQUEST_MARKER = 0x30;
 static constexpr uint8_t STRING_CHUNK_LENGTH = 4;
+
+/// Copy one chunk of a string answer into place and say whether the string ended there. Where the
+/// text belongs is the chunk number the answer carries rather than a counter of our own: believing
+/// our own once put the second half of "Battery" over the first.
+///
+/// `data` is a whole string answer, header included. `out` is always left NUL terminated.
+inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8_t capacity) {
+  // A short answer is the last one: the device sends four bytes of text until it runs out.
+  bool ended = size < STRING_CHUNK_LENGTH + 4;
+  size_t at = static_cast<size_t>(data[3]) * 4;
+  for (size_t i = STRING_CHUNK_LENGTH; i < size; i++) {
+    if (data[i] == 0) {
+      ended = true;
+      break;
+    }
+    if (at < static_cast<size_t>(capacity) - 1)
+      out[at++] = static_cast<char>(data[i]);
+  }
+  out[std::min<size_t>(at, capacity - 1)] = '\0';
+  return ended;
+}
 
 // ---------------------------------------------------------------------------
 // Field properties
