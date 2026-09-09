@@ -285,13 +285,21 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
         return false;
       char *out = this->field_.unit;
       uint8_t capacity = SCAN_UNIT_LENGTH;
+      uint16_t wanted = this->unit_string_;
       if (this->phase_ == Phase::GROUP_NAME_TEXT) {
         out = this->group_name_;
         capacity = SCAN_NAME_LENGTH;
+        wanted = this->name_string_;
       } else if (this->phase_ == Phase::FIELD_NAME_TEXT) {
         out = this->field_.name;
         capacity = SCAN_NAME_LENGTH;
+        wanted = this->name_string_;
       }
+      // The answer echoes the request header, so it says which string and which chunk it carries.
+      // Believing our own counter instead once put the second half of "Battery" over the first,
+      // leaving "Batt" followed by whatever a stray chunk held.
+      if (data[0] != STRING_REQUEST_MARKER || value16(1) != wanted)
+        return false;
       const bool ended = this->take_string_chunk_(data, out, capacity);
       this->waiting_ = false;
       if (ended)
@@ -365,9 +373,9 @@ void MasterbusScanner::report_field_() {
 
 bool MasterbusScanner::take_string_chunk_(const std::vector<uint8_t> &data, char *out, uint8_t capacity) {
   // The header is four bytes; what follows is up to four bytes of ASCII, NUL terminated when the
-  // string ends inside this chunk.
+  // string ends inside this chunk. Where the text belongs is the chunk number the answer carries.
   bool ended = data.size() < STRING_CHUNK_LENGTH + 4;
-  size_t at = static_cast<size_t>(this->chunk_) * 4;
+  size_t at = static_cast<size_t>(data[3]) * 4;
   for (size_t i = STRING_CHUNK_LENGTH; i < data.size(); i++) {
     if (data[i] == 0) {
       ended = true;
@@ -377,7 +385,7 @@ bool MasterbusScanner::take_string_chunk_(const std::vector<uint8_t> &data, char
       out[at++] = static_cast<char>(data[i]);
   }
   out[std::min<size_t>(at, capacity - 1)] = '\0';
-  this->chunk_++;
+  this->chunk_ = data[3] + 1;
   return ended;
 }
 
