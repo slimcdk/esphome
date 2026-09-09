@@ -51,13 +51,15 @@ TABS = {
     "configuration": MasterbusTab.MASTERBUS_TAB_CONFIGURATION,
 }
 
+VALUE_TYPE_TEXT = "text"
+
 VALUE_TYPES = {
     "float": MasterbusValueType.MASTERBUS_VALUE_TYPE_FLOAT,
     "date": MasterbusValueType.MASTERBUS_VALUE_TYPE_DATE,
     "time": MasterbusValueType.MASTERBUS_VALUE_TYPE_TIME,
     "boolean": MasterbusValueType.MASTERBUS_VALUE_TYPE_BOOLEAN,
     "list_option": MasterbusValueType.MASTERBUS_VALUE_TYPE_LIST_OPTION,
-    "text": MasterbusValueType.MASTERBUS_VALUE_TYPE_TEXT,
+    VALUE_TYPE_TEXT: MasterbusValueType.MASTERBUS_VALUE_TYPE_TEXT,
     "device_id": MasterbusValueType.MASTERBUS_VALUE_TYPE_DEVICE_ID,
     "eventable": MasterbusValueType.MASTERBUS_VALUE_TYPE_EVENTABLE,
 }
@@ -153,6 +155,10 @@ async def register_entity(var: MockObj, config: ConfigType) -> None:
     _request_entity_slot()
     await cg.register_component(var, config)
     device = await cg.get_variable(config[CONF_MASTERBUS_DEVICE_ID])
+    if config[CONF_VALUE_TYPE] == VALUE_TYPE_TEXT:
+        # A text field answers with a string table entry number, so the hub needs the second read
+        # that turns it into text. Nothing else needs it, so nothing else pays for it.
+        cg.add_define("USE_MASTERBUS_TEXT")
     if (timeout := config.get(CONF_TIMEOUT)) is not None:
         cg.add(var.set_stale_timeout(timeout))
     cg.add(device.register_entity(var))
