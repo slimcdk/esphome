@@ -26,6 +26,12 @@ class MasterbusTest : public ::testing::Test {
     return raw;
   }
 
+  /// Let the walk send its next question, then hand it the answer.
+  void answer(uint8_t type, const std::vector<uint8_t> &data) {
+    this->hub_->scan_step();
+    this->hub_->on_frame(frame_id(type, BATTERY_1), true, false, data);
+  }
+
   RecordingCanbus canbus_;
   std::unique_ptr<MasterbusHub> hub_;
   std::unique_ptr<MasterbusDevice> battery_;
@@ -213,6 +219,75 @@ TEST_F(MasterbusTest, ScanCollectsWhatTheNodeRequestBringsBack) {
   ASSERT_EQ(found.size(), 2u);
   EXPECT_EQ(found[0].address, BATTERY_1);
   EXPECT_EQ(found[1].address, 0x535E30u);
+}
+
+// The scan's second half: walking a device for its fields. Frames below are shaped the way the
+// bus shapes them, with the values the vendor library reported for the same field.
+TEST_F(MasterbusTest, ScanAsksForAGroupsFieldCount) {
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  this->canbus_.clear();
+
+  this->hub_->report_scan();
+  this->hub_->scan_step();
+
+  ASSERT_FALSE(this->canbus_.sent.empty());
+  const auto &frame = this->canbus_.sent.back();
+  EXPECT_EQ(frame.can_id >> MESSAGE_TYPE_SHIFT, GROUP_REQUEST_TYPE);
+  EXPECT_EQ(frame.can_id & DEVICE_ADDRESS_MASK, BATTERY_1);
+  ASSERT_EQ(frame.can_data_length_code, 3);
+  EXPECT_EQ(frame.data[0], static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT));
+}
+
+TEST_F(MasterbusTest, ScanReadsAFieldsMetadataAndNames) {
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  this->hub_->report_scan();
+
+  // Group 0 holds seven fields - the count arrives as a float, oddly enough.
+  this->hub_->scan_step();
+  this->hub_->on_frame(frame_id(GROUP_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  // Index 0 is field 1.
+  this->hub_->scan_step();
+  this->hub_->on_frame(frame_id(GROUP_INFORMATION_TYPE, BATTERY_1), true, false, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  // Display type 1, float - so a sensor.
+  this->hub_->scan_step();
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  // Name string 97, unit string 10.
+  this->hub_->scan_step();
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});
+  this->hub_->scan_step();
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});
+
+  const auto &field = this->hub_->get_scanned_field();
+  EXPECT_EQ(field.param, 1);
+  EXPECT_EQ(field.display_type, MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_FLOAT);
+}
+
+TEST_F(MasterbusTest, ScanReassemblesAStringFromItsChunks) {
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  this->hub_->report_scan();
+
+  // Answer every question in turn so the walk reaches the string reads without waiting on a clock.
+  answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name string 97
+  answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});  // unit string 10
+  answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});
+  answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});
+
+  // "Battery" arrives as "Batt" then "ery" with its terminator.
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+
+  EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
 }
 
 }  // namespace esphome::masterbus::testing
