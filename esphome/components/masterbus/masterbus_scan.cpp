@@ -264,12 +264,13 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       if (type != PROPERTY_INFORMATION_TYPE || data.size() < 8)
         return false;
       const float value = value32(4);
-      if (this->phase_ == Phase::PHASE_FIELD_MINIMUM)
+      if (this->phase_ == Phase::PHASE_FIELD_MINIMUM) {
         this->field_.minimum = value;
-      else if (this->phase_ == Phase::PHASE_FIELD_MAXIMUM)
+      } else if (this->phase_ == Phase::PHASE_FIELD_MAXIMUM) {
         this->field_.maximum = value;
-      else
+      } else {
         this->field_.step = value;
+      }
       this->field_.has_limits = true;
       break;
     }
