@@ -166,6 +166,11 @@ class MasterbusHub : public Component {
 
   void setup() override;
   void dump_config() override;
+#ifdef USE_MASTERBUS_SCAN
+  /// Drives the field walk. Only a scan needs a loop, and only while it is walking - the hub
+  /// disables its own once there is nothing left to ask.
+  void loop() override;
+#endif
 
   canbus::Canbus *get_canbus() const { return this->canbus_; }
 
