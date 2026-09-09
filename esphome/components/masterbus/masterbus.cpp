@@ -267,13 +267,46 @@ bool MasterbusHub::request_field(const MasterbusEntity &entity) {
 }
 
 bool MasterbusHub::write_boolean(const MasterbusEntity &entity, bool state) {
-  // The vendor API exposes exactly one write call, for boolean fields, but no frame it produces
-  // has been recorded yet. Until one is, refuse loudly rather than put a guess on a bus that
-  // controls battery relays.
-  ESP_LOGW(TAG, "Cannot set field %u of device 0x%06" PRIX32 " to %s: the MasterBus write frame is not known yet",
-           entity.get_param(), entity.get_masterbus_device()->get_address(),
-           state ? LOG_STR_LITERAL("on") : LOG_STR_LITERAL("off"));
-  return false;
+  return this->write_value(entity, state ? 1.0f : 0.0f);
+}
+
+bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
+  // Only monitoring fields have a known write layout, the same as for reading them.
+  if (entity.get_tab() != MasterbusTab::MASTERBUS_TAB_MONITORING) {
+    ESP_LOGW(TAG, "Cannot write field %u on the %s tab: no write format is known for it", entity.get_param(),
+             masterbus_tab_to_string(entity.get_tab()));
+    return false;
+  }
+  const uint16_t param = entity.get_param();
+  const uint32_t address = entity.get_masterbus_device()->get_address();
+  ESP_LOGD(TAG, "Writing %.4g to field %u of device 0x%06" PRIX32, value, param, address);
+
+  const uint32_t can_id = (static_cast<uint32_t>(MONITORING_REQUEST_TYPE) << MESSAGE_TYPE_SHIFT) | address;
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  const std::vector<uint8_t> payload{static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8),
+                                     static_cast<uint8_t>(bits & 0xFF),  static_cast<uint8_t>(bits >> 8),
+                                     static_cast<uint8_t>(bits >> 16),   static_cast<uint8_t>(bits >> 24)};
+  if (this->canbus_->send_data(can_id, true, false, payload) != canbus::ERROR_OK) {
+    ESP_LOGW(TAG, "Could not put the write for field %u on the bus", param);
+    return false;
+  }
+
+  // The vendor library always follows a write with this second frame, addressed to the next field
+  // number. See masterbus_protocol.h: it is sent because the library sends it.
+  const uint16_t commit_param = static_cast<uint16_t>(param + 1);
+  const uint8_t *commit = monitoring_write_commit();
+  const std::vector<uint8_t> commit_payload{static_cast<uint8_t>(commit_param & 0xFF),
+                                            static_cast<uint8_t>(commit_param >> 8),
+                                            commit[0],
+                                            commit[1],
+                                            commit[2],
+                                            commit[3]};
+  if (this->canbus_->send_data(can_id, true, false, commit_payload) != canbus::ERROR_OK) {
+    ESP_LOGW(TAG, "Wrote field %u but could not send the frame that follows it", param);
+    return false;
+  }
+  return true;
 }
 
 #ifdef MASTERBUS_DEVICE_COUNT
