@@ -15,6 +15,9 @@ static const char *const TAG = "masterbus";
 /// How long to listen before reporting. Announcements arrive about three times a second per
 /// device, so this is many times longer than it needs to be.
 static constexpr uint32_t SCAN_REQUEST_MS = 2000;
+/// One question per tick. A device answers in under a millisecond, so this paces the walk rather
+/// than waiting for anything.
+static constexpr uint32_t SCAN_STEP_MS = 20;
 static constexpr uint32_t SCAN_SETTLE_MS = 10000;
 #endif
 
@@ -110,17 +113,46 @@ void MasterbusHub::record_announcement_(uint32_t address) {
   this->discovered_.push_back({address, 1});
 }
 
+bool MasterbusHub::send_(uint8_t type, uint32_t address, const std::vector<uint8_t> &payload) {
+  const uint32_t can_id = (static_cast<uint32_t>(type) << MESSAGE_TYPE_SHIFT) | address;
+  return this->canbus_->send_data(can_id, true, false, payload) == canbus::ERROR_OK;
+}
+
 bool MasterbusHub::request_nodes() {
-  const uint32_t can_id = (static_cast<uint32_t>(NODE_REQUEST_TYPE) << MESSAGE_TYPE_SHIFT) | NODE_REQUEST_ADDRESS;
   bool sent = false;
   // Repeated the way the vendor library repeats it, so a device that missed one still answers.
   for (uint8_t i = 0; i < NODE_REQUEST_REPEATS; i++)
-    sent |= this->canbus_->send_data(can_id, true, false, {}) == canbus::ERROR_OK;
+    sent |= this->send_(NODE_REQUEST_TYPE, NODE_REQUEST_ADDRESS, {});
   if (!sent) {
     ESP_LOGW(TAG, "Could not put the node request on the bus. Scanning falls back to listening for "
                   "devices that announce themselves unprompted.");
   }
   return sent;
+}
+
+bool MasterbusHub::request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group) {
+  const std::vector<uint8_t> payload{static_cast<uint8_t>(selector), static_cast<uint8_t>(group & 0xFF),
+                                     static_cast<uint8_t>(group >> 8)};
+  return this->send_(GROUP_REQUEST_TYPE, address, payload);
+}
+
+bool MasterbusHub::request_group_index(uint32_t address, uint16_t group, uint16_t index) {
+  const std::vector<uint8_t> payload{
+      static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX),
+      static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8), static_cast<uint8_t>(index)};
+  return this->send_(GROUP_REQUEST_TYPE, address, payload);
+}
+
+bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property, uint16_t param) {
+  const std::vector<uint8_t> payload{static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF),
+                                     static_cast<uint8_t>(param >> 8)};
+  return this->send_(PROPERTY_REQUEST_TYPE, address, payload);
+}
+
+bool MasterbusHub::request_string(uint32_t address, uint16_t string_id, uint8_t chunk) {
+  const std::vector<uint8_t> payload{STRING_REQUEST_MARKER, static_cast<uint8_t>(string_id & 0xFF),
+                                     static_cast<uint8_t>(string_id >> 8), chunk};
+  return this->send_(STRING_REQUEST_TYPE, address, payload);
 }
 
 void MasterbusHub::report_scan() {
@@ -136,7 +168,8 @@ void MasterbusHub::report_scan() {
     ESP_LOGI(TAG, "    - id: mb_device_%06" PRIX32, found.address);
     ESP_LOGI(TAG, "      device: 0x%06" PRIX32, found.address);
   }
-  ESP_LOGI(TAG, "Field numbers are not listed: reading a device's field list is not implemented yet.");
+  // Walking each device for its fields is the second half of the scan, and it transmits.
+  this->scanner_.start();
 }
 #endif
 
@@ -148,6 +181,8 @@ void MasterbusHub::setup() {
   this->set_interval(AVAILABILITY_INTERVAL_MS, [this]() { this->check_availability_(); });
 #endif
 #ifdef USE_MASTERBUS_SCAN
+  // The walk sends one question at a time and waits for the answer, so it needs a steady tick.
+  this->set_interval(SCAN_STEP_MS, [this]() { this->scanner_.loop(); });
   // Ask once the bus has settled after boot, then report what answered. A device that announces
   // itself unprompted is picked up either way, but asking is what makes the list complete.
   this->set_timeout(SCAN_REQUEST_MS, [this]() { this->request_nodes(); });
@@ -166,8 +201,10 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
     return;
   const uint32_t address = can_id & DEVICE_ADDRESS_MASK;
 #ifdef USE_MASTERBUS_SCAN
-  if ((can_id >> MESSAGE_TYPE_SHIFT) == DEVICE_ANNOUNCEMENT_TYPE && data.size() >= DEVICE_ANNOUNCEMENT_LENGTH)
+  const uint8_t type = can_id >> MESSAGE_TYPE_SHIFT;
+  if (type == DEVICE_ANNOUNCEMENT_TYPE && data.size() >= DEVICE_ANNOUNCEMENT_LENGTH)
     this->record_announcement_(decode_announced_address(data.data()));
+  this->scanner_.on_frame(type, address, data);
 #endif
   MasterbusDevice *device = this->find_device_(address);
   if (device == nullptr)

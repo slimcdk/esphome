@@ -6,6 +6,7 @@
 #include "esphome/core/helpers.h"
 
 #include "masterbus_protocol.h"
+#include "masterbus_scan.h"
 
 #include <cinttypes>
 
@@ -160,6 +161,18 @@ class MasterbusHub : public Component {
   bool request_nodes();
   /// Write the discovered devices out as configuration the user can paste.
   void report_scan();
+
+  /// The three questions a scan asks about a device's structure, and the string table read that
+  /// turns the ids they return into text.
+  bool request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group);
+  bool request_group_index(uint32_t address, uint16_t group, uint16_t index);
+  bool request_property(uint32_t address, MasterbusProperty property, uint16_t param);
+  bool request_string(uint32_t address, uint16_t string_id, uint8_t chunk);
+
+  /// Drive the field walk one step. Called from a tick; public so a test can step it deliberately
+  /// rather than wait for a scheduler to fire.
+  void scan_step() { this->scanner_.loop(); }
+  const MasterbusScannedField &get_scanned_field() const { return this->scanner_.get_last_field(); }
 #endif
 
   /// Ask a device to set one of its boolean fields. Returns whether the request reached the bus.
@@ -194,9 +207,13 @@ class MasterbusHub : public Component {
   void record_announcement_(uint32_t address);
 #endif
 
+  /// Put one MasterBus message on the bus. Returns whether it was accepted for transmission.
+  bool send_(uint8_t type, uint32_t address, const std::vector<uint8_t> &payload);
+
   canbus::Canbus *canbus_;
 #ifdef USE_MASTERBUS_SCAN
   StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> discovered_;
+  MasterbusScanner scanner_{this};
 #endif
 #ifdef MASTERBUS_DEVICE_COUNT
   StaticVector<MasterbusDevice *, MASTERBUS_DEVICE_COUNT> devices_;
