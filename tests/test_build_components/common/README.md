@@ -44,6 +44,8 @@ common/
 │   ├── esp32-c3-idf.yaml
 │   ├── esp8266-ard.yaml
 │   └── rp2040-ard.yaml
+├── canbus_secondary/ # A second CAN bus alongside the first (includes canbus and spi)
+│   └── esp32-idf.yaml
 └── ble/
     ├── esp32-idf.yaml
     ├── esp32-ard.yaml
@@ -161,6 +163,13 @@ use an MCP2515 over the shared SPI bus, so the package pulls `spi` in as well:
 - **RP2040**: MCP2515, CS=GPIO17 (SPI pins from the `spi` package)
 
 250 kbit/s is the MasterBus rate. Add a rate variant if a component needs a different one.
+
+### CAN bus, secondary
+
+For a component that bridges two buses. Provides `canbus_bus_2` alongside the `canbus_bus` of the
+`canbus` package, which it includes. The ESP32 has one built-in controller, so the second bus is an
+MCP2515 over the shared SPI bus:
+- **ESP32 IDF**: MCP2515, CS=GPIO27 (SPI pins from the `spi` package)
 
 ### I2S Audio
 Provides a shared `i2s_audio_bus` (clock pins only); ESP32 family only:
