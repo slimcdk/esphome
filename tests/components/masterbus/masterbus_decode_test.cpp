@@ -107,6 +107,98 @@ TEST_F(MasterbusTest, NotANumberReportsUnavailableRatherThanZero) {
   EXPECT_EQ(voltage->unavailable_count, 1);
 }
 
+// A text field answers with the number of an entry in the device's string table rather than with
+// text, so publishing one takes a second exchange. Frames below are shaped the way the bus shapes
+// them; string 97 is the "Battery" the scan tests read through the same table.
+TEST_F(MasterbusTest, TextFieldIsReadFromTheStringTable) {
+  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+
+  // Nothing is published yet; what went out is a request for the first chunk of string 97.
+  EXPECT_TRUE(label->values.empty());
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  const auto &request = this->canbus_.sent[0];
+  EXPECT_EQ(request.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
+  EXPECT_EQ(request.can_id & DEVICE_ADDRESS_MASK, BATTERY_1);
+  ASSERT_EQ(request.can_data_length_code, 4);
+  EXPECT_EQ(request.data[0], STRING_REQUEST_MARKER);
+  EXPECT_EQ(encode_uint16(request.data[2], request.data[1]), 97);
+  EXPECT_EQ(request.data[3], 0);
+
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+
+  ASSERT_EQ(label->values.size(), 1u);
+  EXPECT_EQ(label->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  EXPECT_STREQ(label->values[0].as_text, "Battery");
+}
+
+TEST_F(MasterbusTest, TextReadIgnoresAChunkOfSomeOtherString) {
+  // The same mistake the scan makes if it trusts a counter instead of the header: a chunk of
+  // string 98 is not the next piece of string 97.
+  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x62, 0x00, 0x00, 'Z', 'Z', 'Z', 'Z'});
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+
+  ASSERT_EQ(label->values.size(), 1u);
+  EXPECT_STREQ(label->values[0].as_text, "Battery");
+}
+
+TEST_F(MasterbusTest, TextFieldWithNoStringIsUnavailableAndAsksNothing) {
+  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 0.0f));
+
+  EXPECT_TRUE(label->values.empty());
+  EXPECT_EQ(label->unavailable_count, 1);
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
+TEST_F(MasterbusTest, StringTheDeviceDoesNotHaveLeavesTheFieldUnavailable) {
+  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+  this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false, {0x30, 0x61, 0x00, 0x00});
+
+  EXPECT_TRUE(label->values.empty());
+  EXPECT_EQ(label->unavailable_count, 1);
+}
+
+TEST_F(MasterbusTest, ATextAnswerCountsAsAnAnswerBeforeItsTextArrives) {
+  // The monitoring answer came from somebody else's request, so there is nothing to gain by
+  // asking again - even though the text it points at has not been read yet.
+  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+  this->canbus_.clear();
+
+  label->update();
+
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
+TEST_F(MasterbusTest, TimeFieldPublishesTheNumberTheDeviceSent) {
+  // What the number counts is not decoded. Publishing it as it arrived is what lets it be
+  // compared against the equipment's own display; rendering a clock would only look right.
+  auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, 45296.0f));
+
+  ASSERT_EQ(clock->values.size(), 1u);
+  EXPECT_EQ(clock->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+  EXPECT_STREQ(clock->values[0].as_text, "45296");
+}
+
 TEST_F(MasterbusTest, AnyFrameFromTheDeviceMarksItOnline) {
   EXPECT_FALSE(this->battery_->is_online());
 
