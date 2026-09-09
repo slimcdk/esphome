@@ -71,8 +71,8 @@ static constexpr uint8_t MONITORING_WRITE_LENGTH = 6;
 /// because the library sends it, not because its meaning is understood.
 static constexpr uint8_t MONITORING_WRITE_COMMIT_LENGTH = 4;
 inline const uint8_t *monitoring_write_commit() {
-  static const uint8_t commit[MONITORING_WRITE_COMMIT_LENGTH] = {0x01, 0x00, 0x50, 0x00};
-  return commit;
+  static const uint8_t COMMIT[MONITORING_WRITE_COMMIT_LENGTH] = {0x01, 0x00, 0x50, 0x00};
+  return COMMIT;
 }
 
 /// VERIFIED, and the reason writing is not fire-and-forget: a write that goes out correctly is not
