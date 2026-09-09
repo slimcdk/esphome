@@ -1,0 +1,35 @@
+# One microcontroller bridging two buses. The second CAN bus is declared here rather than taken
+# from a package because there is only one shared package and this file is never compiled.
+
+packages:
+  canbus: !include ../../test_build_components/common/canbus/esp32-idf.yaml
+
+canbus:
+  - platform: esp32_can
+    id: canbus_bus_2
+    tx_pin: GPIO27
+    rx_pin: GPIO14
+    can_id: 5
+    bit_rate: 250kbps
+
+masterbus:
+  - id: mb_port
+    canbus_id: canbus_bus
+    devices:
+      - id: mb_port_battery
+        device: 0x6D56EA
+  - id: mb_starboard
+    canbus_id: canbus_bus_2
+    devices:
+      - id: mb_starboard_battery
+        device: 0x6D56EA
+
+sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_port_battery
+    param: 0x0001
+    name: Port battery voltage
+  - platform: masterbus
+    masterbus_device_id: mb_starboard_battery
+    param: 0x0001
+    name: Starboard battery voltage
