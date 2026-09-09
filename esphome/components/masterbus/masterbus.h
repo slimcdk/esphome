@@ -68,7 +68,12 @@ class MasterbusEntity : public PollingComponent {
     this->had_value_ = true;
     this->value_was_ours_ = this->poll_outstanding_;
     this->poll_outstanding_ = false;
+    this->stale_ = false;
   }
+
+  /// Report this entity unavailable if its own timeout has run out. Does nothing for an entity
+  /// that follows its device, which is what almost every field does.
+  void check_stale(uint32_t now);
 
   /// Publish a value the hub decoded for this entity's field.
   virtual void publish_masterbus_value(const MasterbusValue &value) = 0;
@@ -86,6 +91,7 @@ class MasterbusEntity : public PollingComponent {
   /// Component::set_timeout, which schedules a callback and is a different thing entirely.
   void set_stale_timeout(uint32_t timeout_ms) { this->stale_timeout_ms_ = timeout_ms; }
   uint32_t get_stale_timeout() const { return this->stale_timeout_ms_; }
+  bool is_stale() const { return this->stale_; }
 
  protected:
   MasterbusDevice *device_;
@@ -96,6 +102,8 @@ class MasterbusEntity : public PollingComponent {
   // We have asked and not yet seen an answer, so the next value to arrive is ours.
   bool poll_outstanding_{false};
   bool value_was_ours_{false};
+  // Already reported unavailable for its own timeout, so it is not reported again every second.
+  bool stale_{false};
   uint16_t param_;
   MasterbusTab tab_;
   MasterbusValueType value_type_;

@@ -215,6 +215,40 @@ TEST_F(MasterbusTest, FrameFromAnUndeclaredDeviceLeavesUsOffline) {
   EXPECT_FALSE(this->battery_->is_online());
 }
 
+TEST_F(MasterbusTest, AFieldWithItsOwnTimeoutGoesUnavailableOnItsOwn) {
+  // A relay changes twice a day while the voltage beside it arrives every second, so the device's
+  // timeout cannot speak for both. Only a field given a timeout of its own is judged on it.
+  auto *relay = add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  relay->set_stale_timeout(60000);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 1.0f));
+  ASSERT_EQ(relay->values.size(), 1u);
+  const uint32_t answered_at = App.get_loop_component_start_time();
+
+  relay->check_stale(answered_at + 59999);
+  EXPECT_EQ(relay->unavailable_count, 0);
+
+  relay->check_stale(answered_at + 60000);
+  EXPECT_EQ(relay->unavailable_count, 1);
+  EXPECT_TRUE(relay->is_stale());
+
+  // Reported once, not once a second for as long as it stays quiet.
+  relay->check_stale(answered_at + 600000);
+  EXPECT_EQ(relay->unavailable_count, 1);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 0.0f));
+  EXPECT_FALSE(relay->is_stale());
+}
+
+TEST_F(MasterbusTest, AFieldWithoutItsOwnTimeoutFollowsItsDevice) {
+  auto *voltage = add_sensor(1);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  voltage->check_stale(App.get_loop_component_start_time() + 3600000);
+
+  EXPECT_EQ(voltage->unavailable_count, 0);
+}
+
 TEST_F(MasterbusTest, AnEntityAsksForItsOwnField) {
   auto *voltage = add_sensor(1);
   add_sensor(2);
