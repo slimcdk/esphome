@@ -1,0 +1,15 @@
+esphome:
+  name: masterbus-test
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+canbus:
+  - platform: esp32_can
+    id: mb_can
+    tx_pin: GPIO25
+    rx_pin: GPIO26
+    can_id: 4
+    bit_rate: 250kbps

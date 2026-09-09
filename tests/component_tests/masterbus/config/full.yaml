@@ -1,0 +1,30 @@
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+    devices:
+      - id: mb_battery
+        device: 0x6D56EA
+      - id: mb_charger
+        device: 0x535E30
+
+sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0001
+    name: Battery voltage
+    update_interval: 10s
+
+binary_sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0075
+    name: Battery relay closed
+
+switch:
+  - platform: masterbus
+    masterbus_device_id: mb_charger
+    param: 0x0015
+    name: Charger standby
