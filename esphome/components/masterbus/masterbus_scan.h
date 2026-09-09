@@ -85,7 +85,6 @@ class MasterbusScanner {
   void finish_field_();
   void next_device_();
   void report_field_();
-  bool take_string_chunk_(const std::vector<uint8_t> &data, char *out, uint8_t capacity);
 
   MasterbusHub *hub_;
   Phase phase_{Phase::PHASE_IDLE};
