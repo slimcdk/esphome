@@ -194,18 +194,22 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
   this->log_frame_(can_id, extended_id, rtr, data);
 #endif
-#ifdef MASTERBUS_DEVICE_COUNT
+#if defined(USE_MASTERBUS_SCAN) || defined(MASTERBUS_DEVICE_COUNT)
   // Every MasterBus message rides an extended identifier. A remote transmission request carries
   // no payload of its own, so there is nothing in it to decode either way.
   if (!extended_id || rtr)
     return;
   const uint32_t address = can_id & DEVICE_ADDRESS_MASK;
-#ifdef USE_MASTERBUS_SCAN
   const uint8_t type = can_id >> MESSAGE_TYPE_SHIFT;
+#ifdef USE_MASTERBUS_SCAN
+  // A scan listens on its own account. It must not sit behind the device list: the whole point of
+  // scanning is to find devices nobody has declared yet, so a configuration with `scan: true` and
+  // no `devices:` is exactly the case that has to work.
   if (type == DEVICE_ANNOUNCEMENT_TYPE && data.size() >= DEVICE_ANNOUNCEMENT_LENGTH)
     this->record_announcement_(decode_announced_address(data.data()));
   this->scanner_.on_frame(type, address, data);
 #endif
+#ifdef MASTERBUS_DEVICE_COUNT
   MasterbusDevice *device = this->find_device_(address);
   if (device == nullptr)
     return;
@@ -213,13 +217,14 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   device->mark_seen(MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON);
 
 #ifdef MASTERBUS_ENTITY_COUNT
-  if ((can_id >> MESSAGE_TYPE_SHIFT) != MONITORING_INFORMATION_TYPE || data.size() < MONITORING_INFORMATION_LENGTH)
+  if (type != MONITORING_INFORMATION_TYPE || data.size() < MONITORING_INFORMATION_LENGTH)
     return;
   const uint16_t param = encode_uint16(data[1], data[0]);
   const uint32_t bits = encode_uint32(data[5], data[4], data[3], data[2]);
   float value;
   memcpy(&value, &bits, sizeof(value));
   this->publish_value_(device, MasterbusTab::MASTERBUS_TAB_MONITORING, param, value);
+#endif
 #endif
 #endif
 }

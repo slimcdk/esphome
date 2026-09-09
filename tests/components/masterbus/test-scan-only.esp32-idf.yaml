@@ -1,4 +1,7 @@
 # A bus nobody has catalogued yet: turn the scan on, declare nothing, and read the log.
+#
+# This is compiled rather than only validated because declaring no devices is what compiles the
+# device list, the entity list and their registration methods away. The scan has to survive that.
 
 packages:
   canbus: !include ../../test_build_components/common/canbus/esp32-idf.yaml
