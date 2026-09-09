@@ -1,0 +1,18 @@
+# A second CAN bus at 250 kbit/s for ESP32 IDF tests, alongside the one the canbus package gives.
+# The ESP32 has a single built-in controller, so the second bus is an MCP2515 over the shared SPI
+# bus; the package pulls both of those in.
+
+packages:
+  canbus: !include ../canbus/esp32-idf.yaml
+  spi: !include ../spi/esp32-idf.yaml
+
+substitutions:
+  can_secondary_cs_pin: GPIO27
+
+canbus:
+  - platform: mcp2515
+    id: canbus_bus_2
+    spi_id: spi_bus
+    cs_pin: ${can_secondary_cs_pin}
+    can_id: 5
+    bit_rate: 250kbps
