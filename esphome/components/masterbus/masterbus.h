@@ -91,7 +91,6 @@ class MasterbusEntity : public PollingComponent {
   /// Component::set_timeout, which schedules a callback and is a different thing entirely.
   void set_stale_timeout(uint32_t timeout_ms) { this->stale_timeout_ms_ = timeout_ms; }
   uint32_t get_stale_timeout() const { return this->stale_timeout_ms_; }
-  bool is_stale() const { return this->stale_; }
 
  protected:
   MasterbusDevice *device_;
@@ -233,12 +232,6 @@ class MasterbusHub : public Component {
   void register_entity(MasterbusEntity *entity) { this->entities_.push_back(entity); }
   /// Report every entity of one device as unavailable, in one go.
   void publish_device_unavailable(const MasterbusDevice *device);
-#endif
-
-#ifdef MASTERBUS_ENTITY_COUNT
-  /// The text the hub most recently rendered a value to. Exposed so a test can assert on what was
-  /// decoded rather than on what an entity did with it.
-  const char *get_value_text() const { return this->value_text_; }
 #endif
 
  protected:
