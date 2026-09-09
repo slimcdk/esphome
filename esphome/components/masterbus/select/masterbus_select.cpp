@@ -21,9 +21,15 @@ void MasterbusSelect::publish_masterbus_value(const MasterbusValue &value) {
 }
 
 void MasterbusSelect::control(const std::string &value) {
-  // The vendor API has no list-option write, so there is no precedent to copy. The field is
-  // readable.
-  ESP_LOGW(TAG, "Cannot set field %u: MasterBus list fields cannot be written", this->get_param());
+  const auto index = this->index_of(value);
+  if (!index.has_value()) {
+    ESP_LOGW(TAG, "%s is not one of the configured options for field %u", value.c_str(), this->get_param());
+    return;
+  }
+  // A list option travels as its index, in the same float a number would use.
+  // Nothing is published here on purpose: the select follows what the device reports afterwards,
+  // so it never claims an option the equipment did not confirm.
+  this->get_masterbus_device()->get_hub()->write_value(*this, static_cast<float>(index.value()));
 }
 
 }  // namespace esphome::masterbus
