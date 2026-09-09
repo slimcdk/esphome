@@ -230,14 +230,15 @@ TEST_F(MasterbusTest, AFieldWithItsOwnTimeoutGoesUnavailableOnItsOwn) {
 
   relay->check_stale(answered_at + 60000);
   EXPECT_EQ(relay->unavailable_count, 1);
-  EXPECT_TRUE(relay->is_stale());
 
   // Reported once, not once a second for as long as it stays quiet.
   relay->check_stale(answered_at + 600000);
   EXPECT_EQ(relay->unavailable_count, 1);
 
+  // A value brings it back, so the next silence is reported again rather than swallowed.
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 0.0f));
-  EXPECT_FALSE(relay->is_stale());
+  relay->check_stale(App.get_loop_component_start_time() + 60000);
+  EXPECT_EQ(relay->unavailable_count, 2);
 }
 
 TEST_F(MasterbusTest, AFieldWithoutItsOwnTimeoutFollowsItsDevice) {
