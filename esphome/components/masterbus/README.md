@@ -33,7 +33,13 @@ component guesses at a frame it has not seen.
 - [Writing to the bus](#writing-to-the-bus)
 - [Automations](#automations)
 - [Example](#example)
-- [Wiring](#wiring)
+- [Hardware](#hardware)
+  - [What you need](#what-you-need)
+  - [Finding CAN_H and CAN_L](#finding-can_h-and-can_l)
+  - [Wiring the transceiver](#wiring-the-transceiver)
+  - [Termination](#termination)
+  - [Grounding and isolation](#grounding-and-isolation)
+  - [Powering the board](#powering-the-board)
 - [Troubleshooting](#troubleshooting)
 - [Limitations](#limitations)
 
@@ -460,30 +466,141 @@ button:
 
 <br>
 
-## Wiring
+## Hardware
 
-MasterBus uses RJ45 connectors carrying CAN plus power. Only CAN_H and CAN_L are needed here; on
-the cables seen so far they are the **orange** and **orange/white** pair.
+Everything here is about getting an MCU physically onto the bus. None of it is specific to
+MasterBus's use of CAN — it is the same job as putting a board on any 250 kbit/s CAN segment, with
+one complication: the connector carries power as well, and its pinout is not published.
 
-| | |
+---
+
+### What you need
+
+* **A CAN transceiver with 3.3 V logic.** The MCU's CAN peripheral gives you logic-level TX and RX;
+  the transceiver turns that into the differential pair. An **SN65HVD230** or **TJA1051T/3** works
+  directly with an ESP32. Avoid the **MCP2551** and similar 5 V-only parts — their logic levels do
+  not match a 3.3 V MCU without level shifting.
+
+* **A way into the bus.** MasterBus uses RJ45 connectors and daisy-chains between devices. An
+  **RJ45 male breakout board** is the least invasive route: it plugs into a spare port on a
+  MasterBus hub and brings the eight conductors out to screw terminals, with nothing cut or
+  soldered.
+
+* **A multimeter.** Not optional — see below.
+
+---
+
+### Finding CAN_H and CAN_L
+
+> [!CAUTION]
+> **Do not trust a pinout table you found online, including this one.** The MasterBus RJ45 pinout
+> is not published by Mastervolt. The community sources that do exist **disagree with each other**,
+> and the cable carries **+12 V**. Wiring a transceiver to the power pins destroys it.
+
+Identify the pair yourself, with the installation **powered down**:
+
+1. Measure resistance between conductors, pair by pair. The CAN pair reads about **60 Ω** — two
+   terminators in parallel at the ends of the chain. Nothing else on the connector will read that.
+2. Power the bus back up and confirm with a voltmeter. The supply pair sits at about **12 V**.
+   CAN_H and CAN_L both idle near **2.5 V** relative to the bus ground, moving a volt or so apart
+   when traffic flows.
+
+On the installation this component was developed against, the CAN pair turned out to be the
+**orange** and **orange/white** conductors. Yours may differ. Measure.
+
+---
+
+### Wiring the transceiver
+
+Three connections to the MCU, two to the bus, and the standby pin:
+
+| Transceiver | Connects to | Note |
+|---|---|---|
+| `CTX` / `TXD` | MCU CAN transmit pin | |
+| `CRX` / `RXD` | MCU CAN receive pin | |
+| `VCC` | MCU 3.3 V | not 5 V, for an SN65HVD230 |
+| `GND` | MCU ground **and** MasterBus ground | see [Grounding](#grounding-and-isolation) |
+| `CANH` | MasterBus CAN_H | the pair you measured |
+| `CANL` | MasterBus CAN_L | |
+| `Rs` / `S` | **ground** | high-speed mode |
+
+Then name the two MCU pins in your `canbus:` block:
+
+```yaml
+canbus:
+  - platform: esp32_can
+    tx_pin: GPIO20   # to CTX
+    rx_pin: GPIO21   # to CRX
+    bit_rate: 250kbps
+```
+
+On an ESP32 the CAN controller can be routed to most GPIOs, so pick any free pair — but avoid the
+chip's strapping pins, and anything already taken by flash, PSRAM or USB. The reference setup uses
+an **ESP32-C6** with GPIO20 and GPIO21.
+
+> [!WARNING]
+> The `Rs` pin is the single most misleading fault on these modules. Held high it puts the
+> transceiver in standby, where the **receiver still works and the driver does not**. The node then
+> reads the bus perfectly and every transmit fails with `ERROR_ALLTXBUSY` — which looks exactly
+> like a dead chip or a software bug. Tie `Rs` to ground.
+
+---
+
+### Termination
+
+A CAN segment is terminated with 120 Ω at each **end**, and nowhere else. MasterBus is a daisy
+chain that Mastervolt already terminates at both ends with its own terminator plugs, so a board
+tapping into a spare hub port sits on a **stub** and must not add a terminator of its own.
+
+**Most SN65HVD230 breakout modules ship with a 120 Ω resistor fitted.** Leaving it in place makes
+three terminators: the bus drops from about 60 Ω to about 40 Ω and starts throwing form and stuff
+errors. Remove the resistor, or open the module's jumper if it has one.
+
+Check with everything powered down, measuring across CAN_H and CAN_L:
+
+| Reading | Meaning |
 |---|---|
-| CAN_H, CAN_L | to the transceiver's bus side |
-| Transceiver CTX | to the ESP's `tx_pin` |
-| Transceiver CRX | to the ESP's `rx_pin` |
-| Ground | common with the MasterBus ground |
+| ~60 Ω | Two terminators. Correct. |
+| ~120 Ω | One terminator. One end is unterminated. |
+| ~40 Ω | Three. Remove yours. |
 
-**Termination is 120 Ω at each end of the bus, and no more.** Measure across CAN_H and CAN_L with
-everything powered down: 60 Ω means exactly two terminators, which is correct. 40 Ω means three,
-and the bus will be unreliable. Many cheap transceiver modules carry a 120 Ω resistor on board that
-has to come off if the bus is already terminated at both ends.
+> [!NOTE]
+> If it is missed, the symptom is not obvious: the controller initialises cleanly and then either
+> receives nothing or goes bus-off.
 
-> [!TIP]
-> On an SN65HVD230 module, check the `Rs` pin. It must sit near ground for high-speed mode. Held
-> high it puts the transceiver in standby, where the receiver still works but the driver does not —
-> so the node reads the bus perfectly and every transmit fails. That failure looks exactly like a
-> dead chip.
+---
 
-<br>
+### Grounding and isolation
+
+The transceiver needs a ground reference shared with the bus. Whether that is safe to make
+directly depends on your installation.
+
+**Measure it.** With everything powered down, measure the resistance between MasterBus 0 V and the
+ground of anything else the MCU touches — another CAN bus, a USB host, a mains-powered supply.
+
+* **Bonded (below about 1 Ω):** the grounds are already common. A bare transceiver adds no new
+  path, and an SN65HVD230 is fine.
+
+* **Not bonded:** connecting them creates a new current path between two systems that were separate,
+  which on a battery installation can mean a ground loop carrying real current. Use an **isolated**
+  transceiver such as an **ISO1042**, with an isolated supply for its bus side.
+
+If the MCU also sits on a second CAN bus — an inverter link, say — check that pair too. Two bare
+transceivers on one board bond both buses to each other through the MCU's ground.
+
+---
+
+### Powering the board
+
+The MasterBus cable carries about 12 V, and it is tempting to run the MCU from it. Two things to
+weigh before you do:
+
+* It is the installation's supply, fused and budgeted for MasterBus devices. An ESP32 with WiFi
+  draws short peaks of a few hundred milliamps, which is small but not nothing.
+* A separate supply avoids that entirely, but then the grounding question above becomes the one you
+  have to answer.
+
+Either way the transceiver's ground must reference the bus.
 
 ## Troubleshooting
 
