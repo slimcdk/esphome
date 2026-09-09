@@ -1,0 +1,16 @@
+# Common CAN bus configuration for ESP8266 Arduino tests
+# The ESP8266 has no CAN controller, so the bus is an MCP2515 over the shared SPI bus
+
+packages:
+  spi: !include ../spi/esp8266-ard.yaml
+
+substitutions:
+  can_cs_pin: GPIO15
+
+canbus:
+  - platform: mcp2515
+    id: canbus_bus
+    spi_id: spi_bus
+    cs_pin: ${can_cs_pin}
+    can_id: 4
+    bit_rate: 250kbps
