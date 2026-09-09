@@ -2,7 +2,7 @@ import esphome.codegen as cg
 from esphome.components import sensor
 from esphome.types import ConfigType
 
-from .. import entity_args, entity_schema, masterbus_ns, register_entity
+from .. import entity_schema, masterbus_ns, new_entity
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
@@ -19,5 +19,4 @@ CONFIG_SCHEMA = sensor.sensor_schema(MasterbusSensor).extend(
 
 
 async def to_code(config: ConfigType) -> None:
-    var = await sensor.new_sensor(config, *await entity_args(config))
-    await register_entity(var, config)
+    await new_entity(sensor.new_sensor, config)

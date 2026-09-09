@@ -4,7 +4,7 @@ import esphome.config_validation as cv
 from esphome.const import CONF_UPDATE_INTERVAL
 from esphome.types import ConfigType
 
-from .. import entity_args, entity_schema, masterbus_ns, register_entity
+from .. import entity_schema, masterbus_ns, new_entity
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
@@ -28,5 +28,4 @@ CONFIG_SCHEMA = (
 
 
 async def to_code(config: ConfigType) -> None:
-    var = await button.new_button(config, *await entity_args(config))
-    await register_entity(var, config)
+    await new_entity(button.new_button, config)

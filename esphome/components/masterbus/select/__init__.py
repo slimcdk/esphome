@@ -4,7 +4,7 @@ import esphome.config_validation as cv
 from esphome.const import CONF_OPTIONS
 from esphome.types import ConfigType
 
-from .. import entity_args, entity_schema, masterbus_ns, register_entity
+from .. import entity_schema, masterbus_ns, new_entity
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
@@ -25,7 +25,4 @@ CONFIG_SCHEMA = (
 
 
 async def to_code(config: ConfigType) -> None:
-    var = await select.new_select(
-        config, *await entity_args(config), options=config[CONF_OPTIONS]
-    )
-    await register_entity(var, config)
+    await new_entity(select.new_select, config, options=config[CONF_OPTIONS])
