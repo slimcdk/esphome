@@ -188,6 +188,38 @@ TEST_F(MasterbusTest, AnAnswerOlderThanTheCadenceDoesNotSuppressOurRequest) {
   EXPECT_EQ(this->canbus_.sent[0].can_id, 0x186D56EA);
 }
 
+TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndTheFrameThatFollowsIt) {
+  // Captured from the vendor library closing a battery relay: the write is a monitoring request
+  // carrying a float, and a second frame to the next field number always follows it.
+  auto *relay = add_sensor(117);
+
+  ASSERT_TRUE(this->hub_->write_boolean(*relay, true));
+
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  const auto &write = this->canbus_.sent[0];
+  EXPECT_EQ(write.can_id, 0x186D56EA);
+  ASSERT_EQ(write.can_data_length_code, MONITORING_WRITE_LENGTH);
+  EXPECT_EQ(encode_uint16(write.data[1], write.data[0]), 117);
+  EXPECT_EQ(encode_uint32(write.data[5], write.data[4], write.data[3], write.data[2]), 0x3F800000);
+
+  const auto &commit = this->canbus_.sent[1];
+  EXPECT_EQ(commit.can_id, 0x186D56EA);
+  ASSERT_EQ(commit.can_data_length_code, MONITORING_WRITE_LENGTH);
+  EXPECT_EQ(encode_uint16(commit.data[1], commit.data[0]), 118);
+  EXPECT_EQ(commit.data[2], 0x01);
+  EXPECT_EQ(commit.data[3], 0x00);
+  EXPECT_EQ(commit.data[4], 0x50);
+  EXPECT_EQ(commit.data[5], 0x00);
+}
+
+TEST_F(MasterbusTest, WriteSkipsTabsWithNoKnownWriteFormat) {
+  auto *setting =
+      add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+
+  EXPECT_FALSE(this->hub_->write_boolean(*setting, true));
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
 TEST_F(MasterbusTest, PollSkipsTabsWithNoKnownRequestFormat) {
   auto *setting =
       add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);

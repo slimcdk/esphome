@@ -50,6 +50,43 @@ static constexpr uint8_t MONITORING_INFORMATION_TYPE = 0x10;
 static constexpr uint8_t MONITORING_REQUEST_LENGTH = 2;
 static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
 
+/// VERIFIED: a monitoring field is written with the same message type that reads it. What tells
+/// the two apart is the payload length: two bytes asks, six bytes writes.
+///
+///     write     type 0x30, 6 bytes: field number little-endian, then float32 little-endian
+///
+/// Captured while driving the vendor library's own "Open relay" and "Close relay" calls against a
+/// battery block: twelve writes, all of this shape, and the relay opened on the first of them.
+/// Only the value 1.0 has been seen on the wire, because the fields exercised were event fields
+/// that carry no other value. Writing anything else is therefore not confirmed.
+static constexpr uint8_t MONITORING_WRITE_LENGTH = 6;
+
+/// UNVERIFIED as to meaning, VERIFIED as to necessity: every write the vendor library sent was
+/// immediately followed by a second write, to the field one higher, carrying these four bytes.
+/// The value never varied - the same bytes followed a write to field 117 and to field 119, so it
+/// is not derived from the field or the value. Neither of the higher fields exists in the device's
+/// own field list, so this is not an ordinary write and reads more like a commit. It is sent
+/// because the library sends it, not because its meaning is understood.
+static constexpr uint8_t MONITORING_WRITE_COMMIT_LENGTH = 4;
+inline const uint8_t *monitoring_write_commit() {
+  static const uint8_t commit[MONITORING_WRITE_COMMIT_LENGTH] = {0x01, 0x00, 0x50, 0x00};
+  return commit;
+}
+
+/// VERIFIED, and the reason writing is not fire-and-forget: a write that goes out correctly is not
+/// the same as a command that took effect. Five correctly formed writes closing a battery relay
+/// changed nothing, while the identical frame worked at another moment. Two explanations fit the
+/// evidence and neither is settled:
+///
+///   - a device declines the command for a while after the opposite one, or
+///   - the command has to reach a particular device, because more than one shares the equipment
+///     being commanded. Two of the six blocks on the reference installation report the same
+///     current to within 0.001 A and dropped out together when only one of them was told to open.
+///
+/// Either way, a caller that needs the result must read the field back. This component does not
+/// retry on its own: what a retry means depends on the field, and one of these fields opens a
+/// battery contactor.
+
 // VERIFIED: a device answers a monitoring field only when asked. The same capture holds 42152
 // answers that followed a request against 20 that did not, so a hub that never transmits reports
 // values only for as long as something else on the bus is polling the same fields. This is why
