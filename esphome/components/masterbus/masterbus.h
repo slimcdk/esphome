@@ -201,7 +201,12 @@ class MasterbusHub : public Component {
 #endif
 
   /// Ask a device to set one of its boolean fields. Returns whether the request reached the bus.
+  /// Set a boolean field. True is what the vendor library sends to fire an event field such as
+  /// "Close relay"; false is the same frame with a zero and has not been seen on the wire.
   bool write_boolean(const MasterbusEntity &entity, bool state);
+  /// Set a monitoring field to a value. A device may still decline to act on it - see the note on
+  /// the lockout in masterbus_protocol.h - so a caller that needs the result must read it back.
+  bool write_value(const MasterbusEntity &entity, float value);
 
 #ifdef MASTERBUS_DEVICE_COUNT
   void register_device(MasterbusDevice *device) { this->devices_.push_back(device); }
