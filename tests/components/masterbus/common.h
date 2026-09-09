@@ -9,6 +9,7 @@
 
 #include "esphome/components/canbus/canbus.h"
 #include "esphome/components/masterbus/masterbus.h"
+#include "esphome/core/application.h"
 
 namespace esphome::masterbus::testing {
 
