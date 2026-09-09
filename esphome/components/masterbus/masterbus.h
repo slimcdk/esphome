@@ -15,12 +15,16 @@ namespace esphome::masterbus {
 class MasterbusDevice;
 class MasterbusHub;
 
+/// The longest text a field value renders to. What a text field holds on this equipment is a label
+/// or a serial number, so this is generous; anything longer is truncated rather than dropped.
+static constexpr uint8_t MASTERBUS_TEXT_LENGTH = 32;
+
 /** A decoded field value.
  *
- * The text, time and date types all arrive as `as_text`: rendering them is the decoder's job,
- * so an entity only ever has to display what it is handed. That text points into the decoder's
- * own buffer and is only valid for the duration of the publish call; an entity that needs to
- * keep it must copy it.
+ * The text, time and date types all reach an entity as `as_text`: rendering them is the decoder's
+ * job, so an entity only ever has to display what it is handed. That text points into the
+ * decoder's own buffer and is only valid for the duration of the publish call; an entity that
+ * needs to keep it must copy it.
  */
 struct MasterbusValue {
   MasterbusValueType type;
@@ -224,6 +228,12 @@ class MasterbusHub : public Component {
   void publish_device_unavailable(const MasterbusDevice *device);
 #endif
 
+#ifdef MASTERBUS_ENTITY_COUNT
+  /// The text the hub most recently rendered a value to. Exposed so a test can assert on what was
+  /// decoded rather than on what an entity did with it.
+  const char *get_value_text() const { return this->value_text_; }
+#endif
+
  protected:
 #ifdef MASTERBUS_DEVICE_COUNT
   /// Drop devices that have gone silent past their timeout.
@@ -234,6 +244,15 @@ class MasterbusHub : public Component {
 #ifdef MASTERBUS_ENTITY_COUNT
   /// Hand a decoded value to every entity configured for that field.
   void publish_value_(const MasterbusDevice *device, MasterbusTab tab, uint16_t param, float value);
+#endif
+#ifdef USE_MASTERBUS_TEXT
+  /// Start reading the string table entry a text field answered with. One read runs at a time; a
+  /// field that arrives while another is running waits for its own next poll.
+  void begin_text_read_(MasterbusEntity *entity, uint16_t string_id);
+  /// Take a string answer if it belongs to the read in flight. Returns whether it was consumed.
+  bool take_text_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data);
+  /// End the read in flight, publishing what it assembled or reporting it unavailable.
+  void finish_text_read_(bool found);
 #endif
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
   void log_frame_(uint32_t can_id, bool extended_id, bool rtr, const std::vector<uint8_t> &data);
@@ -257,6 +276,17 @@ class MasterbusHub : public Component {
 #endif
 #ifdef MASTERBUS_ENTITY_COUNT
   StaticVector<MasterbusEntity *, MASTERBUS_ENTITY_COUNT> entities_;
+  /// Where a value that publishes as text is rendered. It belongs to the hub rather than to a
+  /// publish call because a string arrives in chunks across several frames, and because a
+  /// MasterbusValue only ever borrows the text it carries.
+  char value_text_[MASTERBUS_TEXT_LENGTH]{};
+#endif
+#ifdef USE_MASTERBUS_TEXT
+  /// The string read in flight, or nullptr. One slot is enough: a device answers one question at
+  /// a time, and a text field that has to wait simply asks again on its next poll.
+  MasterbusEntity *text_entity_{nullptr};
+  uint32_t text_sent_at_{0};
+  uint16_t text_string_{0};
 #endif
 };
 
