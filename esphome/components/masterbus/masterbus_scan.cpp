@@ -64,6 +64,13 @@ void MasterbusScanner::send_current_() {
     case Phase::GROUP_FIELD_COUNT:
       this->hub_->request_group(address, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, this->group_);
       break;
+    case Phase::GROUP_NAME_ID:
+      this->hub_->request_group(address, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING, this->group_);
+      break;
+    case Phase::GROUP_NAME_TEXT:
+    case Phase::FIELD_NAME_TEXT:
+      this->hub_->request_string(address, this->name_string_, this->chunk_);
+      break;
     case Phase::FIELD_NUMBER:
       this->hub_->request_group_index(address, this->group_, this->field_index_);
       break;
@@ -85,9 +92,6 @@ void MasterbusScanner::send_current_() {
     case Phase::FIELD_STEP:
       this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_STEP, this->field_.param);
       break;
-    case Phase::FIELD_NAME_TEXT:
-      this->hub_->request_string(address, this->name_string_, this->chunk_);
-      break;
     case Phase::FIELD_UNIT_TEXT:
       this->hub_->request_string(address, this->unit_string_, this->chunk_);
       break;
@@ -106,6 +110,21 @@ void MasterbusScanner::advance_(bool answered) {
         return;
       }
       this->field_index_ = 0;
+      this->chunk_ = 0;
+      this->name_string_ = 0;
+      this->group_name_[0] = '\0';
+      this->group_reported_ = false;
+      this->phase_ = Phase::GROUP_NAME_ID;
+      return;
+
+    case Phase::GROUP_NAME_ID:
+      this->chunk_ = 0;
+      // A group without a name is normal; its fields are still worth listing.
+      this->phase_ = this->name_string_ != 0 ? Phase::GROUP_NAME_TEXT : Phase::FIELD_NUMBER;
+      return;
+
+    case Phase::GROUP_NAME_TEXT:
+      this->name_string_ = 0;
       this->phase_ = Phase::FIELD_NUMBER;
       return;
 
@@ -113,6 +132,7 @@ void MasterbusScanner::advance_(bool answered) {
       if (!answered || this->field_index_ >= this->fields_in_group_ || this->field_index_ >= MAX_FIELDS_PER_GROUP) {
         // End of this group's field list; try the next group.
         this->group_++;
+        this->group_reported_ = false;
         this->phase_ = Phase::GROUP_FIELD_COUNT;
         return;
       }
@@ -175,6 +195,7 @@ void MasterbusScanner::finish_field_() {
 void MasterbusScanner::next_device_() {
   this->device_index_++;
   this->group_ = 0;
+  this->group_reported_ = false;
   this->field_index_ = 0;
   this->phase_ = Phase::GROUP_FIELD_COUNT;
   this->waiting_ = false;
@@ -203,6 +224,12 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
         return false;
       // The count arrives as a float, which is odd for a count but consistent on every group seen.
       this->fields_in_group_ = static_cast<uint16_t>(value32(4));
+      break;
+
+    case Phase::GROUP_NAME_ID:
+      if (type != GROUP_INFORMATION_TYPE || data.size() < 6)
+        return false;
+      this->name_string_ = value16(4);
       break;
 
     case Phase::FIELD_NUMBER:
@@ -247,6 +274,7 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       break;
     }
 
+    case Phase::GROUP_NAME_TEXT:
     case Phase::FIELD_NAME_TEXT:
     case Phase::FIELD_UNIT_TEXT: {
       if (type == STRING_NOT_AVAILABLE_TYPE) {
@@ -255,9 +283,16 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       }
       if (type != STRING_INFORMATION_TYPE || data.size() < STRING_CHUNK_LENGTH)
         return false;
-      const bool name = this->phase_ == Phase::FIELD_NAME_TEXT;
-      const bool ended = this->take_string_chunk_(data, name ? this->field_.name : this->field_.unit,
-                                                  name ? SCAN_NAME_LENGTH : SCAN_UNIT_LENGTH);
+      char *out = this->field_.unit;
+      uint8_t capacity = SCAN_UNIT_LENGTH;
+      if (this->phase_ == Phase::GROUP_NAME_TEXT) {
+        out = this->group_name_;
+        capacity = SCAN_NAME_LENGTH;
+      } else if (this->phase_ == Phase::FIELD_NAME_TEXT) {
+        out = this->field_.name;
+        capacity = SCAN_NAME_LENGTH;
+      }
+      const bool ended = this->take_string_chunk_(data, out, capacity);
       this->waiting_ = false;
       if (ended)
         this->advance_(false);  // the string is complete, move on the same way a refusal would
@@ -304,6 +339,11 @@ void MasterbusScanner::report_field_() {
   }
 
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
+  if (!this->group_reported_) {
+    ESP_LOGI(TAG, "  # device 0x%06" PRIX32 ", group %u: %s", address, this->group_,
+             this->group_name_[0] != '\0' ? this->group_name_ : "unnamed");
+    this->group_reported_ = true;
+  }
   ESP_LOGI(TAG, "  - platform: masterbus");
   ESP_LOGI(TAG, "    masterbus_device_id: mb_device_%06" PRIX32, address);
   ESP_LOGI(TAG, "    param: %u", this->field_.param);
