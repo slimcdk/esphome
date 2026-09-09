@@ -240,7 +240,14 @@ void MasterbusHub::dump_config() {
 #endif
 }
 
-void MasterbusEntity::update() { this->device_->get_hub()->request_field(*this); }
+void MasterbusEntity::update() {
+  const uint32_t now = App.get_loop_component_start_time();
+  // Somebody else already asked recently and we heard the answer, so asking again would add
+  // traffic without adding information.
+  if (this->had_value_ && now - this->last_value_at_ < this->get_update_interval())
+    return;
+  this->device_->get_hub()->request_field(*this);
+}
 
 bool MasterbusHub::request_field(const MasterbusEntity &entity) {
   // Only monitoring requests have a known layout.
@@ -250,6 +257,7 @@ bool MasterbusHub::request_field(const MasterbusEntity &entity) {
     return false;
   }
   const uint16_t param = entity.get_param();
+  ESP_LOGV(TAG, "Asking device 0x%06" PRIX32 " for field %u", entity.get_masterbus_device()->get_address(), param);
   const std::vector<uint8_t> payload{static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)};
   const uint32_t can_id = (static_cast<uint32_t>(MONITORING_REQUEST_TYPE) << MESSAGE_TYPE_SHIFT) |
                           entity.get_masterbus_device()->get_address();
@@ -308,6 +316,7 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
         entity->publish_masterbus_unavailable();
         continue;
     }
+    entity->mark_value_received(App.get_loop_component_start_time());
     if (std::isnan(value)) {
       entity->publish_masterbus_unavailable();
       continue;
