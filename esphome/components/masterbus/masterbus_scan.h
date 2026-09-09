@@ -59,7 +59,6 @@ class MasterbusScanner {
   /// The field most recently completed. Exposed so a test can assert on what was learned rather
   /// than on the wording of a log line.
   const MasterbusScannedField &get_last_field() const { return this->field_; }
-  uint16_t get_field_count() const { return this->completed_; }
   /// The name of the group being walked, for the same reason.
   const char *get_group_name() const { return this->group_name_; }
 
