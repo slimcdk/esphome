@@ -195,6 +195,16 @@ class MasterbusHub : public Component {
   /// value need it: neither carries text of its own, only the id of an entry in that table.
   bool request_string(uint32_t address, uint16_t string_id, uint8_t chunk);
 
+#ifdef MASTERBUS_UNKNOWN_FRAME_COUNT
+  /// Fires for any frame whose message type this component cannot name. It sits on the hub and not
+  /// on a device on purpose: the frames worth catching here are the ones nobody has decoded, and
+  /// they may well come from equipment that was never declared - which is exactly the case a
+  /// device-level trigger cannot see.
+  template<typename F> void add_on_unknown_frame_callback(F &&callback) {
+    this->unknown_frame_callback_.add(std::forward<F>(callback));
+  }
+#endif
+
 #ifdef USE_MASTERBUS_SCAN
   /// Every device heard announcing itself since boot, in the order they were first heard.
   const StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> &get_discovered_devices() const {
@@ -276,6 +286,10 @@ class MasterbusHub : public Component {
 
   canbus::Canbus *canbus_;
   std::vector<uint8_t> tx_;
+#ifdef MASTERBUS_UNKNOWN_FRAME_COUNT
+  StaticCallbackManager<MASTERBUS_UNKNOWN_FRAME_COUNT, void(const std::vector<uint8_t> &, uint8_t, uint32_t)>
+      unknown_frame_callback_;
+#endif
 #ifdef USE_MASTERBUS_SCAN
   StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> discovered_;
   MasterbusScanner scanner_{this};

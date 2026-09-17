@@ -25,6 +25,7 @@ CONF_LOG_ALL_FRAMES = "log_all_frames"
 CONF_MASTERBUS_DEVICE_ID = "masterbus_device_id"
 CONF_ON_OFFLINE = "on_offline"
 CONF_ON_ONLINE = "on_online"
+CONF_ON_UNKNOWN_FRAME = "on_unknown_frame"
 CONF_PARAM = "param"
 CONF_TAB = "tab"
 
@@ -67,6 +68,7 @@ VALUE_TYPES = {
 
 _request_device_slot = cg.slot_counter("MASTERBUS_DEVICE_COUNT")
 _request_entity_slot = cg.slot_counter("MASTERBUS_ENTITY_COUNT")
+_request_unknown_frame_slot = cg.slot_counter("MASTERBUS_UNKNOWN_FRAME_COUNT")
 
 
 def _device_address(value: Any) -> int:
@@ -114,6 +116,7 @@ CONFIG_SCHEMA = cv.All(
             ): cv.use_id(CanbusComponent),
             cv.Optional(CONF_SCAN, default=False): cv.boolean,
             cv.Optional(CONF_LOG_ALL_FRAMES, default=False): cv.boolean,
+            cv.Optional(CONF_ON_UNKNOWN_FRAME): automation.validate_automation(),
             cv.Optional(CONF_DEVICES): cv.ensure_list(DEVICE_SCHEMA),
         }
     ).extend(cv.COMPONENT_SCHEMA),
@@ -186,6 +189,21 @@ async def to_code(config: ConfigType) -> None:
         cg.add_define("MASTERBUS_SCAN_MAX_DEVICES", MAX_SCAN_DEVICES)
     if config[CONF_LOG_ALL_FRAMES]:
         cg.add_define("USE_MASTERBUS_LOG_ALL_FRAMES")
+
+    for conf in config.get(CONF_ON_UNKNOWN_FRAME, []):
+        # The frames this fires for are by definition ones nothing else reads, so the cost of
+        # recognising them is only paid where somebody asked for it.
+        _request_unknown_frame_slot()
+        await automation.build_callback_automation(
+            var,
+            "add_on_unknown_frame_callback",
+            [
+                (cg.std_vector.template(cg.uint8), "x"),
+                (cg.uint8, "type"),
+                (cg.uint32, "device"),
+            ],
+            conf,
+        )
 
     for device_config in config.get(CONF_DEVICES, []):
         _request_device_slot()
