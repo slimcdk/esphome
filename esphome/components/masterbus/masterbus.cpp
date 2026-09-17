@@ -380,6 +380,9 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
     // read it, so a checkbox field becomes a boolean rather than a 1.0.
     MasterbusValue decoded{};
     decoded.type = entity->get_value_type();
+    // Where a number that publishes as text is rendered. Not value_text_: that holds a string
+    // read that may be in flight, and a chunk landing on a rendered number ruins both.
+    char text[16];
     switch (decoded.type) {
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT:
         decoded.as_float = value;
@@ -404,8 +407,8 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
         // masterbus_protocol.h. It is published as the device sent it, so it can be compared
         // against what a Mastervolt display shows for the same field, which is where a decoding
         // would have to start. Rendering it as a clock would only look right.
-        snprintf(this->value_text_, sizeof(this->value_text_), "%.6g", value);
-        decoded.as_text = this->value_text_;
+        snprintf(text, sizeof(text), "%.6g", value);
+        decoded.as_text = text;
         break;
       default:
         // Device identifier and eventable have no entity that declares them.

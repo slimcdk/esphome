@@ -281,12 +281,12 @@ class MasterbusHub : public Component {
 #endif
 #ifdef MASTERBUS_ENTITY_COUNT
   StaticVector<MasterbusEntity *, MASTERBUS_ENTITY_COUNT> entities_;
-  /// Where a value that publishes as text is rendered. It belongs to the hub rather than to a
-  /// publish call because a string arrives in chunks across several frames, and because a
-  /// MasterbusValue only ever borrows the text it carries.
-  char value_text_[MASTERBUS_TEXT_LENGTH]{};
 #endif
 #ifdef USE_MASTERBUS_TEXT
+  /// Where the string being read is assembled. It belongs to the hub rather than to a publish
+  /// call because a string arrives in chunks across several frames, and because a MasterbusValue
+  /// only ever borrows the text it carries.
+  char value_text_[MASTERBUS_TEXT_LENGTH]{};
   /// The string read in flight, or nullptr. One slot is enough: a device answers one question at
   /// a time, and a text field that has to wait simply asks again on its next poll.
   MasterbusEntity *text_entity_{nullptr};
