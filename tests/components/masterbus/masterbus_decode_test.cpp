@@ -199,6 +199,41 @@ TEST_F(MasterbusTest, TimeFieldPublishesTheNumberTheDeviceSent) {
   EXPECT_STREQ(clock->values[0].as_text, "45296");
 }
 
+// A number that publishes as text is rendered somewhere, and a string arrives in chunks across
+// several frames. Rendering one where the other is being assembled loses the string.
+TEST_F(MasterbusTest, ATimeAnswerDoesNotOverwriteAStringBeingRead) {
+  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, 45296.0f));
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+
+  ASSERT_EQ(label->values.size(), 1u);
+  EXPECT_STREQ(label->values[0].as_text, "Battery");
+  ASSERT_EQ(clock->values.size(), 1u);
+  EXPECT_STREQ(clock->values[0].as_text, "45296");
+}
+
+// The same collision where the string ends on an empty chunk: the terminator lands past what the
+// number wrote, so the field publishes the number's leading digits as its text.
+TEST_F(MasterbusTest, ATimeAnswerDoesNotTruncateAStringThatEndsOnAnEmptyChunk) {
+  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, 45296.0f));
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false, {0x30, 0x61, 0x00, 0x01, 0x00});
+
+  ASSERT_EQ(label->values.size(), 1u);
+  EXPECT_STREQ(label->values[0].as_text, "Batt");
+}
+
 TEST_F(MasterbusTest, AnyFrameFromTheDeviceMarksItOnline) {
   EXPECT_FALSE(this->battery_->is_online());
 
