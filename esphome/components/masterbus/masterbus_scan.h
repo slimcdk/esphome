@@ -26,6 +26,7 @@ static constexpr uint8_t SCAN_UNIT_LENGTH = 12;
 struct MasterbusScannedField {
   uint16_t param;
   uint16_t group;
+  MasterbusTab tab;
   MasterbusDisplayType display_type;
   float minimum;
   float maximum;
@@ -82,6 +83,7 @@ class MasterbusScanner {
   void send_current_();
   void advance_(bool answered);
   void finish_field_();
+  void next_tab_();
   void next_device_();
   void report_field_();
 
@@ -92,6 +94,9 @@ class MasterbusScanner {
   uint32_t sent_at_{0};
 
   uint8_t device_index_{0};
+  /// Which tab is being walked. The four are the same protocol under different message numbers,
+  /// so the walk below is unchanged by it - only the numbers the hub puts on the wire differ.
+  MasterbusTab tab_{MasterbusTab::MASTERBUS_TAB_MONITORING};
   uint16_t group_{0};
   /// The name of the group being walked, printed once above its fields. Empty when the device
   /// does not name the group.

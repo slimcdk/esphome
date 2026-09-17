@@ -141,22 +141,22 @@ bool MasterbusHub::request_nodes() {
   return sent;
 }
 
-bool MasterbusHub::request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group) {
+bool MasterbusHub::request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group, MasterbusTab tab) {
   return this->send_(
-      GROUP_REQUEST_TYPE, address,
+      masterbus_request_type(group_message(tab)), address,
       {static_cast<uint8_t>(selector), static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8)});
 }
 
-bool MasterbusHub::request_group_index(uint32_t address, uint16_t group, uint16_t index) {
+bool MasterbusHub::request_group_index(uint32_t address, uint16_t group, uint16_t index, MasterbusTab tab) {
   return this->send_(
-      GROUP_REQUEST_TYPE, address,
+      masterbus_request_type(group_message(tab)), address,
       {static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX),
        static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8), static_cast<uint8_t>(index)});
 }
 
-bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property, uint16_t param) {
+bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property, uint16_t param, MasterbusTab tab) {
   return this->send_(
-      PROPERTY_REQUEST_TYPE, address,
+      masterbus_request_type(property_message(tab)), address,
       {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
@@ -235,13 +235,16 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   if (this->take_text_frame_(type, address, data))
     return;
 #endif
-  if (type != MONITORING_INFORMATION_TYPE || data.size() < MONITORING_INFORMATION_LENGTH)
+  // Which tab the value belongs to is carried by the message number and nothing else, so it is
+  // read back out here and handed on: an entity only takes a value from its own tab.
+  MasterbusTab tab;
+  if (!data_information_tab(type, tab) || data.size() < MONITORING_INFORMATION_LENGTH)
     return;
   const uint16_t param = encode_uint16(data[1], data[0]);
   const uint32_t bits = encode_uint32(data[5], data[4], data[3], data[2]);
   float value;
   memcpy(&value, &bits, sizeof(value));
-  this->publish_value_(device, MasterbusTab::MASTERBUS_TAB_MONITORING, param, value);
+  this->publish_value_(device, tab, param, value);
 #endif
 #endif
 #endif
@@ -288,15 +291,18 @@ void MasterbusEntity::check_stale(uint32_t now) {
 }
 
 bool MasterbusHub::request_field(const MasterbusEntity &entity) {
-  // Only monitoring requests have a known layout.
-  if (entity.get_tab() != MasterbusTab::MASTERBUS_TAB_MONITORING) {
-    ESP_LOGW(TAG, "Cannot poll field %u on the %s tab: no request format is known for it", entity.get_param(),
-             masterbus_tab_to_string(entity.get_tab()));
+  MasterbusMessage message;
+  if (!tab_data_message(entity.get_tab(), message)) {
+    // The alarm tab. Its structure can be walked, but the vendor carries its values in a message
+    // filed with the broadcast ones rather than with the tabs, and that message is not decoded.
+    ESP_LOGW(TAG, "Cannot poll field %u on the %s tab: the message that carries its values is not decoded",
+             entity.get_param(), masterbus_tab_to_string(entity.get_tab()));
     return false;
   }
   const uint16_t param = entity.get_param();
-  ESP_LOGV(TAG, "Asking device 0x%06" PRIX32 " for field %u", entity.get_masterbus_device()->get_address(), param);
-  return this->send_(MONITORING_REQUEST_TYPE, entity.get_masterbus_device()->get_address(),
+  ESP_LOGV(TAG, "Asking device 0x%06" PRIX32 " for field %u on the %s tab",
+           entity.get_masterbus_device()->get_address(), param, masterbus_tab_to_string(entity.get_tab()));
+  return this->send_(masterbus_request_type(message), entity.get_masterbus_device()->get_address(),
                      {static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
@@ -305,9 +311,12 @@ bool MasterbusHub::write_boolean(const MasterbusEntity &entity, bool state) {
 }
 
 bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
-  // Only monitoring fields have a known write layout, the same as for reading them.
+  // Reading a tab and writing it are separate questions. The write frame and the commit that
+  // follows it were captured on monitoring event fields and nowhere else, and the configuration
+  // tab is where a wrong frame changes a charger's voltage. Writing stays refused off monitoring
+  // until a write has been watched on that tab.
   if (entity.get_tab() != MasterbusTab::MASTERBUS_TAB_MONITORING) {
-    ESP_LOGW(TAG, "Cannot write field %u on the %s tab: no write format is known for it", entity.get_param(),
+    ESP_LOGW(TAG, "Cannot write field %u on the %s tab: only monitoring writes have been verified", entity.get_param(),
              masterbus_tab_to_string(entity.get_tab()));
     return false;
   }

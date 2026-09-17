@@ -428,6 +428,8 @@ TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndTheFrameThatFollowsIt) {
   EXPECT_EQ(commit.data[5], 0x00);
 }
 
+// Reading the configuration tab works; writing it does not. The two are separate decisions, and
+// this is the pair that keeps them separate.
 TEST_F(MasterbusTest, WriteSkipsTabsWithNoKnownWriteFormat) {
   auto *setting =
       add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
@@ -436,13 +438,58 @@ TEST_F(MasterbusTest, WriteSkipsTabsWithNoKnownWriteFormat) {
   EXPECT_TRUE(this->canbus_.sent.empty());
 }
 
-TEST_F(MasterbusTest, PollSkipsTabsWithNoKnownRequestFormat) {
+TEST_F(MasterbusTest, PollSkipsTheAlarmTabBecauseItsValueMessageIsNotDecoded) {
+  // The alarm tab is the one tab the vendor does not give a Data message alongside the others, so
+  // its structure can be walked but its values cannot be asked for.
+  auto *alarm = add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_ALARM);
+
+  alarm->update();
+
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
+TEST_F(MasterbusTest, AConfigurationFieldIsPolledWithItsOwnMessageNumber) {
   auto *setting =
       add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
 
   setting->update();
 
-  EXPECT_TRUE(this->canbus_.sent.empty());
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  const auto &frame = this->canbus_.sent[0];
+  EXPECT_EQ(frame.can_id >> MESSAGE_TYPE_SHIFT, 0x37);
+  EXPECT_EQ(frame.can_id & DEVICE_ADDRESS_MASK, BATTERY_1);
+  // The payload is monitoring's: the field number and nothing else.
+  ASSERT_EQ(frame.can_data_length_code, MONITORING_REQUEST_LENGTH);
+  EXPECT_EQ(encode_uint16(frame.data[1], frame.data[0]), 1);
+}
+
+TEST_F(MasterbusTest, AValueIsPublishedToTheTabItCameFrom) {
+  // Two entities, same device, same field number, different tabs. Nothing but the message number
+  // distinguishes their answers, so this is what a wrong lookup would break.
+  auto *monitoring = add_sensor(1);
+  auto *setting =
+      add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  ASSERT_EQ(monitoring->values.size(), 1u);
+  EXPECT_TRUE(setting->values.empty());
+
+  this->hub_->on_frame(frame_id(0x17, BATTERY_1), true, false, monitoring_answer(1, 55.0f));
+  ASSERT_EQ(setting->values.size(), 1u);
+  EXPECT_FLOAT_EQ(setting->values[0].as_float, 55.0f);
+  EXPECT_EQ(monitoring->values.size(), 1u) << "a configuration answer reached a monitoring entity";
+}
+
+TEST_F(MasterbusTest, AnAnswerOfTheWrongLengthOnADerivedTabIsDropped) {
+  // The history and configuration payload layout is assumed from monitoring's, not measured. If
+  // the assumption is wrong the answer will not be six bytes, and dropping it is what turns a
+  // wrong guess into silence rather than into a plausible wrong reading.
+  auto *setting =
+      add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+
+  this->hub_->on_frame(frame_id(0x17, BATTERY_1), true, false, {0x01, 0x00, 0x00, 0x60});
+
+  EXPECT_TRUE(setting->values.empty());
 }
 
 // Announcement payloads captured from the live bus, one per device. The first four bytes carry
@@ -633,6 +680,81 @@ TEST_F(MasterbusTest, ScanPlacesStringChunksByTheirOwnHeader) {
   answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
 
   EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
+}
+
+// The vendor's own message list, read out of its shared library. Six of the twelve entries are
+// pinned by traffic; the rest follow from the same ordering. These assert the pinned ones, because
+// if the ordering is ever edited it is those that must not move.
+TEST_F(MasterbusTest, MessageNumbersMatchTheTrafficThatPinsThem) {
+  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_DATA), 0x30);
+  EXPECT_EQ(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_DATA), 0x10);
+  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_PROPERTY), 0x31);
+  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_GROUP), 0x32);
+  // Seen on an unrelated installation: a display panel walking the other tabs' group lists.
+  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_ALARM_GROUP), 0x34);
+  EXPECT_EQ(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_ALARM_GROUP), 0x14);
+  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_HISTORY_GROUP), 0x36);
+  EXPECT_EQ(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_HISTORY_GROUP), 0x16);
+  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_GROUP), 0x39);
+  EXPECT_EQ(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_GROUP), 0x19);
+}
+
+TEST_F(MasterbusTest, TheAlarmTabHasNoDataMessageAndTheOthersDo) {
+  // The vendor files AlarmData with the broadcast messages rather than with the tabs, so the alarm
+  // tab can be walked for what it holds without its values being readable. Anything that reads a
+  // value has to ask first.
+  MasterbusMessage message;
+  EXPECT_FALSE(tab_data_message(MasterbusTab::MASTERBUS_TAB_ALARM, message));
+  EXPECT_TRUE(tab_data_message(MasterbusTab::MASTERBUS_TAB_MONITORING, message));
+  EXPECT_EQ(masterbus_request_type(message), 0x30);
+  EXPECT_TRUE(tab_data_message(MasterbusTab::MASTERBUS_TAB_CONFIGURATION, message));
+  EXPECT_EQ(masterbus_request_type(message), 0x37);
+  EXPECT_TRUE(tab_data_message(MasterbusTab::MASTERBUS_TAB_HISTORY, message));
+  EXPECT_EQ(masterbus_request_type(message), 0x3A);
+}
+
+TEST_F(MasterbusTest, AStructuralRequestCarriesItsTabsOwnMessageNumber) {
+  this->hub_->request_group(BATTERY_1, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, 0,
+                            MasterbusTab::MASTERBUS_TAB_ALARM);
+  this->hub_->request_property(BATTERY_1, MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, 1,
+                               MasterbusTab::MASTERBUS_TAB_ALARM);
+  this->hub_->request_group(BATTERY_1, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, 0,
+                            MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+
+  ASSERT_EQ(this->canbus_.sent.size(), 3u);
+  EXPECT_EQ(this->canbus_.sent[0].can_id, frame_id(0x34, BATTERY_1));
+  EXPECT_EQ(this->canbus_.sent[1].can_id, frame_id(0x33, BATTERY_1));
+  EXPECT_EQ(this->canbus_.sent[2].can_id, frame_id(0x39, BATTERY_1));
+  // The payload is the same on every tab; only the number on the identifier moves.
+  EXPECT_EQ(this->canbus_.sent[0].can_data_length_code, 3);
+  EXPECT_EQ(this->canbus_.sent[0].data[0],
+            static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT));
+}
+
+TEST_F(MasterbusTest, TheScanIgnoresAnAnswerFromAnotherTab) {
+  // Every tab answers with the same payload shape, so the message number is the only thing that
+  // says which tab an answer belongs to. Taking an alarm answer for a monitoring one would put a
+  // field from the wrong tab into the configuration the scan prints.
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  this->hub_->report_scan();
+  this->hub_->scan_step();
+  const size_t asked = this->canbus_.sent.size();
+
+  // The walk starts on monitoring and is waiting for 0x12. This is the alarm tab's answer.
+  this->hub_->on_frame(frame_id(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_ALARM_GROUP), BATTERY_1),
+                       true, false, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  this->hub_->scan_step();
+  EXPECT_EQ(this->canbus_.sent.size(), asked) << "the scan moved on after an answer from another tab";
+
+  // The same payload under monitoring's own number is taken, and the walk asks its next question.
+  this->hub_->on_frame(
+      frame_id(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_GROUP), BATTERY_1), true,
+      false, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  this->hub_->scan_step();
+  ASSERT_EQ(this->canbus_.sent.size(), asked + 1);
+  EXPECT_EQ(this->canbus_.sent.back().data[0],
+            static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING));
 }
 
 }  // namespace esphome::masterbus::testing
