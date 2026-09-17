@@ -401,15 +401,30 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
         this->begin_text_read_(entity, static_cast<uint16_t>(value));
         continue;
 #endif
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME:
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE:
-        // What the number in a time or date field counts is not decoded - see the note in
-        // masterbus_protocol.h. It is published as the device sent it, so it can be compared
-        // against what a Mastervolt display shows for the same field, which is where a decoding
-        // would have to start. Rendering it as a clock would only look right.
-        snprintf(text, sizeof(text), "%.6g", value);
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME: {
+        MasterbusTime time{};
+        if (!decode_time(value, time)) {
+          ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " answered %.6g, which is not a time", param,
+                   device->get_address(), value);
+          entity->publish_masterbus_unavailable();
+          continue;
+        }
+        snprintf(text, sizeof(text), "%02u:%02u:%02u", time.hour, time.minute, time.second);
         decoded.as_text = text;
         break;
+      }
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE: {
+        MasterbusDate date{};
+        if (!decode_date(value, date)) {
+          ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " answered %.6g, which is not a date", param,
+                   device->get_address(), value);
+          entity->publish_masterbus_unavailable();
+          continue;
+        }
+        snprintf(text, sizeof(text), "%04u-%02u-%02u", date.year, date.month, date.day);
+        decoded.as_text = text;
+        break;
+      }
       default:
         // Device identifier and eventable have no entity that declares them.
         entity->publish_masterbus_unavailable();
