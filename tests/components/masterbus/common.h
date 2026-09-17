@@ -2,7 +2,9 @@
 
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -42,8 +44,27 @@ class RecordingEntity : public MasterbusEntity {
   std::vector<MasterbusValue> values;
   int unavailable_count{0};
 
-  void publish_masterbus_value(const MasterbusValue &value) override { this->values.push_back(value); }
+  void publish_masterbus_value(const MasterbusValue &value) override {
+    MasterbusValue recorded = value;
+    // The text is only borrowed for the duration of the call, so a recorded value has to point at
+    // a copy of its own, exactly as a real entity keeps one.
+    switch (value.type) {
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT:
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME:
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE:
+        this->texts_.emplace_back(value.as_text != nullptr ? value.as_text : "");
+        recorded.as_text = this->texts_.back().c_str();
+        break;
+      default:
+        break;
+    }
+    this->values.push_back(recorded);
+  }
   void publish_masterbus_unavailable() override { this->unavailable_count++; }
+
+ protected:
+  // A deque, because a reference to an element must survive the next one being added.
+  std::deque<std::string> texts_;
 };
 
 /// Build the payload of a monitoring answer the way a device does: field number little-endian,
