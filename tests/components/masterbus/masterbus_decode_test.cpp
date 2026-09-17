@@ -757,4 +757,44 @@ TEST_F(MasterbusTest, TheScanIgnoresAnAnswerFromAnotherTab) {
             static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING));
 }
 
+// The hub-level catch for anything undecoded. It has to sit ahead of the device list, because the
+// frames worth catching may come from equipment nobody declared - and because the message that
+// carries an alarm is one of the things still missing, this is what will find it.
+TEST_F(MasterbusTest, AnUndecodedMessageTypeReachesTheHubTrigger) {
+  std::vector<std::tuple<std::vector<uint8_t>, uint8_t, uint32_t>> seen;
+  this->hub_->add_on_unknown_frame_callback([&seen](const std::vector<uint8_t> &data, uint8_t type, uint32_t device) {
+    seen.emplace_back(data, type, device);
+  });
+
+  // 0x04 is in no family this component can name. UNDECLARED_DEVICE is deliberate: a device-level
+  // trigger could not have seen this at all.
+  this->hub_->on_frame(frame_id(0x04, UNDECLARED_DEVICE), true, false, {0x1B, 0xEA, 0x56});
+
+  ASSERT_EQ(seen.size(), 1u);
+  EXPECT_EQ(std::get<1>(seen[0]), 0x04);
+  EXPECT_EQ(std::get<2>(seen[0]), UNDECLARED_DEVICE);
+  EXPECT_EQ(std::get<0>(seen[0]), (std::vector<uint8_t>{0x1B, 0xEA, 0x56}));
+}
+
+TEST_F(MasterbusTest, EveryMessageTheComponentCanNameIsLeftAlone) {
+  int fired = 0;
+  this->hub_->add_on_unknown_frame_callback([&fired](const std::vector<uint8_t> &, uint8_t, uint32_t) { fired++; });
+
+  // One from each family: the twelve tab messages at all three bases, then node and string.
+  for (uint8_t message = 0; message < MESSAGE_COUNT; message++) {
+    for (uint8_t base : {MESSAGE_INFORMATION_BASE, MESSAGE_NOT_AVAILABLE_BASE, MESSAGE_REQUEST_BASE})
+      this->hub_->on_frame(frame_id(base + message, BATTERY_1), true, false, {0x00});
+  }
+  for (uint8_t type : {DEVICE_ANNOUNCEMENT_TYPE, NODE_NOT_AVAILABLE_TYPE, NODE_REQUEST_TYPE, STRING_INFORMATION_TYPE,
+                       STRING_NOT_AVAILABLE_TYPE, STRING_REQUEST_TYPE})
+    this->hub_->on_frame(frame_id(type, BATTERY_1), true, false, {0x00});
+
+  EXPECT_EQ(fired, 0);
+
+  // And the gap either side of the tab block is still reported, so the bounds are not off by one.
+  this->hub_->on_frame(frame_id(MESSAGE_INFORMATION_BASE - 1, BATTERY_1), true, false, {0x00});
+  this->hub_->on_frame(frame_id(MESSAGE_REQUEST_BASE + MESSAGE_COUNT, BATTERY_1), true, false, {0x00});
+  EXPECT_EQ(fired, 2);
+}
+
 }  // namespace esphome::masterbus::testing
