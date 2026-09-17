@@ -208,13 +208,19 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
   this->log_frame_(can_id, extended_id, rtr, data);
 #endif
-#if defined(USE_MASTERBUS_SCAN) || defined(MASTERBUS_DEVICE_COUNT)
+#if defined(USE_MASTERBUS_SCAN) || defined(MASTERBUS_DEVICE_COUNT) || defined(MASTERBUS_UNKNOWN_FRAME_COUNT)
   // Every MasterBus message rides an extended identifier. A remote transmission request carries
   // no payload of its own, so there is nothing in it to decode either way.
   if (!extended_id || rtr)
     return;
   const uint32_t address = can_id & DEVICE_ADDRESS_MASK;
   const uint8_t type = can_id >> MESSAGE_TYPE_SHIFT;
+#ifdef MASTERBUS_UNKNOWN_FRAME_COUNT
+  // Before anything is decoded, because the frames this is for are the ones nothing below will
+  // look at. It runs ahead of the device list for the same reason the scan does.
+  if (!is_known_message_type(type))
+    this->unknown_frame_callback_.call(data, type, address);
+#endif
 #ifdef USE_MASTERBUS_SCAN
   // A scan listens on its own account. It must not sit behind the device list: the whole point of
   // scanning is to find devices nobody has declared yet, so a configuration with `scan: true` and
