@@ -205,10 +205,14 @@ class MasterbusHub : public Component {
   /// Write the discovered devices out as configuration the user can paste.
   void report_scan();
 
-  /// The three questions a scan asks about a device's structure.
-  bool request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group);
-  bool request_group_index(uint32_t address, uint16_t group, uint16_t index);
-  bool request_property(uint32_t address, MasterbusProperty property, uint16_t param);
+  /// The three questions a scan asks about a device's structure. Each is asked per tab: the four
+  /// tabs are the same protocol under different message numbers, so the tab only picks which.
+  bool request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group,
+                     MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
+  bool request_group_index(uint32_t address, uint16_t group, uint16_t index,
+                           MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
+  bool request_property(uint32_t address, MasterbusProperty property, uint16_t param,
+                        MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
 
   /// Drive the field walk one step. Called from a tick; public so a test can step it deliberately
   /// rather than wait for a scheduler to fire.

@@ -26,6 +26,7 @@ void MasterbusScanner::start() {
   if (this->is_running())
     return;
   this->device_index_ = 0;
+  this->tab_ = MasterbusTab::MASTERBUS_TAB_MONITORING;
   this->group_ = 0;
   this->field_index_ = 0;
   this->completed_ = 0;
@@ -33,8 +34,8 @@ void MasterbusScanner::start() {
   this->waiting_ = false;
   this->last_platform_ = nullptr;
   ESP_LOGI(TAG,
-           "Walking %u devices for their fields. Paste what follows into your configuration; "
-           "where a platform key appears more than once, merge those blocks into one.",
+           "Walking %u devices across all four tabs for their fields. Paste what follows into your "
+           "configuration; where a platform key appears more than once, merge those blocks into one.",
            static_cast<unsigned>(this->hub_->get_discovered_devices().size()));
 }
 
@@ -62,35 +63,42 @@ void MasterbusScanner::send_current_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
   switch (this->phase_) {
     case Phase::PHASE_GROUP_FIELD_COUNT:
-      this->hub_->request_group(address, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, this->group_);
+      this->hub_->request_group(address, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, this->group_,
+                                this->tab_);
       break;
     case Phase::PHASE_GROUP_NAME_ID:
-      this->hub_->request_group(address, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING, this->group_);
+      this->hub_->request_group(address, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING, this->group_,
+                                this->tab_);
       break;
     case Phase::PHASE_GROUP_NAME_TEXT:
     case Phase::PHASE_FIELD_NAME_TEXT:
       this->hub_->request_string(address, this->name_string_, this->chunk_);
       break;
     case Phase::PHASE_FIELD_NUMBER:
-      this->hub_->request_group_index(address, this->group_, this->field_index_);
+      this->hub_->request_group_index(address, this->group_, this->field_index_, this->tab_);
       break;
     case Phase::PHASE_FIELD_DISPLAY_TYPE:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, this->field_.param);
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, this->field_.param,
+                                   this->tab_);
       break;
     case Phase::PHASE_FIELD_NAME_ID:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_NAME_STRING, this->field_.param);
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_NAME_STRING, this->field_.param,
+                                   this->tab_);
       break;
     case Phase::PHASE_FIELD_UNIT_ID:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_UNIT_STRING, this->field_.param);
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_UNIT_STRING, this->field_.param,
+                                   this->tab_);
       break;
     case Phase::PHASE_FIELD_MINIMUM:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_MINIMUM, this->field_.param);
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_MINIMUM, this->field_.param,
+                                   this->tab_);
       break;
     case Phase::PHASE_FIELD_MAXIMUM:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_MAXIMUM, this->field_.param);
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_MAXIMUM, this->field_.param,
+                                   this->tab_);
       break;
     case Phase::PHASE_FIELD_STEP:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_STEP, this->field_.param);
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_STEP, this->field_.param, this->tab_);
       break;
     case Phase::PHASE_FIELD_UNIT_TEXT:
       this->hub_->request_string(address, this->unit_string_, this->chunk_);
@@ -105,8 +113,9 @@ void MasterbusScanner::advance_(bool answered) {
   switch (this->phase_) {
     case Phase::PHASE_GROUP_FIELD_COUNT:
       if (!answered) {
-        // No such group, so this device is done.
-        this->next_device_();
+        // No such group, so this tab is done. A device with nothing on a tab refuses its very
+        // first group, which is the same signal the group walk already uses for the end of a list.
+        this->next_tab_();
         return;
       }
       this->field_index_ = 0;
@@ -192,8 +201,22 @@ void MasterbusScanner::finish_field_() {
   this->waiting_ = false;
 }
 
+void MasterbusScanner::next_tab_() {
+  if (this->tab_ == MasterbusTab::MASTERBUS_TAB_CONFIGURATION) {
+    this->next_device_();
+    return;
+  }
+  this->tab_ = static_cast<MasterbusTab>(static_cast<uint8_t>(this->tab_) + 1);
+  this->group_ = 0;
+  this->group_reported_ = false;
+  this->field_index_ = 0;
+  this->phase_ = Phase::PHASE_GROUP_FIELD_COUNT;
+  this->waiting_ = false;
+}
+
 void MasterbusScanner::next_device_() {
   this->device_index_++;
+  this->tab_ = MasterbusTab::MASTERBUS_TAB_MONITORING;
   this->group_ = 0;
   this->group_reported_ = false;
   this->field_index_ = 0;
@@ -220,40 +243,41 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
 
   switch (this->phase_) {
     case Phase::PHASE_GROUP_FIELD_COUNT:
-      if (type != GROUP_INFORMATION_TYPE || data.size() < 8)
+      if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 8)
         return false;
       // The count arrives as a float, which is odd for a count but consistent on every group seen.
       this->fields_in_group_ = static_cast<uint16_t>(value32(4));
       break;
 
     case Phase::PHASE_GROUP_NAME_ID:
-      if (type != GROUP_INFORMATION_TYPE || data.size() < 6)
+      if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 6)
         return false;
       this->name_string_ = value16(4);
       break;
 
     case Phase::PHASE_FIELD_NUMBER:
-      if (type != GROUP_INFORMATION_TYPE || data.size() < 6)
+      if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 6)
         return false;
       this->field_ = {};
       this->field_.group = this->group_;
+      this->field_.tab = this->tab_;
       this->field_.param = value16(4);
       break;
 
     case Phase::PHASE_FIELD_DISPLAY_TYPE:
-      if (type != PROPERTY_INFORMATION_TYPE || data.size() < 6)
+      if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 6)
         return false;
       this->field_.display_type = static_cast<MasterbusDisplayType>(value16(4));
       break;
 
     case Phase::PHASE_FIELD_NAME_ID:
-      if (type != PROPERTY_INFORMATION_TYPE || data.size() < 6)
+      if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 6)
         return false;
       this->name_string_ = value16(4);
       break;
 
     case Phase::PHASE_FIELD_UNIT_ID:
-      if (type != PROPERTY_INFORMATION_TYPE || data.size() < 6)
+      if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 6)
         return false;
       this->unit_string_ = value16(4);
       break;
@@ -261,7 +285,7 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     case Phase::PHASE_FIELD_MINIMUM:
     case Phase::PHASE_FIELD_MAXIMUM:
     case Phase::PHASE_FIELD_STEP: {
-      if (type != PROPERTY_INFORMATION_TYPE || data.size() < 8)
+      if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 8)
         return false;
       const float value = value32(4);
       if (this->phase_ == Phase::PHASE_FIELD_MINIMUM) {
@@ -350,12 +374,25 @@ void MasterbusScanner::report_field_() {
 
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
   if (!this->group_reported_) {
-    ESP_LOGI(TAG, "  # device 0x%06" PRIX32 ", group %u: %s", address, this->group_,
+    ESP_LOGI(TAG, "  # device 0x%06" PRIX32 ", %s tab, group %u: %s", address,
+             masterbus_tab_to_string(this->field_.tab), this->group_,
              this->group_name_[0] != '\0' ? this->group_name_ : LOG_STR_LITERAL("unnamed"));
+    // A field number only means something together with its tab, and three of the four tabs
+    // cannot be read yet. Saying so here is cheaper than letting somebody paste a block that
+    // answers nothing.
+    MasterbusMessage unused;
+    if (!tab_data_message(this->field_.tab, unused)) {
+      ESP_LOGI(TAG, "  # this tab's values cannot be read yet - its data message is not decoded");
+    } else if (this->field_.tab != MasterbusTab::MASTERBUS_TAB_MONITORING) {
+      ESP_LOGI(TAG, "  # this tab's data message is derived, not measured - check what it returns");
+    }
     this->group_reported_ = true;
   }
   ESP_LOGI(TAG, "  - platform: masterbus");
   ESP_LOGI(TAG, "    masterbus_device_id: mb_device_%06" PRIX32, address);
+  if (this->field_.tab != MasterbusTab::MASTERBUS_TAB_MONITORING) {
+    ESP_LOGI(TAG, "    tab: %s", masterbus_tab_to_string(this->field_.tab));
+  }
   ESP_LOGI(TAG, "    param: %u", this->field_.param);
   ESP_LOGI(TAG, "    name: \"%s\"", this->field_.name[0] != '\0' ? this->field_.name : LOG_STR_LITERAL("unnamed"));
   // A button has no value to poll for, so it takes no cadence. A reading is worth asking for
