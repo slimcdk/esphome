@@ -92,6 +92,69 @@ inline const uint8_t *monitoring_write_commit() {
 // poll_interval exists.
 
 // ---------------------------------------------------------------------------
+// Dates and times
+// ---------------------------------------------------------------------------
+
+/// VERIFIED: a date and a time arrive as the ordinary monitoring float. A time counts seconds. A
+/// date packs the calendar into one number:
+///
+///     year * 416 + month * 32 + day
+///
+/// which is to say months of 32 days and years of 13 months, so that the parts come back out with
+/// a division rather than with a calendar. The spare slots - a 32nd day, a 13th month - are what
+/// make it reversible.
+///
+/// Checked against a capture from an unrelated installation, a Mastervolt DC shunt in January
+/// 2022. Its date field read 841202, which unpacks to day 18, month 1, year 2022, and the capture
+/// was recorded on 2022-01-18. Its time field advanced 84 counts over 83.88 seconds of that same
+/// capture, so the unit is the second.
+///
+/// A time is not always a clock. The same display type serves the shunt's "Time", which is a time
+/// of day, and its "Remaining", which is a span of hours. So the hour is not folded into a day:
+/// both render as h:mm:ss, and which one a field means is the field's business.
+static constexpr uint32_t DATE_DAYS_PER_MONTH = 32;
+static constexpr uint32_t DATE_MONTHS_PER_YEAR = 13;
+static constexpr uint32_t SECONDS_PER_HOUR = 60 * 60;
+
+struct MasterbusDate {
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+};
+
+struct MasterbusTime {
+  uint16_t hour;
+  uint8_t minute;
+  uint8_t second;
+};
+
+/// Unpack a date field. Returns false, and leaves `out` alone, for a number that cannot be one -
+/// which also catches the NaN a device that has no answer reports.
+inline bool decode_date(float value, MasterbusDate &out) {
+  // The year has to survive the cast as well as the packing, so the bound is the largest year the
+  // struct can hold rather than the largest float.
+  if (!(value >= 0.0f) || value >= static_cast<float>(DATE_MONTHS_PER_YEAR * DATE_DAYS_PER_MONTH) * 65536.0f)
+    return false;
+  const uint32_t packed = static_cast<uint32_t>(value);
+  const uint32_t months = packed / DATE_DAYS_PER_MONTH;
+  out.year = static_cast<uint16_t>(months / DATE_MONTHS_PER_YEAR);
+  out.month = static_cast<uint8_t>(months % DATE_MONTHS_PER_YEAR);
+  out.day = static_cast<uint8_t>(packed % DATE_DAYS_PER_MONTH);
+  return true;
+}
+
+/// Unpack a time field, on the same terms as decode_date.
+inline bool decode_time(float value, MasterbusTime &out) {
+  if (!(value >= 0.0f) || value >= static_cast<float>(SECONDS_PER_HOUR) * 65536.0f)
+    return false;
+  const uint32_t seconds = static_cast<uint32_t>(value);
+  out.hour = static_cast<uint16_t>(seconds / SECONDS_PER_HOUR);
+  out.minute = static_cast<uint8_t>((seconds / 60) % 60);
+  out.second = static_cast<uint8_t>(seconds % 60);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Device announcements
 // ---------------------------------------------------------------------------
 

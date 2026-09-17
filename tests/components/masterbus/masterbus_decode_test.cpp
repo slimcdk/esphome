@@ -187,16 +187,70 @@ TEST_F(MasterbusTest, ATextAnswerCountsAsAnAnswerBeforeItsTextArrives) {
   EXPECT_TRUE(this->canbus_.sent.empty());
 }
 
-TEST_F(MasterbusTest, TimeFieldPublishesTheNumberTheDeviceSent) {
-  // What the number counts is not decoded. Publishing it as it arrived is what lets it be
-  // compared against the equipment's own display; rendering a clock would only look right.
+TEST_F(MasterbusTest, TimeFieldReadsAsSecondsSinceMidnight) {
   auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, 45296.0f));
 
   ASSERT_EQ(clock->values.size(), 1u);
   EXPECT_EQ(clock->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
-  EXPECT_STREQ(clock->values[0].as_text, "45296");
+  EXPECT_STREQ(clock->values[0].as_text, "12:34:56");
+}
+
+TEST_F(MasterbusTest, DateFieldUnpacksTheCalendarTheDevicePacked) {
+  // 841202 is what a Mastervolt DC shunt reported on 2022-01-18, taken from a capture of an
+  // unrelated installation. It is the whole of the evidence that months hold 32 days here.
+  auto *today = add_sensor(95, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(95, 841202.0f));
+
+  ASSERT_EQ(today->values.size(), 1u);
+  EXPECT_EQ(today->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
+  EXPECT_STREQ(today->values[0].as_text, "2022-01-18");
+}
+
+TEST_F(MasterbusTest, TimeKeepsItsLeadingZeroes) {
+  auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+
+  // A minute and a second past midnight.
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, 61.0f));
+
+  ASSERT_EQ(clock->values.size(), 1u);
+  EXPECT_STREQ(clock->values[0].as_text, "00:01:01");
+}
+
+TEST_F(MasterbusTest, DateKeepsItsLeadingZeroes) {
+  auto *today = add_sensor(95, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(95, 841185.0f));
+
+  ASSERT_EQ(today->values.size(), 1u);
+  EXPECT_STREQ(today->values[0].as_text, "2022-01-01");
+}
+
+TEST_F(MasterbusTest, ATimeSpanIsNotFoldedIntoADay) {
+  // The same display type serves a clock and a countdown. A DC shunt reporting hours of charge
+  // left answered 579120 on the bus this was captured from; folding that into a day would report
+  // a plausible and wrong time of day.
+  auto *remaining = add_sensor(4, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(4, 579120.0f));
+
+  ASSERT_EQ(remaining->values.size(), 1u);
+  EXPECT_STREQ(remaining->values[0].as_text, "160:52:00");
+}
+
+TEST_F(MasterbusTest, ANumberThatCannotBeATimeIsUnavailableRatherThanTruncated) {
+  // Casting a float outside the destination range is undefined, so a field declared as a time
+  // that answers with something else is refused rather than truncated into a plausible one.
+  auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, -1.0f));
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       monitoring_answer(94, 235929600.0f));
+
+  EXPECT_TRUE(clock->values.empty());
+  EXPECT_EQ(clock->unavailable_count, 2);
 }
 
 // A number that publishes as text is rendered somewhere, and a string arrives in chunks across
@@ -215,7 +269,7 @@ TEST_F(MasterbusTest, ATimeAnswerDoesNotOverwriteAStringBeingRead) {
   ASSERT_EQ(label->values.size(), 1u);
   EXPECT_STREQ(label->values[0].as_text, "Battery");
   ASSERT_EQ(clock->values.size(), 1u);
-  EXPECT_STREQ(clock->values[0].as_text, "45296");
+  EXPECT_STREQ(clock->values[0].as_text, "12:34:56");
 }
 
 // The same collision where the string ends on an empty chunk: the terminator lands past what the
