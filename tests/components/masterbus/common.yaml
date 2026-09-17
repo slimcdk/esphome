@@ -2,6 +2,10 @@ masterbus:
   - id: mb
     canbus_id: canbus_bus
     log_all_frames: true
+    on_unknown_frame:
+      - logger.log:
+          format: "undecoded message 0x%02X from 0x%06X, %u bytes"
+          args: ["type", "device", "x.size()"]
     devices:
       - id: mb_battery
         device: 0x6D56EA
