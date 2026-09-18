@@ -150,7 +150,7 @@ void MasterbusHub::report_scan() {
 }
 
 void MasterbusHub::loop() {
-  this->scanner_.loop();
+  this->scanner_.loop(App.get_loop_component_start_time());
   // The walk sends one question and waits for its answer, so it wants the loop for as long as it
   // runs and not a moment longer. Before it starts and after it finishes there is nothing to do.
   if (!this->scanner_.is_running())

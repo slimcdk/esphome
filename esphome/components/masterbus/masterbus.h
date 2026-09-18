@@ -224,9 +224,9 @@ class MasterbusHub : public Component {
   bool request_property(uint32_t address, MasterbusProperty property, uint16_t param,
                         MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
 
-  /// Drive the field walk one step. Called from a tick; public so a test can step it deliberately
-  /// rather than wait for a scheduler to fire.
-  void scan_step() { this->scanner_.loop(); }
+  /// Drive the field walk one step, at the given time. Called from a tick; public so a test can
+  /// step it deliberately, and move the clock on to the question a device never answers.
+  void scan_step(uint32_t now) { this->scanner_.loop(now); }
   const MasterbusScannedField &get_scanned_field() const { return this->scanner_.get_last_field(); }
   const char *get_scanned_group_name() const { return this->scanner_.get_group_name(); }
 #endif

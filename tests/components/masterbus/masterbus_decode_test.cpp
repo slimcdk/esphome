@@ -49,10 +49,20 @@ class MasterbusTest : public ::testing::Test {
 
   /// Let the walk send its next question, then hand it the answer.
   void answer(uint8_t type, const std::vector<uint8_t> &data) {
-    this->hub_->scan_step();
+    this->hub_->scan_step(this->scan_now_);
     this->hub_->on_frame(frame_id(type, BATTERY_1), true, false, data);
   }
 
+  /// Let the walk send its next question and hear nothing back, which is how it learns that a
+  /// list has ended or that a field does not carry a property.
+  void unanswered() {
+    this->hub_->scan_step(this->scan_now_);
+    this->scan_now_ += SCAN_ANSWER_TIMEOUT_MS;
+    this->hub_->scan_step(this->scan_now_);
+  }
+
+  /// The walk's own clock, moved on only by a question nobody answers.
+  uint32_t scan_now_{0};
   RecordingCanbus canbus_;
   std::unique_ptr<MasterbusHub> hub_;
   std::unique_ptr<MasterbusDevice> battery_;
@@ -758,7 +768,7 @@ TEST_F(MasterbusTest, ScanAsksForAGroupsFieldCount) {
   this->canbus_.clear();
 
   this->hub_->report_scan();
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
 
   ASSERT_FALSE(this->canbus_.sent.empty());
   const auto &frame = this->canbus_.sent.back();
@@ -774,24 +784,24 @@ TEST_F(MasterbusTest, ScanReadsAFieldsMetadataAndNames) {
   this->hub_->report_scan();
 
   // Group 0 holds seven fields - the count arrives as a float, oddly enough.
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   this->hub_->on_frame(frame_id(GROUP_INFORMATION_TYPE, BATTERY_1), true, false,
                        {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
   // String 0 means the group has no name, which is normal and does not stop the walk.
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   this->hub_->on_frame(frame_id(GROUP_INFORMATION_TYPE, BATTERY_1), true, false, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
   // Index 0 is field 1.
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   this->hub_->on_frame(frame_id(GROUP_INFORMATION_TYPE, BATTERY_1), true, false, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
   // Display type 1, float - so a sensor.
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
                        {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
   // Name string 97, unit string 10.
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
                        {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
                        {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});
 
@@ -908,20 +918,20 @@ TEST_F(MasterbusTest, TheScanIgnoresAnAnswerFromAnotherTab) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   const size_t asked = this->canbus_.sent.size();
 
   // The walk starts on monitoring and is waiting for 0x12. This is the alarm tab's answer.
   this->hub_->on_frame(frame_id(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_ALARM_GROUP), BATTERY_1),
                        true, false, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   EXPECT_EQ(this->canbus_.sent.size(), asked) << "the scan moved on after an answer from another tab";
 
   // The same payload under monitoring's own number is taken, and the walk asks its next question.
   this->hub_->on_frame(
       frame_id(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_GROUP), BATTERY_1), true,
       false, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
-  this->hub_->scan_step();
+  this->hub_->scan_step(this->scan_now_);
   ASSERT_EQ(this->canbus_.sent.size(), asked + 1);
   EXPECT_EQ(this->canbus_.sent.back().data[0],
             static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING));
@@ -965,6 +975,62 @@ TEST_F(MasterbusTest, EveryMessageTheComponentCanNameIsLeftAlone) {
   this->hub_->on_frame(frame_id(MESSAGE_INFORMATION_BASE - 1, BATTERY_1), true, false, {0x00});
   this->hub_->on_frame(frame_id(MESSAGE_REQUEST_BASE + MESSAGE_COUNT, BATTERY_1), true, false, {0x00});
   EXPECT_EQ(fired, 2);
+}
+
+// The scan's lines are what the converter on the documentation page reads, so they are pinned
+// exactly: a device, a named group, and one field the device described completely.
+TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
+  scan_lines().clear();
+  feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+
+  // One field in group 0, the count arriving as a float.
+  answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  // The group is called "Bank", through string 80.
+  answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x50, 0x00});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x01, 0x00});
+  // Index 0 of the group is field 1, a float, named by string 97 and measured in string 10.
+  answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x70, 0x42});
+  answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0xCD, 0xCC, 0xCC, 0x3D});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+  answer(STRING_INFORMATION_TYPE, {0x30, 0x0A, 0x00, 0x00, 'V', 0x00});
+
+  ASSERT_EQ(scan_lines().lines().size(), 2u);
+  EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
+  EXPECT_EQ(scan_lines().lines()[1],
+            "field device=0x6D56EA tab=0 group=0 param=1 display=1 name=\"Battery\" unit=\"V\" min=0 max=60 "
+            "step=0.1");
+}
+
+// What a device did not answer for is absent, rather than reported as a value it never sent.
+TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
+  scan_lines().clear();
+  feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+
+  answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  // String 0: the group has no name at all.
+  answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
+  answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x75, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x75, 0x00, 0x00, 0x05, 0x00});
+  // No name string, no unit string, and nothing answered for minimum, maximum or step.
+  answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x75, 0x00, 0x00, 0x00, 0x00});
+  answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x75, 0x00, 0x00, 0x00, 0x00});
+  unanswered();  // minimum
+  unanswered();  // maximum
+  unanswered();  // step
+  unanswered();  // and the unit string it was never given a number for
+
+  ASSERT_EQ(scan_lines().lines().size(), 2u);
+  EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0");
+  EXPECT_EQ(scan_lines().lines()[1], "field device=0x6D56EA tab=0 group=0 param=117 display=5");
 }
 
 }  // namespace esphome::masterbus::testing
