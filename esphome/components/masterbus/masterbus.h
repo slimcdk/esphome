@@ -132,8 +132,8 @@ class MasterbusDevice {
   void set_timeout(uint32_t timeout_ms) { this->timeout_ms_ = timeout_ms; }
   uint32_t get_timeout() const { return this->timeout_ms_; }
 
-  /// Record that the device was heard from.
-  void mark_seen();
+  /// Record that the device was heard from, at the time the frame arrived.
+  void mark_seen(uint32_t now);
   /// Drop the device to offline. Does nothing if it already is.
   void mark_offline();
   /// Whether the device has been silent for longer than its timeout.
@@ -247,11 +247,14 @@ class MasterbusHub : public Component {
   /// Report every entity of one device as unavailable, in one go.
   void publish_device_unavailable(const MasterbusDevice *device);
 #endif
+#ifdef MASTERBUS_DEVICE_COUNT
+  /// Drop devices that have gone silent past their timeout, and report the fields that have.
+  /// Called from a tick; public so a test can drive the clock rather than wait on a scheduler.
+  void check_availability(uint32_t now);
+#endif
 
  protected:
 #ifdef MASTERBUS_DEVICE_COUNT
-  /// Drop devices that have gone silent past their timeout.
-  void check_availability_();
   /// The device this identifier belongs to, or nullptr when it is not one we were told about.
   MasterbusDevice *find_device_(uint32_t address);
 #endif
