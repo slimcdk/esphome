@@ -71,13 +71,13 @@ class MasterbusTest : public ::testing::Test {
 };
 
 TEST_F(MasterbusTest, MonitoringAnswerUpdatesTheMatchingSensor) {
-  auto *voltage = add_sensor(1);
-  auto *current = add_sensor(2);
+  auto *voltage = this->add_sensor(1);
+  auto *current = this->add_sensor(2);
 
   // Recorded: can_mb 086D56EA#0100 92EDD141 -> 26.241 V on field 1. 0x086D56EA is the identifier
   // as it appears on the wire for a monitoring answer from BAT 1.
   ASSERT_EQ(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), 0x086D56EAu);
-  feed("ext 0x086D56EA [6] 01:00:92:ED:D1:41");
+  this->feed("ext 0x086D56EA [6] 01:00:92:ED:D1:41");
 
   ASSERT_EQ(voltage->values.size(), 1u);
   EXPECT_FLOAT_EQ(voltage->values[0].as_float, 26.241f);
@@ -85,7 +85,7 @@ TEST_F(MasterbusTest, MonitoringAnswerUpdatesTheMatchingSensor) {
 }
 
 TEST_F(MasterbusTest, AnswerForAnotherDeviceIsIgnored) {
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_6), true, false, monitoring_answer(1, 26.241f));
 
@@ -93,7 +93,7 @@ TEST_F(MasterbusTest, AnswerForAnotherDeviceIsIgnored) {
 }
 
 TEST_F(MasterbusTest, RequestFrameIsNotMistakenForAnAnswer) {
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
 
   // A request carries the field number and nothing else. Reading it as an answer would publish
   // whatever followed in memory.
@@ -103,7 +103,7 @@ TEST_F(MasterbusTest, RequestFrameIsNotMistakenForAnAnswer) {
 }
 
 TEST_F(MasterbusTest, ShortPayloadIsDropped) {
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, {0x01, 0x00, 0x92, 0xED});
 
@@ -111,7 +111,7 @@ TEST_F(MasterbusTest, ShortPayloadIsDropped) {
 }
 
 TEST_F(MasterbusTest, StandardIdentifierIsIgnored) {
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), false, false, monitoring_answer(1, 26.241f));
 
@@ -121,7 +121,7 @@ TEST_F(MasterbusTest, StandardIdentifierIsIgnored) {
 TEST_F(MasterbusTest, BooleanFieldReadsAsBoolean) {
   // A boolean field arrives as a float 0.0 or 1.0, and declaring it boolean is what turns that
   // into a state rather than a number.
-  auto *relay = add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  auto *relay = this->add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 1.0f));
 
@@ -131,7 +131,7 @@ TEST_F(MasterbusTest, BooleanFieldReadsAsBoolean) {
 }
 
 TEST_F(MasterbusTest, NotANumberReportsUnavailableRatherThanZero) {
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, NAN));
 
@@ -143,7 +143,7 @@ TEST_F(MasterbusTest, NotANumberReportsUnavailableRatherThanZero) {
 // text, so publishing one takes a second exchange. Frames below are shaped the way the bus shapes
 // them; string 97 is the "Battery" the scan tests read through the same table.
 TEST_F(MasterbusTest, TextFieldIsReadFromTheStringTable) {
-  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
 
@@ -171,7 +171,7 @@ TEST_F(MasterbusTest, TextFieldIsReadFromTheStringTable) {
 TEST_F(MasterbusTest, TextReadIgnoresAChunkOfSomeOtherString) {
   // The same mistake the scan makes if it trusts a counter instead of the header: a chunk of
   // string 98 is not the next piece of string 97.
-  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
@@ -186,7 +186,7 @@ TEST_F(MasterbusTest, TextReadIgnoresAChunkOfSomeOtherString) {
 }
 
 TEST_F(MasterbusTest, TextFieldWithNoStringIsUnavailableAndAsksNothing) {
-  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 0.0f));
 
@@ -196,7 +196,7 @@ TEST_F(MasterbusTest, TextFieldWithNoStringIsUnavailableAndAsksNothing) {
 }
 
 TEST_F(MasterbusTest, StringTheDeviceDoesNotHaveLeavesTheFieldUnavailable) {
-  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
   this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false, {0x30, 0x61, 0x00, 0x00});
@@ -208,7 +208,7 @@ TEST_F(MasterbusTest, StringTheDeviceDoesNotHaveLeavesTheFieldUnavailable) {
 // Whose answer a value is decides whether this entity asks again: an answer to our own question
 // says nothing about whether anybody else is covering the field, and one from elsewhere does.
 TEST_F(MasterbusTest, APollTheBusRefusedDoesNotMakeSomebodyElsesAnswerOurs) {
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
   voltage->set_update_interval(10000);
 
   this->canbus_.error = canbus::ERROR_ALLTXBUSY;
@@ -226,7 +226,7 @@ TEST_F(MasterbusTest, APollTheBusRefusedDoesNotMakeSomebodyElsesAnswerOurs) {
 TEST_F(MasterbusTest, ATextAnswerCountsAsAnAnswerBeforeItsTextArrives) {
   // The monitoring answer came from somebody else's request, so there is nothing to gain by
   // asking again - even though the text it points at has not been read yet.
-  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
   label->set_update_interval(10000);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
@@ -238,7 +238,7 @@ TEST_F(MasterbusTest, ATextAnswerCountsAsAnAnswerBeforeItsTextArrives) {
 }
 
 TEST_F(MasterbusTest, TimeFieldReadsAsSecondsSinceMidnight) {
-  auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+  auto *clock = this->add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, 45296.0f));
 
@@ -250,7 +250,7 @@ TEST_F(MasterbusTest, TimeFieldReadsAsSecondsSinceMidnight) {
 TEST_F(MasterbusTest, DateFieldUnpacksTheCalendarTheDevicePacked) {
   // 841202 is what a Mastervolt DC shunt reported on 2022-01-18, taken from a capture of an
   // unrelated installation. It is the whole of the evidence that months hold 32 days here.
-  auto *today = add_sensor(95, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
+  auto *today = this->add_sensor(95, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(95, 841202.0f));
 
@@ -260,7 +260,7 @@ TEST_F(MasterbusTest, DateFieldUnpacksTheCalendarTheDevicePacked) {
 }
 
 TEST_F(MasterbusTest, TimeKeepsItsLeadingZeroes) {
-  auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+  auto *clock = this->add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   // A minute and a second past midnight.
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, 61.0f));
@@ -270,7 +270,7 @@ TEST_F(MasterbusTest, TimeKeepsItsLeadingZeroes) {
 }
 
 TEST_F(MasterbusTest, DateKeepsItsLeadingZeroes) {
-  auto *today = add_sensor(95, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
+  auto *today = this->add_sensor(95, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(95, 841185.0f));
 
@@ -282,7 +282,7 @@ TEST_F(MasterbusTest, ATimeSpanIsNotFoldedIntoADay) {
   // The same display type serves a clock and a countdown. A DC shunt reporting hours of charge
   // left answered 579120 on the bus this was captured from; folding that into a day would report
   // a plausible and wrong time of day.
-  auto *remaining = add_sensor(4, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+  auto *remaining = this->add_sensor(4, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(4, 579120.0f));
 
@@ -293,7 +293,7 @@ TEST_F(MasterbusTest, ATimeSpanIsNotFoldedIntoADay) {
 TEST_F(MasterbusTest, ANumberThatCannotBeATimeIsUnavailableRatherThanTruncated) {
   // Casting a float outside the destination range is undefined, so a field declared as a time
   // that answers with something else is refused rather than truncated into a plausible one.
-  auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+  auto *clock = this->add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, -1.0f));
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false,
@@ -306,8 +306,8 @@ TEST_F(MasterbusTest, ANumberThatCannotBeATimeIsUnavailableRatherThanTruncated) 
 // A number that publishes as text is rendered somewhere, and a string arrives in chunks across
 // several frames. Rendering one where the other is being assembled loses the string.
 TEST_F(MasterbusTest, ATimeAnswerDoesNotOverwriteAStringBeingRead) {
-  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
-  auto *clock = add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  auto *clock = this->add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
@@ -325,8 +325,8 @@ TEST_F(MasterbusTest, ATimeAnswerDoesNotOverwriteAStringBeingRead) {
 // The same collision where the string ends on an empty chunk: the terminator lands past what the
 // number wrote, so the field publishes the number's leading digits as its text.
 TEST_F(MasterbusTest, ATimeAnswerDoesNotTruncateAStringThatEndsOnAnEmptyChunk) {
-  auto *label = add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
-  add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  this->add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
@@ -397,13 +397,13 @@ TEST_F(MasterbusTest, ADeviceIsJudgedTimedOutOnlyOnceItsTimeoutHasRun) {
 // carries goes with it, whatever each field's own cadence was.
 TEST_F(MasterbusTest, ADeviceGoingQuietTakesAllItsEntitiesDownTogetherAndComesBackWithThem) {
   this->battery_->set_timeout(60000);
-  auto *voltage = add_sensor(1);
-  auto *relay = add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  auto *voltage = this->add_sensor(1);
+  auto *relay = this->add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
   // An hour of silence, so this one is judged by a bound the test never reaches.
-  auto *other_device = add_device(BATTERY_6);
+  auto *other_device = this->add_device(BATTERY_6);
   other_device->set_timeout(3600000);
-  auto *other_voltage = add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT,
-                                   MasterbusTab::MASTERBUS_TAB_MONITORING, other_device);
+  auto *other_voltage = this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT,
+                                         MasterbusTab::MASTERBUS_TAB_MONITORING, other_device);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 1.0f));
@@ -438,9 +438,9 @@ TEST_F(MasterbusTest, ADeviceGoingQuietTakesAllItsEntitiesDownTogetherAndComesBa
 // against the sweep's own clock.
 TEST_F(MasterbusTest, TheSweepJudgesEachDeviceOnItsOwnTimeout) {
   this->battery_->set_timeout(60000);
-  auto *patient = add_device(BATTERY_6);
+  auto *patient = this->add_device(BATTERY_6);
   patient->set_timeout(3600000);
-  auto *never_heard = add_device(0x111111);
+  auto *never_heard = this->add_device(0x111111);
   never_heard->set_timeout(60000);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
@@ -490,7 +490,7 @@ TEST_F(MasterbusTest, FrameFromAnUndeclaredDeviceLeavesUsOffline) {
 TEST_F(MasterbusTest, AFieldWithItsOwnTimeoutGoesUnavailableOnItsOwn) {
   // A relay changes twice a day while the voltage beside it arrives every second, so the device's
   // timeout cannot speak for both. Only a field given a timeout of its own is judged on it.
-  auto *relay = add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  auto *relay = this->add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
   relay->set_stale_timeout(60000);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 1.0f));
@@ -514,7 +514,7 @@ TEST_F(MasterbusTest, AFieldWithItsOwnTimeoutGoesUnavailableOnItsOwn) {
 }
 
 TEST_F(MasterbusTest, AFieldWithoutItsOwnTimeoutFollowsItsDevice) {
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
   voltage->check_stale(App.get_loop_component_start_time() + 3600000);
@@ -523,8 +523,8 @@ TEST_F(MasterbusTest, AFieldWithoutItsOwnTimeoutFollowsItsDevice) {
 }
 
 TEST_F(MasterbusTest, AnEntityAsksForItsOwnField) {
-  auto *voltage = add_sensor(1);
-  add_sensor(2);
+  auto *voltage = this->add_sensor(1);
+  this->add_sensor(2);
 
   voltage->update();
 
@@ -540,7 +540,7 @@ TEST_F(MasterbusTest, AnEntityAsksForItsOwnField) {
 TEST_F(MasterbusTest, AnAnswerMeantForSomeoneElseSuppressesOurOwnRequest) {
   // A MasterBus answer is broadcast, so a bridge or a display panel asking the same device for the
   // same field updates this entity too. Asking again straight after adds traffic and nothing else.
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
   voltage->set_update_interval(10000);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
@@ -556,7 +556,7 @@ TEST_F(MasterbusTest, OurOwnAnswerDoesNotSuppressTheNextRequest) {
   // The answer to a request is a full cadence old by the time the next one is due, so treating it
   // as a fresh reading from somebody else would halve the polling rate. Measured on a live bus:
   // a field nobody else wanted was asked for every 20 s under a 10 s update_interval.
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
   voltage->set_update_interval(10000);
 
   voltage->update();
@@ -574,7 +574,7 @@ TEST_F(MasterbusTest, OurOwnAnswerDoesNotSuppressTheNextRequest) {
 TEST_F(MasterbusTest, AnAnswerOlderThanTheCadenceDoesNotSuppressOurRequest) {
   // Same setup, except the cadence has already elapsed since that answer, so the value is no
   // longer fresh enough to stand in for one of our own.
-  auto *voltage = add_sensor(1);
+  auto *voltage = this->add_sensor(1);
   voltage->set_update_interval(0);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
@@ -590,7 +590,7 @@ TEST_F(MasterbusTest, AnAnswerOlderThanTheCadenceDoesNotSuppressOurRequest) {
 TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndTheFrameThatFollowsIt) {
   // Captured from the vendor library closing a battery relay: the write is a monitoring request
   // carrying a float, and a second frame to the next field number always follows it.
-  auto *relay = add_sensor(117);
+  auto *relay = this->add_sensor(117);
 
   ASSERT_TRUE(this->hub_->write_boolean(*relay, true));
 
@@ -615,7 +615,7 @@ TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndTheFrameThatFollowsIt) {
 // this is the pair that keeps them separate.
 TEST_F(MasterbusTest, WriteSkipsTabsWithNoKnownWriteFormat) {
   auto *setting =
-      add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+      this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
 
   EXPECT_FALSE(this->hub_->write_boolean(*setting, true));
   EXPECT_TRUE(this->canbus_.sent.empty());
@@ -624,7 +624,7 @@ TEST_F(MasterbusTest, WriteSkipsTabsWithNoKnownWriteFormat) {
 TEST_F(MasterbusTest, PollSkipsTheAlarmTabBecauseItsValueMessageIsNotDecoded) {
   // The alarm tab is the one tab the vendor does not give a Data message alongside the others, so
   // its structure can be walked but its values cannot be asked for.
-  auto *alarm = add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_ALARM);
+  auto *alarm = this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_ALARM);
 
   alarm->update();
 
@@ -633,7 +633,7 @@ TEST_F(MasterbusTest, PollSkipsTheAlarmTabBecauseItsValueMessageIsNotDecoded) {
 
 TEST_F(MasterbusTest, AConfigurationFieldIsPolledWithItsOwnMessageNumber) {
   auto *setting =
-      add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+      this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
 
   setting->update();
 
@@ -649,9 +649,9 @@ TEST_F(MasterbusTest, AConfigurationFieldIsPolledWithItsOwnMessageNumber) {
 TEST_F(MasterbusTest, AValueIsPublishedToTheTabItCameFrom) {
   // Two entities, same device, same field number, different tabs. Nothing but the message number
   // distinguishes their answers, so this is what a wrong lookup would break.
-  auto *monitoring = add_sensor(1);
+  auto *monitoring = this->add_sensor(1);
   auto *setting =
-      add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+      this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
   ASSERT_EQ(monitoring->values.size(), 1u);
@@ -668,7 +668,7 @@ TEST_F(MasterbusTest, AnAnswerOfTheWrongLengthOnADerivedTabIsDropped) {
   // the assumption is wrong the answer will not be six bytes, and dropping it is what turns a
   // wrong guess into silence rather than into a plausible wrong reading.
   auto *setting =
-      add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+      this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
 
   this->hub_->on_frame(frame_id(0x17, BATTERY_1), true, false, {0x01, 0x00, 0x00, 0x60});
 
@@ -752,8 +752,8 @@ TEST_F(MasterbusTest, NodeRequestIsAnEmptyFrameToTheBroadcastAddress) {
 TEST_F(MasterbusTest, ScanCollectsWhatTheNodeRequestBringsBack) {
   this->hub_->request_nodes();
   // Every device answers within a few milliseconds; two of the eight recorded on the real bus.
-  feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
-  feed("ext 0x04535E30 [8] 14:30:5E:03:12:01:00:00");
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->feed("ext 0x04535E30 [8] 14:30:5E:03:12:01:00:00");
 
   const auto &found = this->hub_->get_discovered_devices();
   ASSERT_EQ(found.size(), 2u);
@@ -817,21 +817,21 @@ TEST_F(MasterbusTest, ScanReassemblesAStringFromItsChunks) {
   this->hub_->report_scan();
 
   // Answer every question in turn so the walk reaches the string reads without waiting on a clock.
-  answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
-  answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x50, 0x00});  // group name is string 80
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x01, 0x00});
-  answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name string 97
-  answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});  // unit string 10
-  answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});
-  answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x50, 0x00});  // group name is string 80
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x01, 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name string 97
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});  // unit string 10
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});
 
   // "Battery" arrives as "Batt" then "ery" with its terminator.
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
 
   EXPECT_STREQ(this->hub_->get_scanned_group_name(), "Bank");
   EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
@@ -845,20 +845,20 @@ TEST_F(MasterbusTest, ScanPlacesStringChunksByTheirOwnHeader) {
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
 
-  answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
-  answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // group has no name
-  answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name string 97
-  answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});  // unit string 10
-  answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});
-  answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // group has no name
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name string 97
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});  // unit string 10
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});
 
   // A chunk of string 98 arrives in the middle; it belongs to nobody here.
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x62, 0x00, 0x00, 'Z', 'Z', 'Z', 'Z'});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x62, 0x00, 0x00, 'Z', 'Z', 'Z', 'Z'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
 
   EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
 }
@@ -982,26 +982,26 @@ TEST_F(MasterbusTest, EveryMessageTheComponentCanNameIsLeftAlone) {
 // exactly: a device, a named group, and one field the device described completely.
 TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
   scan_lines().clear();
-  feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
 
   // One field in group 0, the count arriving as a float.
-  answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
   // The group is called "Bank", through string 80.
-  answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x50, 0x00});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x01, 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x50, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x01, 0x00});
   // Index 0 of the group is field 1, a float, named by string 97 and measured in string 10.
-  answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x70, 0x42});
-  answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0xCD, 0xCC, 0xCC, 0x3D});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
-  answer(STRING_INFORMATION_TYPE, {0x30, 0x0A, 0x00, 0x00, 'V', 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x70, 0x42});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0xCD, 0xCC, 0xCC, 0x3D});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x0A, 0x00, 0x00, 'V', 0x00});
 
   ASSERT_EQ(scan_lines().lines().size(), 2u);
   EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
@@ -1013,21 +1013,21 @@ TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
 // What a device did not answer for is absent, rather than reported as a value it never sent.
 TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
   scan_lines().clear();
-  feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
 
-  answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
   // String 0: the group has no name at all.
-  answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
-  answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x75, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x75, 0x00, 0x00, 0x05, 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x75, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x75, 0x00, 0x00, 0x05, 0x00});
   // No name string, no unit string, and nothing answered for minimum, maximum or step.
-  answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x75, 0x00, 0x00, 0x00, 0x00});
-  answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x75, 0x00, 0x00, 0x00, 0x00});
-  unanswered();  // minimum
-  unanswered();  // maximum
-  unanswered();  // step
-  unanswered();  // and the unit string it was never given a number for
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x75, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x75, 0x00, 0x00, 0x00, 0x00});
+  this->unanswered();  // minimum
+  this->unanswered();  // maximum
+  this->unanswered();  // step
+  this->unanswered();  // and the unit string it was never given a number for
 
   ASSERT_EQ(scan_lines().lines().size(), 2u);
   EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0");
