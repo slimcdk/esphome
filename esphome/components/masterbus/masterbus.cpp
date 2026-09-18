@@ -218,8 +218,21 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   // Which tab the value belongs to is carried by the message number and nothing else, so it is
   // read back out here and handed on: an entity only takes a value from its own tab.
   MasterbusTab tab;
-  if (!data_information_tab(type, tab) || data.size() < MONITORING_INFORMATION_LENGTH)
+  if (!data_information_tab(type, tab))
     return;
+  if (data.size() < MONITORING_INFORMATION_LENGTH) {
+    // Every tab is assumed to carry a value the way monitoring does, which is the one thing about
+    // the other tabs that has not been watched. A tab where it does not hold would drop every
+    // answer in silence, so it is said - once, because it is the assumption that is wrong and not
+    // the frame, and a poll repeats.
+    const uint8_t already_said = 1 << static_cast<uint8_t>(tab);
+    if ((this->short_answer_said_ & already_said) == 0) {
+      this->short_answer_said_ |= already_said;
+      ESP_LOGW(TAG, "Device 0x%06" PRIX32 " answered with %u bytes on the %s tab, fewer than a value needs", address,
+               static_cast<unsigned>(data.size()), masterbus_tab_to_string(tab));
+    }
+    return;
+  }
   const uint16_t param = encode_uint16(data[1], data[0]);
   const uint32_t bits = encode_uint32(data[5], data[4], data[3], data[2]);
   float value;
@@ -253,8 +266,9 @@ void MasterbusEntity::update() {
   // says nothing about whether anyone else is covering this field.
   if (this->had_value_ && !this->value_was_ours_ && now - this->last_value_at_ < this->get_update_interval())
     return;
-  this->poll_outstanding_ = true;
-  this->device_->get_hub()->request_field(*this);
+  // A request that never reached the bus leaves nothing to wait for. Latching the flag anyway
+  // would make the next answer from another node look like ours and suppress the poll after it.
+  this->poll_outstanding_ = this->device_->get_hub()->request_field(*this);
 }
 
 void MasterbusEntity::check_stale(uint32_t now) {
