@@ -44,10 +44,10 @@ sensor:
 
 binary_sensor:
   - platform: masterbus
-    masterbus_device_id: mb_battery
-    param: 0x0075
-    name: Battery relay closed
-    update_interval: 5min
+    masterbus_device_id: mb_charger
+    param: 0x0015
+    name: Charger state
+    update_interval: 1min
 
 text_sensor:
   - platform: masterbus
@@ -62,16 +62,20 @@ text_sensor:
     timeout: 30min
 
 switch:
+  # The same field as the binary sensor above, from the writing side. A real configuration picks
+  # one of the two; both are here to compile both.
+  - platform: masterbus
+    masterbus_device_id: mb_charger
+    param: 0x0015
+    name: Charger state control
+
+button:
+  # Field 117 is an event: writing it closes the relay, and reading it always answers false. The
+  # block's own current is the only evidence the command took effect.
   - platform: masterbus
     masterbus_device_id: mb_battery
     param: 0x0075
     name: Close battery relay
-
-button:
-  - platform: masterbus
-    masterbus_device_id: mb_battery
-    param: 0x00A7
-    name: Stop charging
 
 number:
   - platform: masterbus

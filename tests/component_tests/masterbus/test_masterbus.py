@@ -209,7 +209,11 @@ def test_sensor_defaults_to_float() -> None:
 
 def test_binary_sensor_defaults_to_boolean() -> None:
     config = BINARY_SENSOR_SCHEMA(
-        {CONF_NAME: "Relay", CONF_MASTERBUS_DEVICE_ID: "mb_battery", CONF_PARAM: 0x0075}
+        {
+            CONF_NAME: "Charger state",
+            CONF_MASTERBUS_DEVICE_ID: "mb_charger",
+            CONF_PARAM: 0x0015,
+        }
     )
     assert str(config[CONF_VALUE_TYPE].enum_value).endswith(
         "MASTERBUS_VALUE_TYPE_BOOLEAN"
