@@ -21,6 +21,8 @@ namespace esphome::masterbus::testing {
 class RecordingCanbus : public canbus::Canbus {
  public:
   std::vector<canbus::CanFrame> sent;
+  /// What the next send is answered with. A bus that is off, or whose queue is full, refuses.
+  canbus::Error error{canbus::ERROR_OK};
 
   void clear() { this->sent.clear(); }
 
@@ -28,6 +30,8 @@ class RecordingCanbus : public canbus::Canbus {
   bool setup_internal() override { return true; }
 
   canbus::Error send_message(struct canbus::CanFrame *frame) override {
+    if (this->error != canbus::ERROR_OK)
+      return this->error;
     this->sent.push_back(*frame);
     return canbus::ERROR_OK;
   }
