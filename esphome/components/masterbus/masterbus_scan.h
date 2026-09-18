@@ -15,6 +15,9 @@ class MasterbusHub;
 
 /// The longest name and unit a scan will keep. Names seen on real equipment run to about fifteen
 /// characters ("Bat. temperature"); anything longer is truncated rather than dropped.
+/// How long a question waits before it is taken as unanswered, which is how the walk finds the
+/// end of a list and which properties a field does not carry.
+static constexpr uint32_t SCAN_ANSWER_TIMEOUT_MS = 200;
 static constexpr uint8_t SCAN_NAME_LENGTH = 32;
 static constexpr uint8_t SCAN_UNIT_LENGTH = 12;
 
@@ -28,10 +31,15 @@ struct MasterbusScannedField {
   uint16_t group;
   MasterbusTab tab;
   MasterbusDisplayType display_type;
+  /// Not a number where the device did not answer for that property, which is ordinary: a
+  /// boolean has no minimum.
   float minimum;
   float maximum;
   float step;
-  bool has_limits;
+  /// Whether the field carries a name or a unit string at all, whatever the device then sent for
+  /// it. A field with a name string the device would not hand over reads as an empty name.
+  bool has_name;
+  bool has_unit;
   char name[SCAN_NAME_LENGTH];
   char unit[SCAN_UNIT_LENGTH];
 };
@@ -52,7 +60,8 @@ class MasterbusScanner {
   bool is_running() const { return this->phase_ != Phase::PHASE_IDLE; }
 
   /// Drive one step. Sends at most one request per call.
-  void loop();
+  /// Drive the walk one step, at the time the caller read off the clock.
+  void loop(uint32_t now);
 
   /// Offer a frame to the scan. Returns whether it answered what the scan was waiting for.
   bool on_frame(uint8_t type, uint32_t address, const std::vector<uint8_t> &data);
@@ -102,6 +111,8 @@ class MasterbusScanner {
   /// does not name the group.
   char group_name_[SCAN_NAME_LENGTH]{};
   bool group_reported_{false};
+  /// Whether the group being walked carries a name string.
+  bool group_named_{false};
   uint16_t field_index_{0};
   uint16_t fields_in_group_{0};
   /// The string being fetched, whether that is a group's name or a field's. Only one string is
@@ -110,8 +121,6 @@ class MasterbusScanner {
   uint16_t unit_string_{0};
   uint8_t chunk_{0};
   uint16_t completed_{0};
-  /// The platform key last printed, so it is not repeated for every consecutive field.
-  const char *last_platform_{nullptr};
   MasterbusScannedField field_{};
 };
 
