@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -80,6 +82,41 @@ inline std::vector<uint8_t> monitoring_answer(uint16_t param, float value) {
   return {static_cast<uint8_t>(param & 0xFF),        static_cast<uint8_t>(param >> 8),
           static_cast<uint8_t>(bits & 0xFF),         static_cast<uint8_t>((bits >> 8) & 0xFF),
           static_cast<uint8_t>((bits >> 16) & 0xFF), static_cast<uint8_t>((bits >> 24) & 0xFF)};
+}
+
+/// A frame as log_all_frames prints it: "ext 0x086D56EA [6] 01:00:92:ED:D1:41".
+struct LoggedFrame {
+  uint32_t can_id;
+  bool extended_id;
+  bool rtr;
+  std::vector<uint8_t> data;
+};
+
+/// Read back a line the component logged, so a frame recorded off a bus - including one a user
+/// reports from equipment nobody here owns - goes into a test in the form it was seen in.
+inline LoggedFrame logged_frame(const std::string &line) {
+  LoggedFrame frame{};
+  std::istringstream fields(line);
+  std::string token;
+
+  fields >> token;
+  frame.extended_id = token == "ext";
+  fields >> token;
+  frame.can_id = static_cast<uint32_t>(std::strtoul(token.c_str(), nullptr, 16));
+  fields >> token;
+  if (token == "rtr") {
+    frame.rtr = true;
+    fields >> token;
+  }
+  const size_t declared = std::strtoul(token.c_str() + 1, nullptr, 10);
+
+  std::string payload;
+  fields >> payload;
+  for (size_t at = 0; at < payload.size(); at += 3)
+    frame.data.push_back(static_cast<uint8_t>(std::strtoul(payload.substr(at, 2).c_str(), nullptr, 16)));
+
+  EXPECT_EQ(frame.data.size(), declared) << "the line says " << declared << " bytes: " << line;
+  return frame;
 }
 
 inline uint32_t frame_id(uint8_t type, uint32_t address) {

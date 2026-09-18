@@ -2,9 +2,13 @@
 
 namespace esphome::masterbus::testing {
 
-// Addresses and payloads below are taken verbatim from a capture of a live installation.
-// 0x6D56EA and 0x6C4ECB are two of the battery blocks the vendor library reports by the same
-// number, which is what pins the low 24 bits of the identifier as the device address.
+// Two kinds of data appear below. Frames written as a line of log output were recorded off a live
+// installation and are quoted as they were logged, with the capture line beside them; every other
+// payload is built to the shape the protocol notes describe, to exercise one decision at a time.
+//
+// The addresses are recorded. 0x6D56EA and 0x6C4ECB are two of the battery blocks the vendor
+// library reports by the same number, which is what pins the low 24 bits of the identifier as the
+// device address.
 static constexpr uint32_t BATTERY_1 = 0x6D56EA;
 static constexpr uint32_t BATTERY_6 = 0x6C4ECB;
 static constexpr uint32_t UNDECLARED_DEVICE = 0x28B289;
@@ -37,6 +41,12 @@ class MasterbusTest : public ::testing::Test {
     return raw;
   }
 
+  /// Feed a frame exactly as log_all_frames printed it.
+  void feed(const char *logged) {
+    const LoggedFrame frame = logged_frame(logged);
+    this->hub_->on_frame(frame.can_id, frame.extended_id, frame.rtr, frame.data);
+  }
+
   /// Let the walk send its next question, then hand it the answer.
   void answer(uint8_t type, const std::vector<uint8_t> &data) {
     this->hub_->scan_step();
@@ -54,10 +64,10 @@ TEST_F(MasterbusTest, MonitoringAnswerUpdatesTheMatchingSensor) {
   auto *voltage = add_sensor(1);
   auto *current = add_sensor(2);
 
-  // (…) can_mb 086D56EA#0100 92EDD141 -> 26.241 V on field 1
-  // 0x086D56EA is the identifier as it appears on the wire for a monitoring answer from BAT 1.
+  // Recorded: can_mb 086D56EA#0100 92EDD141 -> 26.241 V on field 1. 0x086D56EA is the identifier
+  // as it appears on the wire for a monitoring answer from BAT 1.
   ASSERT_EQ(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), 0x086D56EAu);
-  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  feed("ext 0x086D56EA [6] 01:00:92:ED:D1:41");
 
   ASSERT_EQ(voltage->values.size(), 1u);
   EXPECT_FLOAT_EQ(voltage->values[0].as_float, 26.241f);
@@ -730,11 +740,9 @@ TEST_F(MasterbusTest, NodeRequestIsAnEmptyFrameToTheBroadcastAddress) {
 
 TEST_F(MasterbusTest, ScanCollectsWhatTheNodeRequestBringsBack) {
   this->hub_->request_nodes();
-  // Every device answers within a few milliseconds; two of the eight seen on the real bus.
-  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
-                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
-  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, 0x535E30), true, false,
-                       {0x14, 0x30, 0x5E, 0x03, 0x12, 0x01, 0x00, 0x00});
+  // Every device answers within a few milliseconds; two of the eight recorded on the real bus.
+  feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  feed("ext 0x04535E30 [8] 14:30:5E:03:12:01:00:00");
 
   const auto &found = this->hub_->get_discovered_devices();
   ASSERT_EQ(found.size(), 2u);
