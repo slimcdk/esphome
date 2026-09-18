@@ -571,6 +571,5 @@ enum class MasterbusDeviceStatus : uint8_t {
 };
 
 const char *masterbus_tab_to_string(MasterbusTab tab);
-const char *masterbus_device_status_to_string(MasterbusDeviceStatus status);
 
 }  // namespace esphome::masterbus

@@ -132,8 +132,8 @@ class MasterbusDevice {
   void set_timeout(uint32_t timeout_ms) { this->timeout_ms_ = timeout_ms; }
   uint32_t get_timeout() const { return this->timeout_ms_; }
 
-  /// Record that the device was heard from, carrying the status it reported for itself.
-  void mark_seen(MasterbusDeviceStatus status);
+  /// Record that the device was heard from.
+  void mark_seen();
   /// Drop the device to offline. Does nothing if it already is.
   void mark_offline();
   /// Whether the device has been silent for longer than its timeout.
