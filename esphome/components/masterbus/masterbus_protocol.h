@@ -388,6 +388,18 @@ constexpr bool is_known_message_type(uint8_t type) {
          type == STRING_INFORMATION_TYPE || type == STRING_NOT_AVAILABLE_TYPE || type == STRING_REQUEST_TYPE;
 }
 
+/// Whether a frame of this type is one the device itself sent. A request carries the address of
+/// the device it is aimed at and nothing about its sender, so a frame addressed to a device says
+/// only that somebody asked it something - never that it is there to answer.
+constexpr bool device_sent_message(uint8_t type) {
+  if (type >= MESSAGE_INFORMATION_BASE && type < MESSAGE_INFORMATION_BASE + MESSAGE_COUNT)
+    return true;
+  if (type >= MESSAGE_NOT_AVAILABLE_BASE && type < MESSAGE_NOT_AVAILABLE_BASE + MESSAGE_COUNT)
+    return true;
+  return type == DEVICE_ANNOUNCEMENT_TYPE || type == NODE_NOT_AVAILABLE_TYPE || type == STRING_INFORMATION_TYPE ||
+         type == STRING_NOT_AVAILABLE_TYPE;
+}
+
 // ---------------------------------------------------------------------------
 // Not decoded
 // ---------------------------------------------------------------------------
