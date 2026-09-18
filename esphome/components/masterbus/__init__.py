@@ -52,10 +52,10 @@ MasterbusEntity = masterbus_ns.class_("MasterbusEntity", cg.PollingComponent)
 MasterbusTab = masterbus_ns.enum("MasterbusTab", is_class=True)
 MasterbusValueType = masterbus_ns.enum("MasterbusValueType", is_class=True)
 
-# Bootloader is deliberately absent: firmware update over MasterBus is out of scope.
+# Bootloader is deliberately absent: firmware update over MasterBus is out of scope. So is alarm,
+# which a scan still walks and reports - it is an entity on it that cannot work.
 TABS = {
     "monitoring": MasterbusTab.MASTERBUS_TAB_MONITORING,
-    "alarm": MasterbusTab.MASTERBUS_TAB_ALARM,
     "history": MasterbusTab.MASTERBUS_TAB_HISTORY,
     "configuration": MasterbusTab.MASTERBUS_TAB_CONFIGURATION,
 }
@@ -133,6 +133,18 @@ CONFIG_SCHEMA = cv.All(
 )
 
 
+def _tab(value: Any) -> Any:
+    """The tab an entity lives on, of those whose values can be read."""
+    if isinstance(value, str) and value.lower() == "alarm":
+        raise cv.Invalid(
+            "the alarm tab cannot be read: the vendor files the message carrying an alarm's value "
+            "with the broadcast messages rather than with the tabs, and that message is not "
+            "decoded, so an entity here would never be answered. A scan still walks the tab and "
+            "reports what is on it."
+        )
+    return cv.enum(TABS, lower=True)(value)
+
+
 def _validate_poll_cadence(config: ConfigType) -> ConfigType:
     """Warn about a device given less silence than its own fastest poller leaves it.
 
@@ -189,7 +201,7 @@ def entity_schema(
         {
             cv.GenerateID(CONF_MASTERBUS_DEVICE_ID): cv.use_id(MasterbusDevice),
             cv.Required(CONF_PARAM): cv.hex_int_range(min=0, max=MAX_PARAM),
-            cv.Optional(CONF_TAB, default="monitoring"): cv.enum(TABS, lower=True),
+            cv.Optional(CONF_TAB, default="monitoring"): _tab,
             # A device answers a field only when asked. Left unset a PollingComponent never runs,
             # so the entity stays silent - which is what a first look at a live bus should do.
             cv.Optional(CONF_UPDATE_INTERVAL): cv.update_interval,
