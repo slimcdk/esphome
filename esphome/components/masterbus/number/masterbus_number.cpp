@@ -8,7 +8,7 @@ void MasterbusNumber::control(float value) {
   // this generalises the observed frame rather than reproducing an observed one.
   // Nothing is published here on purpose: the number follows what the device reports afterwards,
   // so it never claims a value the equipment did not confirm.
-  this->get_masterbus_device()->get_hub()->write_value(*this, value);
+  this->device_->get_hub()->write_value(*this, value);
 }
 
 }  // namespace esphome::masterbus
