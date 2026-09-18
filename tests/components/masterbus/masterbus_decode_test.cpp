@@ -185,6 +185,24 @@ TEST_F(MasterbusTest, StringTheDeviceDoesNotHaveLeavesTheFieldUnavailable) {
   EXPECT_EQ(label->unavailable_count, 1);
 }
 
+// Whose answer a value is decides whether this entity asks again: an answer to our own question
+// says nothing about whether anybody else is covering the field, and one from elsewhere does.
+TEST_F(MasterbusTest, APollTheBusRefusedDoesNotMakeSomebodyElsesAnswerOurs) {
+  auto *voltage = add_sensor(1);
+  voltage->set_update_interval(10000);
+
+  this->canbus_.error = canbus::ERROR_ALLTXBUSY;
+  voltage->update();
+  ASSERT_TRUE(this->canbus_.sent.empty());
+  this->canbus_.error = canbus::ERROR_OK;
+
+  // Ours never went out, so this one is somebody else's, and the field is covered without us.
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  voltage->update();
+
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
 TEST_F(MasterbusTest, ATextAnswerCountsAsAnAnswerBeforeItsTextArrives) {
   // The monitoring answer came from somebody else's request, so there is nothing to gain by
   // asking again - even though the text it points at has not been read yet.

@@ -302,6 +302,8 @@ class MasterbusHub : public Component {
 #endif
 #ifdef MASTERBUS_ENTITY_COUNT
   StaticVector<MasterbusEntity *, MASTERBUS_ENTITY_COUNT> entities_;
+  /// One bit per tab: whether an answer too short to hold a value has been reported for it.
+  uint8_t short_answer_said_{0};
 #endif
 #ifdef USE_MASTERBUS_TEXT
   /// Where the string being read is assembled. It belongs to the hub rather than to a publish
