@@ -172,10 +172,16 @@ def test_entity_defaults_to_the_monitoring_tab() -> None:
     assert str(config[CONF_TAB].enum_value).endswith("MASTERBUS_TAB_MONITORING")
 
 
-@pytest.mark.parametrize("tab", ["alarm", "history", "configuration"])
-def test_entity_accepts_the_other_tabs(tab: str) -> None:
-    """The address model leaves room for the tabs whose messages are not decoded yet."""
+@pytest.mark.parametrize("tab", ["history", "configuration"])
+def test_entity_accepts_the_other_readable_tabs(tab: str) -> None:
+    """Three of the four tabs answer a request for a value, and an entity may sit on any of them."""
     SENSOR_SCHEMA(_sensor(**{CONF_TAB: tab}))
+
+
+def test_entity_rejects_the_alarm_tab() -> None:
+    """Nothing reads an alarm's value, so an entity on that tab could only ever sit unknown."""
+    with pytest.raises(cv.Invalid, match="alarm tab cannot be read"):
+        SENSOR_SCHEMA(_sensor(**{CONF_TAB: "alarm"}))
 
 
 def test_entity_rejects_the_bootloader_tab() -> None:
