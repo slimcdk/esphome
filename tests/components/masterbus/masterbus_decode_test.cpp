@@ -119,8 +119,8 @@ TEST_F(MasterbusTest, StandardIdentifierIsIgnored) {
 }
 
 TEST_F(MasterbusTest, BooleanFieldReadsAsBoolean) {
-  // Field 117 "Close relay" arrives as a float 0.0 or 1.0; declaring it boolean is what makes it
-  // a state rather than a number.
+  // A boolean field arrives as a float 0.0 or 1.0, and declaring it boolean is what turns that
+  // into a state rather than a number.
   auto *relay = add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 1.0f));
@@ -392,8 +392,9 @@ TEST_F(MasterbusTest, ADeviceIsJudgedTimedOutOnlyOnceItsTimeoutHasRun) {
   EXPECT_TRUE(this->battery_->is_timed_out(answered_again_at + 60000));
 }
 
-// Field rates vary enormously within one device, so availability belongs to the device: when it
-// goes quiet everything it carries goes with it, whatever each field's own cadence was.
+// Field rates vary enormously within one device - a setting is read once an hour beside a current
+// read every second - so availability belongs to the device: when it goes quiet everything it
+// carries goes with it, whatever each field's own cadence was.
 TEST_F(MasterbusTest, ADeviceGoingQuietTakesAllItsEntitiesDownTogetherAndComesBackWithThem) {
   this->battery_->set_timeout(60000);
   auto *voltage = add_sensor(1);
