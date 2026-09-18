@@ -45,42 +45,16 @@ const char *masterbus_tab_to_string(MasterbusTab tab) {
   return "unknown";
 }
 
-const char *masterbus_device_status_to_string(MasterbusDeviceStatus status) {
-  switch (status) {
-    case MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE:
-      return "offline";
-    case MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_SLEEPING:
-      return "sleeping";
-    case MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON:
-      return "on";
-    case MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON_WARNING:
-      return "warning";
-    case MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFF_FAULT:
-      return "fault";
-    case MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFF_ERROR:
-      return "error";
-    case MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_UPDATING:
-      return "updating";
-  }
-  return "unknown";
-}
-
 #ifdef MASTERBUS_ENTITY_COUNT
 void MasterbusDevice::register_entity(MasterbusEntity *entity) { this->hub_->register_entity(entity); }
 #endif
 
-void MasterbusDevice::mark_seen(MasterbusDeviceStatus status) {
+void MasterbusDevice::mark_seen() {
   this->last_seen_ = App.get_loop_component_start_time();
-  if (status == MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE) {
-    // A device that reports itself offline is gone as surely as one that stopped answering.
-    this->mark_offline();
+  if (this->is_online())
     return;
-  }
-  const bool was_offline = !this->is_online();
-  this->status_ = status;
-  if (!was_offline)
-    return;
-  ESP_LOGD(TAG, "Device 0x%06" PRIX32 " is online (%s)", this->address_, masterbus_device_status_to_string(status));
+  this->status_ = MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON;
+  ESP_LOGD(TAG, "Device 0x%06" PRIX32 " is online", this->address_);
   this->online_callback_.call();
 }
 
@@ -234,7 +208,7 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   if (device == nullptr)
     return;
   // Any frame at all proves the device is answering, whatever it turns out to say.
-  device->mark_seen(MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON);
+  device->mark_seen();
 
 #ifdef MASTERBUS_ENTITY_COUNT
 #ifdef USE_MASTERBUS_TEXT
