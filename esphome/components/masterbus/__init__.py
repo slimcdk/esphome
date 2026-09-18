@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+import logging
 from typing import Any
 
 from esphome import automation
@@ -10,13 +11,19 @@ from esphome.const import (
     CONF_DEVICE,
     CONF_DEVICES,
     CONF_ID,
+    CONF_PLATFORM,
     CONF_SCAN,
     CONF_TIMEOUT,
     CONF_UPDATE_INTERVAL,
+    SCHEDULER_DONT_RUN,
 )
 from esphome.cpp_generator import MockObj
+import esphome.final_validate as fv
 from esphome.types import ConfigType
 
+_LOGGER = logging.getLogger(__name__)
+
+DOMAIN = "masterbus"
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["canbus"]
 MULTI_CONF = True
@@ -100,7 +107,9 @@ DEVICE_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MasterbusDevice),
         cv.Required(CONF_DEVICE): _device_address,
-        cv.Optional(CONF_TIMEOUT, default="60s"): cv.positive_time_period_milliseconds,
+        cv.Optional(CONF_TIMEOUT, default="60s"): cv.All(
+            cv.positive_not_null_time_period, cv.positive_time_period_milliseconds
+        ),
         cv.Optional(CONF_ON_ONLINE): automation.validate_automation(),
         cv.Optional(CONF_ON_OFFLINE): automation.validate_automation(),
     }
@@ -122,6 +131,50 @@ CONFIG_SCHEMA = cv.All(
     ).extend(cv.COMPONENT_SCHEMA),
     _validate_unique_devices,
 )
+
+
+def _validate_poll_cadence(config: ConfigType) -> ConfigType:
+    """Warn about a device given less silence than its own fastest poller leaves it.
+
+    A device says nothing unless it is asked. Where this hub holds the only node asking, the
+    frames that keep a device online are the answers to its own entities' polls, so a device
+    whose timeout is no longer than the interval between them goes offline between answers.
+    Another node on the bus may well be asking too, which is why this is a warning.
+    """
+    fastest: dict[str, int] = {}
+    for entries in fv.full_config.get().values():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get(CONF_PLATFORM) != DOMAIN:
+                continue
+            interval = entry.get(CONF_UPDATE_INTERVAL)
+            if interval is None or interval.total_milliseconds == SCHEDULER_DONT_RUN:
+                continue
+            device_id = str(entry[CONF_MASTERBUS_DEVICE_ID])
+            fastest[device_id] = min(
+                fastest.get(device_id, interval.total_milliseconds),
+                interval.total_milliseconds,
+            )
+
+    for device in config.get(CONF_DEVICES, []):
+        interval = fastest.get(str(device[CONF_ID]))
+        timeout = device[CONF_TIMEOUT].total_milliseconds
+        if interval is None or interval < timeout:
+            continue
+        _LOGGER.warning(
+            "Device 0x%06X is reported offline after %d ms without a frame, but the fields "
+            "configured for it are polled no more often than every %d ms. A device answers only "
+            "when it is asked, so unless something else on the bus asks it for something, it will "
+            "go offline between answers.",
+            device[CONF_DEVICE],
+            timeout,
+            interval,
+        )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _validate_poll_cadence
 
 
 def entity_schema(
