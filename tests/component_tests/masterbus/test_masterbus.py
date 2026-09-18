@@ -32,6 +32,7 @@ from esphome.const import (
     CONF_ID,
     CONF_NAME,
     CONF_SCAN,
+    CONF_TIMEOUT,
     CONF_UPDATE_INTERVAL,
 )
 from esphome.core import CORE
@@ -122,6 +123,14 @@ def test_device_identifier_beyond_the_extended_can_range_rejected(address: int) 
     """23 bits is the hard ceiling, and the message says so with the value."""
     with pytest.raises(cv.Invalid, match=f"{address:#X}"):
         DEVICE_SCHEMA({CONF_ID: "mb_battery", CONF_DEVICE: address})
+
+
+def test_device_timeout_of_zero_rejected() -> None:
+    """Zero would time the device out on the tick after its first frame, and every tick after."""
+    with pytest.raises(cv.Invalid):
+        DEVICE_SCHEMA(
+            {CONF_ID: "mb_battery", CONF_DEVICE: 0x6D56EA, CONF_TIMEOUT: "0s"}
+        )
 
 
 def test_duplicate_device_identifiers_rejected() -> None:
@@ -231,6 +240,16 @@ def test_hub_without_a_canbus_id_names_the_missing_key(
     result = _validated(component_config_path("missing_canbus.yaml"))
     assert result.errors
     assert CONF_CANBUS_ID in _error_messages(result)
+
+
+def test_polling_slower_than_the_device_timeout_warns(
+    component_config_path: Callable[[str], Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Nothing carries the device's address between polls, so it is judged on a poll it outlives."""
+    result = _validated(component_config_path("slow_poll.yaml"))
+    assert not result.errors
+    assert "go offline between answers" in caplog.text
 
 
 # What the configuration compiles into
