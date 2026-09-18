@@ -29,7 +29,7 @@ void MasterbusSelect::control(const std::string &value) {
   // A list option travels as its index, in the same float a number would use.
   // Nothing is published here on purpose: the select follows what the device reports afterwards,
   // so it never claims an option the equipment did not confirm.
-  this->get_masterbus_device()->get_hub()->write_value(*this, static_cast<float>(index.value()));
+  this->device_->get_hub()->write_value(*this, static_cast<float>(index.value()));
 }
 
 }  // namespace esphome::masterbus
