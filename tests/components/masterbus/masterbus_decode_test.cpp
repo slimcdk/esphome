@@ -17,9 +17,20 @@ class MasterbusTest : public ::testing::Test {
     this->hub_->register_device(this->battery_.get());
   }
 
+  /// A second device on the same hub, for the questions that are about telling them apart.
+  MasterbusDevice *add_device(uint32_t address) {
+    auto device = std::make_unique<MasterbusDevice>(this->hub_.get(), address);
+    auto *raw = device.get();
+    this->hub_->register_device(raw);
+    this->devices_.push_back(std::move(device));
+    return raw;
+  }
+
   RecordingEntity *add_sensor(uint16_t param, MasterbusValueType type = MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT,
-                              MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING) {
-    auto entity = std::make_unique<RecordingEntity>(this->battery_.get(), param, tab, type);
+                              MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING,
+                              MasterbusDevice *device = nullptr) {
+    auto entity =
+        std::make_unique<RecordingEntity>(device != nullptr ? device : this->battery_.get(), param, tab, type);
     auto *raw = entity.get();
     this->hub_->register_entity(raw);
     this->entities_.push_back(std::move(entity));
@@ -35,6 +46,7 @@ class MasterbusTest : public ::testing::Test {
   RecordingCanbus canbus_;
   std::unique_ptr<MasterbusHub> hub_;
   std::unique_ptr<MasterbusDevice> battery_;
+  std::vector<std::unique_ptr<MasterbusDevice>> devices_;
   std::vector<std::unique_ptr<RecordingEntity>> entities_;
 };
 
@@ -288,13 +300,145 @@ TEST_F(MasterbusTest, ATimeAnswerDoesNotTruncateAStringThatEndsOnAnEmptyChunk) {
   EXPECT_STREQ(label->values[0].as_text, "Batt");
 }
 
-TEST_F(MasterbusTest, AnyFrameFromTheDeviceMarksItOnline) {
+TEST_F(MasterbusTest, AFrameTheDeviceSentMarksItOnline) {
   EXPECT_FALSE(this->battery_->is_online());
 
-  // Type 0x04 is not decoded, but it still proves the device is answering.
-  this->hub_->on_frame(frame_id(0x04, BATTERY_1), true, false, {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  // An announcement says nothing about any field, but the device sent it.
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
 
   EXPECT_TRUE(this->battery_->is_online());
+}
+
+// A request carries the address of the device it is aimed at, never its sender's. A display panel
+// polling a device that died would otherwise report it alive for as long as the panel kept asking.
+TEST_F(MasterbusTest, AFrameAddressedToTheDeviceDoesNotProveItIsThere) {
+  this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, BATTERY_1), true, false, {0x01, 0x00});
+  EXPECT_FALSE(this->battery_->is_online());
+
+  // Nor does a type nobody has decoded: it may be somebody else's question.
+  this->hub_->on_frame(frame_id(0x04, BATTERY_1), true, false, {0x1B, 0xEA, 0x56});
+  EXPECT_FALSE(this->battery_->is_online());
+}
+
+// Which half of each family a frame belongs to is the whole of the rule above: answers and
+// refusals come back from the device, requests go out to it.
+TEST_F(MasterbusTest, OnlyTheHalfOfEachFamilyTheDeviceSendsCounts) {
+  for (uint8_t message = 0; message < MESSAGE_COUNT; message++) {
+    EXPECT_TRUE(device_sent_message(MESSAGE_INFORMATION_BASE + message)) << "information " << +message;
+    EXPECT_TRUE(device_sent_message(MESSAGE_NOT_AVAILABLE_BASE + message)) << "refusal " << +message;
+    EXPECT_FALSE(device_sent_message(MESSAGE_REQUEST_BASE + message)) << "request " << +message;
+  }
+  for (uint8_t type :
+       {DEVICE_ANNOUNCEMENT_TYPE, NODE_NOT_AVAILABLE_TYPE, STRING_INFORMATION_TYPE, STRING_NOT_AVAILABLE_TYPE})
+    EXPECT_TRUE(device_sent_message(type)) << "type " << +type;
+  for (uint8_t type : {NODE_REQUEST_TYPE, STRING_REQUEST_TYPE})
+    EXPECT_FALSE(device_sent_message(type)) << "type " << +type;
+
+  // A type nobody has decoded may be somebody's question, so it proves nothing either.
+  EXPECT_FALSE(device_sent_message(0x04));
+}
+
+TEST_F(MasterbusTest, ADeviceIsJudgedTimedOutOnlyOnceItsTimeoutHasRun) {
+  this->battery_->set_timeout(60000);
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  const uint32_t answered_at = App.get_loop_component_start_time();
+
+  EXPECT_FALSE(this->battery_->is_timed_out(answered_at + 59999));
+  EXPECT_TRUE(this->battery_->is_timed_out(answered_at + 60000));
+
+  // A returning device is judged from its own answer, not from the first one.
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.3f));
+  const uint32_t answered_again_at = App.get_loop_component_start_time();
+  EXPECT_FALSE(this->battery_->is_timed_out(answered_again_at + 59999));
+  EXPECT_TRUE(this->battery_->is_timed_out(answered_again_at + 60000));
+}
+
+// Field rates vary enormously within one device, so availability belongs to the device: when it
+// goes quiet everything it carries goes with it, whatever each field's own cadence was.
+TEST_F(MasterbusTest, ADeviceGoingQuietTakesAllItsEntitiesDownTogetherAndComesBackWithThem) {
+  this->battery_->set_timeout(60000);
+  auto *voltage = add_sensor(1);
+  auto *relay = add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  // An hour of silence, so this one is judged by a bound the test never reaches.
+  auto *other_device = add_device(BATTERY_6);
+  other_device->set_timeout(3600000);
+  auto *other_voltage = add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT,
+                                   MasterbusTab::MASTERBUS_TAB_MONITORING, other_device);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 1.0f));
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_6), true, false, monitoring_answer(1, 26.0f));
+  const uint32_t answered_at = App.get_loop_component_start_time();
+
+  this->hub_->check_availability(answered_at + 59999);
+  EXPECT_EQ(voltage->unavailable_count, 0);
+  EXPECT_EQ(relay->unavailable_count, 0);
+
+  this->hub_->check_availability(answered_at + 60000);
+  EXPECT_EQ(voltage->unavailable_count, 1);
+  EXPECT_EQ(relay->unavailable_count, 1);
+  EXPECT_FALSE(this->battery_->is_online());
+
+  // Reported once, not once a second for as long as the device stays quiet.
+  this->hub_->check_availability(answered_at + 600000);
+  EXPECT_EQ(voltage->unavailable_count, 1);
+  EXPECT_EQ(relay->unavailable_count, 1);
+
+  // One answer is enough to bring the device back, and its fields publish again as they arrive.
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.3f));
+  EXPECT_TRUE(this->battery_->is_online());
+  ASSERT_EQ(voltage->values.size(), 2u);
+
+  // And none of it touched the device that never went quiet.
+  EXPECT_EQ(other_voltage->unavailable_count, 0);
+  EXPECT_TRUE(other_device->is_online());
+}
+
+// One sweep, three devices, three answers: each is judged against the silence it was given, not
+// against the sweep's own clock.
+TEST_F(MasterbusTest, TheSweepJudgesEachDeviceOnItsOwnTimeout) {
+  this->battery_->set_timeout(60000);
+  auto *patient = add_device(BATTERY_6);
+  patient->set_timeout(3600000);
+  auto *never_heard = add_device(0x111111);
+  never_heard->set_timeout(60000);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_6), true, false, monitoring_answer(1, 26.0f));
+  const uint32_t answered_at = App.get_loop_component_start_time();
+
+  this->hub_->check_availability(answered_at + 60000);
+
+  EXPECT_FALSE(this->battery_->is_online());
+  EXPECT_TRUE(patient->is_online());
+  // A device that has never answered was never online, so the sweep has nothing to take down.
+  EXPECT_FALSE(never_heard->is_online());
+}
+
+TEST_F(MasterbusTest, DeviceTriggersFireOnTheEdgesOnly) {
+  this->battery_->set_timeout(60000);
+  int online = 0;
+  int offline = 0;
+  this->battery_->add_on_online_callback([&online]() { online++; });
+  this->battery_->add_on_offline_callback([&offline]() { offline++; });
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
+  const uint32_t answered_at = App.get_loop_component_start_time();
+  EXPECT_EQ(online, 1);
+
+  // A second answer is not a second arrival.
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.3f));
+  EXPECT_EQ(online, 1);
+
+  this->hub_->check_availability(answered_at + 60000);
+  EXPECT_EQ(offline, 1);
+  this->hub_->check_availability(answered_at + 61000);
+  EXPECT_EQ(offline, 1);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.4f));
+  EXPECT_EQ(online, 2);
+  EXPECT_EQ(offline, 1);
 }
 
 TEST_F(MasterbusTest, FrameFromAnUndeclaredDeviceLeavesUsOffline) {
