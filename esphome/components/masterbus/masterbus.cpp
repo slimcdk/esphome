@@ -49,8 +49,8 @@ const char *masterbus_tab_to_string(MasterbusTab tab) {
 void MasterbusDevice::register_entity(MasterbusEntity *entity) { this->hub_->register_entity(entity); }
 #endif
 
-void MasterbusDevice::mark_seen() {
-  this->last_seen_ = App.get_loop_component_start_time();
+void MasterbusDevice::mark_seen(uint32_t now) {
+  this->last_seen_ = now;
   if (this->is_online())
     return;
   this->status_ = MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON;
@@ -69,10 +69,7 @@ void MasterbusDevice::mark_offline() {
   this->offline_callback_.call();
 }
 
-bool MasterbusDevice::is_timed_out(uint32_t now) const {
-  // A device that has never been heard from is already offline, so it cannot time out.
-  return this->last_seen_ != 0 && now - this->last_seen_ >= this->timeout_ms_;
-}
+bool MasterbusDevice::is_timed_out(uint32_t now) const { return now - this->last_seen_ >= this->timeout_ms_; }
 
 bool MasterbusHub::send_(uint8_t type, uint32_t address, std::initializer_list<uint8_t> payload) {
   this->tx_.assign(payload);
@@ -168,7 +165,8 @@ void MasterbusHub::setup() {
     this->on_frame(can_id, extended_id, rtr, data);
   });
 #ifdef MASTERBUS_DEVICE_COUNT
-  this->set_interval(AVAILABILITY_INTERVAL_MS, [this]() { this->check_availability_(); });
+  this->set_interval(AVAILABILITY_INTERVAL_MS,
+                     [this]() { this->check_availability(App.get_loop_component_start_time()); });
 #endif
 #ifdef USE_MASTERBUS_SCAN
   // Ask once the bus has settled after boot, then report what answered. A device that announces
@@ -207,8 +205,10 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   MasterbusDevice *device = this->find_device_(address);
   if (device == nullptr)
     return;
-  // Any frame at all proves the device is answering, whatever it turns out to say.
-  device->mark_seen();
+  // Only a frame the device sent proves it is there. A request carries the address it is aimed
+  // at, so another node asking a dead device for something would otherwise keep it alive.
+  if (device_sent_message(type))
+    device->mark_seen(App.get_loop_component_start_time());
 
 #ifdef MASTERBUS_ENTITY_COUNT
 #ifdef USE_MASTERBUS_TEXT
@@ -336,8 +336,7 @@ MasterbusDevice *MasterbusHub::find_device_(uint32_t address) {
   return nullptr;
 }
 
-void MasterbusHub::check_availability_() {
-  const uint32_t now = App.get_loop_component_start_time();
+void MasterbusHub::check_availability(uint32_t now) {
   for (auto *device : this->devices_) {
     if (device->is_timed_out(now))
       device->mark_offline();
