@@ -8,6 +8,8 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
+#include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace esphome::masterbus {
@@ -17,10 +19,38 @@ static const char *const TAG = "masterbus.scan";
 /// How long to wait for an answer before treating the question as unanswerable. Measured
 /// turnaround on a live bus is under a millisecond, so this is generous by three orders of
 /// magnitude - it is the end-of-list signal, not a latency budget.
-static constexpr uint32_t ANSWER_TIMEOUT_MS = 200;
 
 /// A device that answers nothing at all should not hold the walk up forever.
 static constexpr uint16_t MAX_FIELDS_PER_GROUP = 64;
+
+/// Write a string as a logfmt reader expects it: always quoted, the quote and the backslash
+/// escaped, and every byte outside printable ASCII as \xNN. The bus is documented to send ASCII
+/// but nothing enforces it, and a raw byte would mangle a log viewer that carries JSON.
+static void quote_string(const char *value, char *out, size_t capacity) {
+  static const char HEX[] = "0123456789ABCDEF";
+  size_t at = 0;
+  const auto put = [&](char character) {
+    if (at + 1 < capacity)
+      out[at++] = character;
+  };
+  put('"');
+  for (const char *character = value; *character != '\0'; character++) {
+    const uint8_t byte = static_cast<uint8_t>(*character);
+    if (byte == '"' || byte == '\\') {
+      put('\\');
+      put(static_cast<char>(byte));
+    } else if (byte < 0x20 || byte > 0x7E) {
+      put('\\');
+      put('x');
+      put(HEX[byte >> 4]);
+      put(HEX[byte & 0x0F]);
+    } else {
+      put(static_cast<char>(byte));
+    }
+  }
+  put('"');
+  out[at] = '\0';
+}
 
 void MasterbusScanner::start() {
   if (this->is_running())
@@ -32,14 +62,14 @@ void MasterbusScanner::start() {
   this->completed_ = 0;
   this->phase_ = Phase::PHASE_GROUP_FIELD_COUNT;
   this->waiting_ = false;
-  this->last_platform_ = nullptr;
   ESP_LOGI(TAG,
-           "Walking %u devices across all four tabs for their fields. Paste what follows into your "
-           "configuration; where a platform key appears more than once, merge those blocks into one.",
+           "Walking %u devices across all four tabs for their fields. What follows is what each "
+           "device answered; paste it into the converter on the documentation page to get a "
+           "configuration out of it.",
            static_cast<unsigned>(this->hub_->get_discovered_devices().size()));
 }
 
-void MasterbusScanner::loop() {
+void MasterbusScanner::loop(uint32_t now) {
   if (!this->is_running())
     return;
   if (this->device_index_ >= this->hub_->get_discovered_devices().size()) {
@@ -47,12 +77,11 @@ void MasterbusScanner::loop() {
     this->phase_ = Phase::PHASE_IDLE;
     return;
   }
-  const uint32_t now = App.get_loop_component_start_time();
   if (!this->waiting_) {
     this->send_current_();
     this->sent_at_ = now;
     this->waiting_ = true;
-  } else if (now - this->sent_at_ >= ANSWER_TIMEOUT_MS) {
+  } else if (now - this->sent_at_ >= SCAN_ANSWER_TIMEOUT_MS) {
     // No answer. For the two list walks that means the end of the list; for a field property it
     // means the field does not carry that one, which is normal - a boolean has no minimum.
     this->advance_(false);
@@ -253,12 +282,16 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 6)
         return false;
       this->name_string_ = value16(4);
+      this->group_named_ = this->name_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_NUMBER:
       if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 6)
         return false;
       this->field_ = {};
+      this->field_.minimum = NAN;
+      this->field_.maximum = NAN;
+      this->field_.step = NAN;
       this->field_.group = this->group_;
       this->field_.tab = this->tab_;
       this->field_.param = value16(4);
@@ -274,12 +307,14 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 6)
         return false;
       this->name_string_ = value16(4);
+      this->field_.has_name = this->name_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_UNIT_ID:
       if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 6)
         return false;
       this->unit_string_ = value16(4);
+      this->field_.has_unit = this->unit_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_MINIMUM:
@@ -295,7 +330,6 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       } else {
         this->field_.step = value;
       }
-      this->field_.has_limits = true;
       break;
     }
 
@@ -344,70 +378,52 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
 /// Render one field as the configuration a user would write for it. The display type is what
 /// picks the platform, which is the whole point of asking for it.
 void MasterbusScanner::report_field_() {
-  const char *platform = "sensor";
-  switch (this->field_.display_type) {
-    case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_CHECKBOX:
-    case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_SWITCH:
-      platform = "binary_sensor";
-      break;
-    case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_BUTTON:
-      platform = "button";
-      break;
-    case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_RADIO:
-    case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DROPDOWN:
-      platform = "select";
-      break;
-    case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_TEXT:
-    case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_TIME:
-    case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DATE:
-      platform = "text_sensor";
-      break;
-    default:
-      break;
-  }
-  // The platform key is a YAML mapping key, so printing it for every field would produce a
-  // configuration with the same key several times over. Print it only when it changes.
-  if (this->last_platform_ == nullptr || strcmp(this->last_platform_, platform) != 0) {
-    ESP_LOGI(TAG, "%s:", platform);
-    this->last_platform_ = platform;
-  }
-
+  // Quoted strings can grow fourfold, if every byte has to be escaped. A name and a unit get
+  // their own buffers so each one's bound is the bound of the string it holds.
+  char quoted[SCAN_NAME_LENGTH * 4 + 3];
+  char quoted_unit[SCAN_UNIT_LENGTH * 4 + 3];
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
+
   if (!this->group_reported_) {
-    ESP_LOGI(TAG, "  # device 0x%06" PRIX32 ", %s tab, group %u: %s", address,
-             masterbus_tab_to_string(this->field_.tab), this->group_,
-             this->group_name_[0] != '\0' ? this->group_name_ : LOG_STR_LITERAL("unnamed"));
-    // A field number only means something together with its tab, and three of the four tabs
-    // cannot be read yet. Saying so here is cheaper than letting somebody paste a block that
-    // answers nothing.
-    MasterbusMessage unused;
-    if (!tab_data_message(this->field_.tab, unused)) {
-      ESP_LOGI(TAG, "  # this tab's values cannot be read yet - its data message is not decoded");
-    } else if (this->field_.tab != MasterbusTab::MASTERBUS_TAB_MONITORING) {
-      ESP_LOGI(TAG, "  # this tab's data message is derived, not measured - check what it returns");
+    if (this->group_named_) {
+      quote_string(this->group_name_, quoted, sizeof(quoted));
+      ESP_LOGI(TAG, "group device=0x%06" PRIX32 " tab=%u group=%u name=%s", address,
+               static_cast<unsigned>(this->field_.tab), this->group_, quoted);
+    } else {
+      ESP_LOGI(TAG, "group device=0x%06" PRIX32 " tab=%u group=%u", address, static_cast<unsigned>(this->field_.tab),
+               this->group_);
     }
     this->group_reported_ = true;
   }
-  ESP_LOGI(TAG, "  - platform: masterbus");
-  ESP_LOGI(TAG, "    masterbus_device_id: mb_device_%06" PRIX32, address);
-  if (this->field_.tab != MasterbusTab::MASTERBUS_TAB_MONITORING) {
-    ESP_LOGI(TAG, "    tab: %s", masterbus_tab_to_string(this->field_.tab));
+
+  // A key the device did not answer for is left out rather than given a value it never sent.
+  char display[16] = "";
+  if (this->field_.display_type != static_cast<MasterbusDisplayType>(0))
+    snprintf(display, sizeof(display), " display=%u", static_cast<unsigned>(this->field_.display_type));
+
+  char name[sizeof(quoted) + 8] = "";
+  if (this->field_.has_name) {
+    quote_string(this->field_.name, quoted, sizeof(quoted));
+    snprintf(name, sizeof(name), " name=%s", quoted);
   }
-  ESP_LOGI(TAG, "    param: %u", this->field_.param);
-  ESP_LOGI(TAG, "    name: \"%s\"", this->field_.name[0] != '\0' ? this->field_.name : LOG_STR_LITERAL("unnamed"));
-  // A button has no value to poll for, so it takes no cadence. A reading is worth asking for
-  // often; a switch or a setting changes rarely.
-  if (this->field_.display_type != MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_BUTTON) {
-    ESP_LOGI(TAG, "    update_interval: %s",
-             this->field_.display_type == MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_FLOAT ? LOG_STR_LITERAL("10s")
-                                                                                             : LOG_STR_LITERAL("5min"));
+
+  char unit[sizeof(quoted_unit) + 8] = "";
+  if (this->field_.has_unit) {
+    quote_string(this->field_.unit, quoted_unit, sizeof(quoted_unit));
+    snprintf(unit, sizeof(unit), " unit=%s", quoted_unit);
   }
-  if (this->field_.unit[0] != '\0') {
-    ESP_LOGI(TAG, "    unit_of_measurement: \"%s\"", this->field_.unit);
-  }
-  if (this->field_.has_limits && this->field_.maximum > this->field_.minimum) {
-    ESP_LOGI(TAG, "    # range %.4g to %.4g step %.4g", this->field_.minimum, this->field_.maximum, this->field_.step);
-  }
+
+  char range[64] = "";
+  size_t at = 0;
+  if (!std::isnan(this->field_.minimum))
+    at += snprintf(range + at, sizeof(range) - at, " min=%g", this->field_.minimum);
+  if (!std::isnan(this->field_.maximum))
+    at += snprintf(range + at, sizeof(range) - at, " max=%g", this->field_.maximum);
+  if (!std::isnan(this->field_.step))
+    snprintf(range + at, sizeof(range) - at, " step=%g", this->field_.step);
+
+  ESP_LOGI(TAG, "field device=0x%06" PRIX32 " tab=%u group=%u param=%u%s%s%s%s", address,
+           static_cast<unsigned>(this->field_.tab), this->field_.group, this->field_.param, display, name, unit, range);
 }
 
 }  // namespace esphome::masterbus
