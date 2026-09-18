@@ -14,6 +14,10 @@ def override_manifest(manifest: ComponentManifestOverride) -> None:
         cg.add_define("USE_MASTERBUS_TEXT")
         cg.add_define("MASTERBUS_UNKNOWN_FRAME_COUNT", 2)
         cg.add_define("MASTERBUS_SCAN_MAX_DEVICES", 4)
+        # The scan's lines are a contract with the converter on the documentation page, so a
+        # test reads them back through a log callback.
+        cg.add_define("USE_LOG_LISTENERS")
+        cg.add_define("ESPHOME_LOG_MAX_LISTENERS", 2)
 
     manifest.to_code = to_code_testing
     # to_code only runs for a component the harness put in the config, and it initialises every

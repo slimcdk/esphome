@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "esphome/components/canbus/canbus.h"
+#include "esphome/components/logger/logger.h"
 #include "esphome/components/masterbus/masterbus.h"
 #include "esphome/core/application.h"
 
@@ -82,6 +83,54 @@ inline std::vector<uint8_t> monitoring_answer(uint16_t param, float value) {
   return {static_cast<uint8_t>(param & 0xFF),        static_cast<uint8_t>(param >> 8),
           static_cast<uint8_t>(bits & 0xFF),         static_cast<uint8_t>((bits >> 8) & 0xFF),
           static_cast<uint8_t>((bits >> 16) & 0xFF), static_cast<uint8_t>((bits >> 24) & 0xFF)};
+}
+
+/// Collects what the scan logged, with the log's own header and colouring taken off. Those lines
+/// are what the converter on the documentation page reads, so they are a contract and are checked
+/// exactly. Nothing else the component logs is.
+class ScanLines {
+ public:
+  void clear() { this->lines_.clear(); }
+  const std::vector<std::string> &lines() const { return this->lines_; }
+
+  void take(const char *message, size_t length) {
+    std::string line;
+    for (size_t at = 0; at < length; at++) {
+      if (message[at] == '\033') {
+        while (at < length && message[at] != 'm')
+          at++;
+        continue;
+      }
+      line += message[at];
+    }
+    const size_t header = line.rfind("]: ");
+    if (header != std::string::npos)
+      line = line.substr(header + 3);
+    // Only the lines the converter reads. What the scan says around them is wording.
+    if (line.rfind("group ", 0) == 0 || line.rfind("field ", 0) == 0)
+      this->lines_.push_back(line);
+  }
+
+ private:
+  std::vector<std::string> lines_;
+};
+
+/// One capture for the whole run: a log callback cannot be taken off again, so registering one
+/// per test would leave the logger calling into objects that no longer exist.
+inline ScanLines &scan_lines() {
+  static ScanLines lines;
+  static const bool registered = []() {
+    if (logger::global_logger == nullptr)
+      return false;
+    logger::global_logger->add_log_callback(
+        &lines, [](void *self, uint8_t, const char *tag, const char *message, size_t length) {
+          if (strcmp(tag, "masterbus.scan") == 0)
+            static_cast<ScanLines *>(self)->take(message, length);
+        });
+    return true;
+  }();
+  EXPECT_TRUE(registered) << "no logger to listen to";
+  return lines;
 }
 
 /// A frame as log_all_frames prints it: "ext 0x086D56EA [6] 01:00:92:ED:D1:41".
