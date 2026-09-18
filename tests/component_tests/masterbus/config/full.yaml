@@ -19,12 +19,12 @@ sensor:
 
 binary_sensor:
   - platform: masterbus
-    masterbus_device_id: mb_battery
-    param: 0x0075
-    name: Battery relay closed
+    masterbus_device_id: mb_charger
+    param: 0x0015
+    name: Charger state
 
 switch:
   - platform: masterbus
     masterbus_device_id: mb_charger
     param: 0x0015
-    name: Charger standby
+    name: Charger state control
