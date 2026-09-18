@@ -111,8 +111,9 @@ class MasterbusEntity : public PollingComponent {
 /** One MasterBus device, addressed by the identifier it announces on the bus.
  *
  * Availability belongs here rather than to the individual entities: field update rates vary
- * enormously within one device, so a per-entity timeout would mark a relay that changes twice a
- * day permanently dead. When a device goes quiet all of its entities go unavailable together.
+ * enormously within one device, so a per-entity timeout short enough for a current read every
+ * second would mark a setting read once an hour permanently dead. When a device goes quiet all of
+ * its entities go unavailable together.
  */
 class MasterbusDevice {
  public:
