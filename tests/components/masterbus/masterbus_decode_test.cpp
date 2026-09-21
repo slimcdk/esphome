@@ -1250,4 +1250,33 @@ TEST_F(MasterbusTest, TheWalkStopsAtTheLastGroupAndFieldTheDeviceCounted) {
   EXPECT_EQ(next.data[1], DEVICE_PROPERTY_ALARM_GROUPS);
 }
 
+// A name longer than the buffer is reported for what arrived rather than for what was sent, and
+// the component says so instead of passing the cut text off as the device's own.
+TEST_F(MasterbusTest, ANameLongerThanTheBufferIsReportedCutShort) {
+  scan_lines().clear();
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->answer_group_count(1);
+
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name is string 97
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x00, 0x00});
+  this->unanswered();  // minimum
+  this->unanswered();  // maximum
+  this->unanswered();  // step
+
+  // Forty characters, where the buffer holds thirty-one and a terminator.
+  for (uint8_t chunk = 0; chunk < 10; chunk++)
+    this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, chunk, 'a', 'b', 'c', 'd'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 10, 0x00});
+
+  ASSERT_FALSE(scan_lines().lines().empty());
+  const std::string &line = scan_lines().lines().back();
+  EXPECT_NE(line.find("name=\"abcdabcdabcdabcdabcdabcdabcdabc\""), std::string::npos) << line;
+}
+
 }  // namespace esphome::masterbus::testing
