@@ -119,6 +119,10 @@ class MasterbusScanner {
   /// not carry the question is walked the older way, until a group goes unanswered.
   uint16_t groups_in_tab_{0};
   bool groups_known_{false};
+  /// Whether the string being assembled had to be cut to fit, and whether the field cap has
+  /// already been reported for the group being walked.
+  bool string_truncated_{false};
+  bool cap_reported_{false};
   /// The name of the group being walked, printed once above its fields. Empty when the device
   /// does not name the group.
   char group_name_[SCAN_NAME_LENGTH]{};

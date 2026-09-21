@@ -474,6 +474,7 @@ void MasterbusHub::begin_text_read_(MasterbusEntity *entity, uint16_t string_id)
   this->text_string_ = string_id;
   this->text_sent_at_ = now;
   this->value_text_[0] = '\0';
+  this->text_truncated_ = false;
   if (!this->request_string(entity->get_masterbus_device()->get_address(), string_id, 0)) {
     ESP_LOGW(TAG, "Could not ask for the text of field %u", entity->get_param());
     this->finish_text_read_(false);
@@ -495,7 +496,7 @@ bool MasterbusHub::take_text_frame_(uint8_t type, uint32_t address, const std::v
     this->finish_text_read_(false);
     return true;
   }
-  if (take_string_chunk(data.data(), data.size(), this->value_text_, MASTERBUS_TEXT_LENGTH)) {
+  if (take_string_chunk(data.data(), data.size(), this->value_text_, MASTERBUS_TEXT_LENGTH, &this->text_truncated_)) {
     this->finish_text_read_(true);
     return true;
   }
@@ -515,6 +516,10 @@ void MasterbusHub::finish_text_read_(bool found) {
     ESP_LOGD(TAG, "Field %u has no text under string %u", entity->get_param(), this->text_string_);
     entity->publish_masterbus_unavailable();
     return;
+  }
+  if (this->text_truncated_) {
+    ESP_LOGW(TAG, "Text of field %u is longer than %u characters and is published cut short", entity->get_param(),
+             static_cast<unsigned>(MASTERBUS_TEXT_LENGTH - 1));
   }
   MasterbusValue decoded{};
   decoded.type = MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT;

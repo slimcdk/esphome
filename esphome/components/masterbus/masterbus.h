@@ -322,6 +322,9 @@ class MasterbusHub : public Component {
   MasterbusEntity *text_entity_{nullptr};
   uint32_t text_sent_at_{0};
   uint16_t text_string_{0};
+  /// Whether the text had to be cut to fit the buffer, so that it is said rather than passed off
+  /// as what the device sent.
+  bool text_truncated_{false};
 #endif
 };
 
