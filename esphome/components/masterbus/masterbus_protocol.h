@@ -188,6 +188,18 @@ static constexpr uint8_t NODE_REQUEST_REPEATS = 3;
 /// two plus five is the 23 bits the identifier carries. Every announcement seen leaves that sixth
 /// bit clear, so what it means is unknown - it is masked off rather than shifted into an address
 /// no configured device could ever match.
+///
+/// VERIFIED: the remaining four bytes are where a device's own state lives, and there is no
+/// message that carries it. The vendor library reports a device's status without putting a single
+/// frame on the bus - two calls, 48 ms each, nothing addressed to that device in either window -
+/// so it can only be reading what the device broadcasts here unprompted. Do not go looking for a
+/// status request; decode these bytes instead.
+///
+/// Which byte holds it is still open. Three devices all reporting the same state differ in byte
+/// 4 (0x1A, 0x01, 0x59), and bytes 5-7 group by device kind rather than by state (0x01 0x00 0x00
+/// on a display and on a bus interface, 0x00 0x00 0x02 on a battery). Byte 4 also moves on its
+/// own between captures with no state change. Settling it needs a device in a different state,
+/// not more traffic.
 static constexpr uint8_t DEVICE_ANNOUNCEMENT_TYPE = 0x08;
 static constexpr uint8_t DEVICE_ANNOUNCEMENT_LENGTH = 8;
 
