@@ -75,6 +75,8 @@ class MasterbusScanner {
  protected:
   enum class Phase : uint8_t {
     PHASE_IDLE,
+    PHASE_PRODUCT_CODE,
+    PHASE_GROUP_COUNT,
     PHASE_GROUP_FIELD_COUNT,
     PHASE_GROUP_NAME_ID,
     PHASE_GROUP_NAME_TEXT,
@@ -91,7 +93,9 @@ class MasterbusScanner {
 
   void send_current_();
   void advance_(bool answered);
+  void report_device_();
   void finish_field_();
+  void next_group_();
   void next_tab_();
   void next_device_();
   void report_field_();
@@ -103,10 +107,18 @@ class MasterbusScanner {
   uint32_t sent_at_{0};
 
   uint8_t device_index_{0};
+  /// The product this device says it is, and whether it answered the question at all. Equipment
+  /// that does not carry it refuses outright, which is not an error.
+  uint16_t product_code_{0};
+  bool product_code_known_{false};
   /// Which tab is being walked. The four are the same protocol under different message numbers,
   /// so the walk below is unchanged by it - only the numbers the hub puts on the wire differ.
   MasterbusTab tab_{MasterbusTab::MASTERBUS_TAB_MONITORING};
   uint16_t group_{0};
+  /// How many groups this tab holds, and whether the device answered for it. A device that does
+  /// not carry the question is walked the older way, until a group goes unanswered.
+  uint16_t groups_in_tab_{0};
+  bool groups_known_{false};
   /// The name of the group being walked, printed once above its fields. Empty when the device
   /// does not name the group.
   char group_name_[SCAN_NAME_LENGTH]{};

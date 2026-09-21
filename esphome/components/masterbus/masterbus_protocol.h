@@ -259,6 +259,63 @@ inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8
 }
 
 // ---------------------------------------------------------------------------
+// Product code
+// ---------------------------------------------------------------------------
+
+/// VERIFIED as to shape, UNVERIFIED as to meaning: a device answers a two byte question with a 16
+/// bit number that every unit of the same product answers alike. It shares the string family's
+/// message numbers and is told apart by its first byte, the way a write is told from a read by its
+/// length.
+///
+///     request   type 0x0E, 2 bytes: 0x08, 0x3F
+///     answer    type 0x0C, 4 bytes: the two byte header, then the number little-endian
+///     refused   type 0x0D, 2 bytes: the header alone
+///
+/// Measured over 2080 exchanges in a 10 minute capture of a live bus: all six lithium battery
+/// blocks answered 2, the bus interface answered 16, and one device refused every one of its 240.
+/// A capture of an unrelated 2022 installation adds a MassCombi answering 8 and a MasterView panel
+/// answering 11, and a MasterShunt refusing all 25 of its own - so refusing the question is a
+/// property of some equipment rather than a fault. What the number indexes is not known, and it is
+/// not the article number, which is eight digits long. What is known is that six identical units
+/// agree on it and four different products do not, which is what a scan needs to tell a user which
+/// documented configuration is theirs.
+///
+/// VERIFIED: 0x3F is one question of a family, all carrying the same two byte request and 16 bit
+/// answer. Four of the others are the group counts of the four tabs, which is how many groups the
+/// walk below would otherwise have to discover by timing out on the group after the last:
+///
+///     08 02   monitoring groups      08 04   history groups
+///     08 06   configuration groups   08 08   alarm groups
+///     09 03   the highest string id the device's table holds
+///
+/// Checked against the 2022 capture, where a display panel asked all five of a MassCombi and a
+/// MasterShunt and then walked what it was told: eight of eight group counts matched the number of
+/// groups each device went on to answer for, across four tabs and two products, and both string
+/// bounds matched the highest id either device ever handed over.
+///
+/// The walk reads the product code and the four group counts. A device that refuses a group count
+/// is walked the older way, by asking for the group after the last one and taking its silence as
+/// the end of the list.
+static constexpr uint8_t DEVICE_PROPERTY_SELECTOR = 0x08;
+static constexpr uint8_t DEVICE_PROPERTY_REQUEST_LENGTH = 2;
+static constexpr uint8_t DEVICE_PROPERTY_INFORMATION_LENGTH = 4;
+
+/// The questions of the family. The four group counts say how many groups a tab holds, which is
+/// what saves the walk asking for the group after the last one and waiting out its silence.
+static constexpr uint8_t DEVICE_PROPERTY_PRODUCT_CODE = 0x3F;
+static constexpr uint8_t DEVICE_PROPERTY_MONITORING_GROUPS = 0x02;
+static constexpr uint8_t DEVICE_PROPERTY_HISTORY_GROUPS = 0x04;
+static constexpr uint8_t DEVICE_PROPERTY_CONFIGURATION_GROUPS = 0x06;
+static constexpr uint8_t DEVICE_PROPERTY_ALARM_GROUPS = 0x08;
+
+/// Whether a frame of the string family answers one of these questions rather than carrying a
+/// chunk of text. Both arrive under the same message number, and the first two bytes are what
+/// tell them apart.
+inline bool is_device_property_header(const uint8_t *data, size_t size, uint8_t question) {
+  return size >= DEVICE_PROPERTY_REQUEST_LENGTH && data[0] == DEVICE_PROPERTY_SELECTOR && data[1] == question;
+}
+
+// ---------------------------------------------------------------------------
 // Field properties
 // ---------------------------------------------------------------------------
 
@@ -425,10 +482,6 @@ constexpr bool device_sent_message(uint8_t type) {
 // Not decoded
 // ---------------------------------------------------------------------------
 //
-// UNVERIFIED: how many monitoring groups a device has. The vendor API exposes it, and the
-// announcement payload carries bytes past the address that have not been read - the count may
-// well be in there.
-//
 // UNVERIFIED: what the frame that follows every write means. Its shape is recorded above; only its
 // purpose is open.
 //
@@ -514,6 +567,21 @@ constexpr MasterbusMessage property_message(MasterbusTab tab) {
       return MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_PROPERTY;
     default:
       return MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_PROPERTY;
+  }
+}
+
+/// Which of the device property questions asks how many groups a tab holds. The numbering is the
+/// vendor's and is not in tab order, so this is a switch rather than arithmetic.
+constexpr uint8_t group_count_question(MasterbusTab tab) {
+  switch (tab) {
+    case MasterbusTab::MASTERBUS_TAB_ALARM:
+      return DEVICE_PROPERTY_ALARM_GROUPS;
+    case MasterbusTab::MASTERBUS_TAB_HISTORY:
+      return DEVICE_PROPERTY_HISTORY_GROUPS;
+    case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
+      return DEVICE_PROPERTY_CONFIGURATION_GROUPS;
+    default:
+      return DEVICE_PROPERTY_MONITORING_GROUPS;
   }
 }
 
