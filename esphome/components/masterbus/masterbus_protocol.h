@@ -241,8 +241,11 @@ static constexpr uint8_t STRING_CHUNK_LENGTH = 4;
 /// text belongs is the chunk number the answer carries rather than a counter of our own: believing
 /// our own once put the second half of "Battery" over the first.
 ///
-/// `data` is a whole string answer, header included. `out` is always left NUL terminated.
-inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8_t capacity) {
+/// `data` is a whole string answer, header included. `out` is always left NUL terminated. Where
+/// `truncated` is given it is set if a byte had to be dropped, so that a caller can say so rather
+/// than report a cut name as though the device sent it that way.
+inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8_t capacity,
+                              bool *truncated = nullptr) {
   // A short answer is the last one: the device sends four bytes of text until it runs out.
   bool ended = size < STRING_CHUNK_LENGTH + 4;
   size_t at = static_cast<size_t>(data[3]) * 4;
@@ -251,8 +254,11 @@ inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8
       ended = true;
       break;
     }
-    if (at < static_cast<size_t>(capacity) - 1)
+    if (at < static_cast<size_t>(capacity) - 1) {
       out[at++] = static_cast<char>(data[i]);
+    } else if (truncated != nullptr) {
+      *truncated = true;
+    }
   }
   out[std::min<size_t>(at, capacity - 1)] = '\0';
   return ended;
