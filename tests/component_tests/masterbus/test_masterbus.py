@@ -133,6 +133,12 @@ def test_device_timeout_of_zero_rejected() -> None:
         )
 
 
+def test_entity_timeout_of_zero_rejected() -> None:
+    """Zero reads as "follow the device", which leaving the key out already says."""
+    with pytest.raises(cv.Invalid):
+        SENSOR_SCHEMA(_sensor(**{CONF_TIMEOUT: "0s"}))
+
+
 def test_duplicate_device_identifiers_rejected() -> None:
     """Two declarations of one identifier would give two sets of entities on one source."""
     with pytest.raises(cv.Invalid, match="declared twice"):
