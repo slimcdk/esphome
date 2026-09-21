@@ -733,9 +733,9 @@ TEST_F(MasterbusTest, ReportingTheScanTransmitsNothing) {
   EXPECT_TRUE(this->canbus_.sent.empty());
 }
 
-TEST_F(MasterbusTest, NodeRequestIsAnEmptyFrameToTheBroadcastAddress) {
-  // The whole message is the identifier: the node request type against an address that belongs to
-  // no device.
+TEST_F(MasterbusTest, NodeRequestIsAnEmptyFrameUnderTheVendorsOwnAddress) {
+  // The whole message is the identifier: the node request type against the address of the node
+  // asking, which here is the one the vendor library uses for itself.
   // Captured from the vendor library, which repeats it so a device that missed one still answers.
   EXPECT_TRUE(this->hub_->request_nodes());
 
