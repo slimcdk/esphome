@@ -163,8 +163,11 @@ inline bool decode_time(float value, MasterbusTime &out) {
 // ---------------------------------------------------------------------------
 
 /// VERIFIED: asking every device to announce itself is a frame with no payload at all. The whole
-/// message is the identifier - the node request type against a fixed broadcast address that
-/// belongs to no device. Captured while the vendor library opened a fresh context: it sends the request three
+/// message is the identifier - the node request type against the address of whoever is asking.
+/// Every device on the bus answers it except the one whose address it carries: 120 requests
+/// carrying a real device's address were answered by exactly the seven others. So the address
+/// below is not a broadcast address but the vendor library's own node identity, which this hub
+/// borrows. Captured while the vendor library opened a fresh context: it sends the request three
 /// times in a row, and every device answers within about four milliseconds.
 ///
 /// Measured over 1797 requests in a 10 minute capture: exactly eight distinct devices answered
@@ -192,14 +195,20 @@ static constexpr uint8_t NODE_REQUEST_REPEATS = 3;
 /// VERIFIED: the remaining four bytes are where a device's own state lives, and there is no
 /// message that carries it. The vendor library reports a device's status without putting a single
 /// frame on the bus - two calls, 48 ms each, nothing addressed to that device in either window -
-/// so it can only be reading what the device broadcasts here unprompted. Do not go looking for a
-/// status request; decode these bytes instead.
+/// so it can only be reading the announcements its own polling keeps bringing in. Do not go
+/// looking for a status request; decode these bytes instead.
 ///
-/// Which byte holds it is still open. Three devices all reporting the same state differ in byte
-/// 4 (0x1A, 0x01, 0x59), and bytes 5-7 group by device kind rather than by state (0x01 0x00 0x00
-/// on a display and on a bus interface, 0x00 0x00 0x02 on a battery). Byte 4 also moves on its
-/// own between captures with no state change. Settling it needs a device in a different state,
-/// not more traffic.
+/// VERIFIED, and it matters to anyone who wants those bytes: an announcement is an answer, never
+/// sent unprompted. A 10 minute capture held exactly as many announcements as the node requests in
+/// it called for - 1797 requests answered by eight devices and 120 by seven, 15216 in all, not one
+/// left over. "About three a second" was the vendor bridge's own polling rate. On a bus where this
+/// hub is the only node, nothing announces itself until the hub asks.
+///
+/// Which byte holds the state is still open. Six identical battery blocks, one article number,
+/// send three different patterns in bytes 5-7 (0x00 0x00 0x02, 0x00 0x00 0x04 and 0x03 0x00 0x04),
+/// so those bytes do not simply name the product either. The one block that answers the cluster
+/// fields is also the only one with 0x02 in byte 7. Byte 4 moves between captures with no state
+/// change. Settling it needs a device in a different state, not more traffic.
 static constexpr uint8_t DEVICE_ANNOUNCEMENT_TYPE = 0x08;
 static constexpr uint8_t DEVICE_ANNOUNCEMENT_LENGTH = 8;
 
