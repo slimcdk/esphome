@@ -53,6 +53,32 @@ class MasterbusTest : public ::testing::Test {
     this->hub_->on_frame(frame_id(type, BATTERY_1), true, false, data);
   }
 
+  /// Refuse one of the questions a device answers about itself, the way equipment that does not
+  /// carry it does.
+  void refuse_device_property(uint8_t question) {
+    this->hub_->scan_step(this->scan_now_);
+    this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
+                         {DEVICE_PROPERTY_SELECTOR, question});
+  }
+
+  /// Answer how many groups a tab holds.
+  void answer_group_count(uint16_t groups, MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING) {
+    this->answer(STRING_INFORMATION_TYPE, {DEVICE_PROPERTY_SELECTOR, group_count_question(tab),
+                                           static_cast<uint8_t>(groups & 0xFF), static_cast<uint8_t>(groups >> 8)});
+  }
+
+  /// Leave the walk to find the end of a group list by asking past it, which is what a device
+  /// that does not carry the count forces.
+  void refuse_group_count(MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING) {
+    this->refuse_device_property(group_count_question(tab));
+  }
+
+  /// Take the walk past the question it opens each device with, which is the product it is.
+  void answer_product_code(uint16_t code) {
+    this->answer(STRING_INFORMATION_TYPE, {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE,
+                                           static_cast<uint8_t>(code & 0xFF), static_cast<uint8_t>(code >> 8)});
+  }
+
   /// Let the walk send its next question and hear nothing back, which is how it learns that a
   /// list has ended or that a field does not carry a property.
   void unanswered() {
@@ -769,6 +795,8 @@ TEST_F(MasterbusTest, ScanAsksForAGroupsFieldCount) {
   this->canbus_.clear();
 
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
   this->hub_->scan_step(this->scan_now_);
 
   ASSERT_FALSE(this->canbus_.sent.empty());
@@ -783,6 +811,8 @@ TEST_F(MasterbusTest, ScanReadsAFieldsMetadataAndNames) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
 
   // Group 0 holds seven fields - the count arrives as a float, oddly enough.
   this->hub_->scan_step(this->scan_now_);
@@ -815,6 +845,8 @@ TEST_F(MasterbusTest, ScanReassemblesAStringFromItsChunks) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
 
   // Answer every question in turn so the walk reaches the string reads without waiting on a clock.
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
@@ -844,6 +876,8 @@ TEST_F(MasterbusTest, ScanPlacesStringChunksByTheirOwnHeader) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
 
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
   this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // group has no name
@@ -919,6 +953,8 @@ TEST_F(MasterbusTest, TheScanIgnoresAnAnswerFromAnotherTab) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
   this->hub_->scan_step(this->scan_now_);
   const size_t asked = this->canbus_.sent.size();
 
@@ -984,6 +1020,8 @@ TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
 
   // One field in group 0, the count arriving as a float.
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
@@ -1003,9 +1041,10 @@ TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x0A, 0x00, 0x00, 'V', 0x00});
 
-  ASSERT_EQ(scan_lines().lines().size(), 2u);
-  EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
-  EXPECT_EQ(scan_lines().lines()[1],
+  ASSERT_EQ(scan_lines().lines().size(), 3u);
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA product=2");
+  EXPECT_EQ(scan_lines().lines()[1], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
+  EXPECT_EQ(scan_lines().lines()[2],
             "field device=0x6D56EA tab=0 group=0 param=1 display=1 name=\"Battery\" unit=\"V\" min=0 max=60 "
             "step=0.1");
 }
@@ -1015,6 +1054,8 @@ TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
 
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
   // String 0: the group has no name at all.
@@ -1028,9 +1069,9 @@ TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
   this->unanswered();  // maximum
   this->unanswered();  // step
 
-  ASSERT_EQ(scan_lines().lines().size(), 2u);
-  EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0");
-  EXPECT_EQ(scan_lines().lines()[1], "field device=0x6D56EA tab=0 group=0 param=117 display=5");
+  ASSERT_EQ(scan_lines().lines().size(), 3u);
+  EXPECT_EQ(scan_lines().lines()[1], "group device=0x6D56EA tab=0 group=0");
+  EXPECT_EQ(scan_lines().lines()[2], "field device=0x6D56EA tab=0 group=0 param=117 display=5");
 }
 
 // Asking the string table for entry zero would cost an answer timeout on every field that
@@ -1038,6 +1079,8 @@ TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
 TEST_F(MasterbusTest, AFieldWithNoUnitIsNotAskedForTheUnitString) {
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
 
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
   this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
@@ -1064,6 +1107,8 @@ TEST_F(MasterbusTest, AGroupThatDoesNotAnswerForItsNameReportsNoNameAtAll) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->refuse_group_count();
 
   // Group 0 holds one field and is called "Bank", through string 80.
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
@@ -1077,7 +1122,6 @@ TEST_F(MasterbusTest, AGroupThatDoesNotAnswerForItsNameReportsNoNameAtAll) {
   this->unanswered();  // minimum
   this->unanswered();  // maximum
   this->unanswered();  // step
-  this->unanswered();  // the group holds no second field
 
   // Group 1 holds one field too, but says nothing when asked what it is called.
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
@@ -1090,9 +1134,120 @@ TEST_F(MasterbusTest, AGroupThatDoesNotAnswerForItsNameReportsNoNameAtAll) {
   this->unanswered();  // maximum
   this->unanswered();  // step
 
-  ASSERT_EQ(scan_lines().lines().size(), 4u);
-  EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
-  EXPECT_EQ(scan_lines().lines()[2], "group device=0x6D56EA tab=0 group=1");
+  ASSERT_EQ(scan_lines().lines().size(), 5u);
+  EXPECT_EQ(scan_lines().lines()[1], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
+  EXPECT_EQ(scan_lines().lines()[3], "group device=0x6D56EA tab=0 group=1");
+}
+
+// The question every device is asked first. Six identical battery blocks on the reference bus all
+// answered 2 and the bus interface answered 16, which is what makes the answer worth reporting: it
+// says which of the documented configurations a device is.
+TEST_F(MasterbusTest, ScanReportsTheProductADeviceSaysItIs) {
+  scan_lines().clear();
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->canbus_.clear();
+  this->hub_->report_scan();
+  this->hub_->scan_step(this->scan_now_);
+
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  const auto &asked = this->canbus_.sent.back();
+  EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
+  EXPECT_EQ(asked.can_id & DEVICE_ADDRESS_MASK, BATTERY_1);
+  ASSERT_EQ(asked.can_data_length_code, DEVICE_PROPERTY_REQUEST_LENGTH);
+  EXPECT_EQ(asked.data[0], DEVICE_PROPERTY_SELECTOR);
+  EXPECT_EQ(asked.data[1], DEVICE_PROPERTY_PRODUCT_CODE);
+
+  // 08:3f:02:00 - the answer a lithium battery block gives, recorded off the bus.
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE, 0x02, 0x00});
+
+  ASSERT_EQ(scan_lines().lines().size(), 1u);
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA product=2");
+}
+
+// Equipment that does not carry a product code refuses the question outright - one device on the
+// reference bus refused all 240 of them. It is still listed, and its fields are still walked.
+TEST_F(MasterbusTest, ADeviceThatCarriesNoProductCodeIsStillListedAndWalked) {
+  scan_lines().clear();
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->hub_->scan_step(this->scan_now_);
+  this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
+                       {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE});
+
+  ASSERT_EQ(scan_lines().lines().size(), 1u);
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA");
+
+  // And the walk carried on: first how many groups the tab holds, then the group itself.
+  this->canbus_.clear();
+  this->hub_->scan_step(this->scan_now_);
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], DEVICE_PROPERTY_MONITORING_GROUPS);
+
+  this->refuse_group_count();
+  this->canbus_.clear();
+  this->hub_->scan_step(this->scan_now_);
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, GROUP_REQUEST_TYPE);
+}
+
+// A string chunk and a product code arrive under the same message number, so the first byte is
+// what tells them apart. Reading a chunk as a code would report a product nobody makes.
+TEST_F(MasterbusTest, AStringChunkIsNotReadAsAProductCode) {
+  scan_lines().clear();
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->hub_->scan_step(this->scan_now_);
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {STRING_REQUEST_MARKER, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
+
+  EXPECT_TRUE(scan_lines().lines().empty()) << "a string chunk was taken for a product code";
+}
+
+// The group counts are what save the walk a question per tab and per group. A tab the device says
+// holds nothing is skipped without asking about a group on it at all.
+TEST_F(MasterbusTest, ATabTheDeviceSaysIsEmptyIsNotWalked) {
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer_product_code(2);
+
+  this->canbus_.clear();
+  this->answer_group_count(0);
+  this->hub_->scan_step(this->scan_now_);
+
+  ASSERT_EQ(this->canbus_.sent.size(), 2u) << "the walk asked about a group on an empty tab";
+  const auto &next = this->canbus_.sent.back();
+  EXPECT_EQ(next.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
+  EXPECT_EQ(next.data[1], DEVICE_PROPERTY_ALARM_GROUPS);
+}
+
+// And the walk stops at the last group the device counted, rather than finding the end by asking
+// for one more group and one more field and waiting out both silences.
+TEST_F(MasterbusTest, TheWalkStopsAtTheLastGroupAndFieldTheDeviceCounted) {
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer_product_code(2);
+  this->answer_group_count(1);
+
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});  // one field
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});              // no group name
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});              // index 0 is field 1
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x00, 0x00});
+  this->unanswered();  // minimum
+  this->unanswered();  // maximum
+  this->unanswered();  // step
+
+  this->canbus_.clear();
+  this->hub_->scan_step(this->scan_now_);
+
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  const auto &next = this->canbus_.sent.back();
+  EXPECT_EQ(next.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE)
+      << "the walk asked for a group or a field the device had already counted out";
+  EXPECT_EQ(next.data[1], DEVICE_PROPERTY_ALARM_GROUPS);
 }
 
 }  // namespace esphome::masterbus::testing

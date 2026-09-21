@@ -56,7 +56,9 @@ void MasterbusScanner::start() {
   this->group_ = 0;
   this->field_index_ = 0;
   this->completed_ = 0;
-  this->phase_ = Phase::PHASE_GROUP_FIELD_COUNT;
+  this->product_code_known_ = false;
+  this->groups_known_ = false;
+  this->phase_ = Phase::PHASE_PRODUCT_CODE;
   this->waiting_ = false;
   ESP_LOGI(TAG,
            "Walking %u devices across all four tabs for their fields. What follows is what each "
@@ -87,6 +89,12 @@ void MasterbusScanner::loop(uint32_t now) {
 void MasterbusScanner::send_current_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
   switch (this->phase_) {
+    case Phase::PHASE_PRODUCT_CODE:
+      this->hub_->request_device_property(address, DEVICE_PROPERTY_PRODUCT_CODE);
+      break;
+    case Phase::PHASE_GROUP_COUNT:
+      this->hub_->request_device_property(address, group_count_question(this->tab_));
+      break;
     case Phase::PHASE_GROUP_FIELD_COUNT:
       this->hub_->request_group(address, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, this->group_,
                                 this->tab_);
@@ -136,6 +144,23 @@ void MasterbusScanner::send_current_() {
 void MasterbusScanner::advance_(bool answered) {
   this->waiting_ = false;
   switch (this->phase_) {
+    case Phase::PHASE_PRODUCT_CODE:
+      // Asked once per device, and the answer is reported whether it came or not: a device that
+      // refuses the question is still worth listing, and its fields are still worth walking.
+      this->report_device_();
+      this->phase_ = Phase::PHASE_GROUP_COUNT;
+      return;
+
+    case Phase::PHASE_GROUP_COUNT:
+      // A tab the device says holds nothing is not walked at all. Where the question went
+      // unanswered the walk falls back to finding the end of the list by asking past it.
+      if (this->groups_known_ && this->groups_in_tab_ == 0) {
+        this->next_tab_();
+        return;
+      }
+      this->phase_ = Phase::PHASE_GROUP_FIELD_COUNT;
+      return;
+
     case Phase::PHASE_GROUP_FIELD_COUNT:
       if (!answered) {
         // No such group, so this tab is done. A device with nothing on a tab refuses its very
@@ -162,15 +187,18 @@ void MasterbusScanner::advance_(bool answered) {
 
     case Phase::PHASE_GROUP_NAME_TEXT:
       this->name_string_ = 0;
+      // The count came from the device, so an empty group needs no question to find that out.
+      if (this->fields_in_group_ == 0) {
+        this->next_group_();
+        return;
+      }
       this->phase_ = Phase::PHASE_FIELD_NUMBER;
       return;
 
     case Phase::PHASE_FIELD_NUMBER:
-      if (!answered || this->field_index_ >= this->fields_in_group_ || this->field_index_ >= MAX_FIELDS_PER_GROUP) {
-        // End of this group's field list; try the next group.
-        this->group_++;
-        this->group_reported_ = false;
-        this->phase_ = Phase::PHASE_GROUP_FIELD_COUNT;
+      if (!answered) {
+        // The device stopped short of the count it gave. Its word on the group is done with.
+        this->next_group_();
         return;
       }
       this->phase_ = Phase::PHASE_FIELD_DISPLAY_TYPE;
@@ -235,8 +263,27 @@ void MasterbusScanner::finish_field_() {
   this->chunk_ = 0;
   this->name_string_ = 0;
   this->unit_string_ = 0;
-  this->phase_ = Phase::PHASE_FIELD_NUMBER;
   this->waiting_ = false;
+  // The group said how many fields it holds, so the last one is known without asking for one more.
+  // The cap is for a count no device should give.
+  if (this->field_index_ >= this->fields_in_group_ || this->field_index_ >= MAX_FIELDS_PER_GROUP) {
+    this->next_group_();
+    return;
+  }
+  this->phase_ = Phase::PHASE_FIELD_NUMBER;
+}
+
+void MasterbusScanner::next_group_() {
+  this->group_++;
+  this->group_reported_ = false;
+  this->field_index_ = 0;
+  this->waiting_ = false;
+  // Past the last group the device owned up to, so the tab is finished without asking again.
+  if (this->groups_known_ && this->group_ >= this->groups_in_tab_) {
+    this->next_tab_();
+    return;
+  }
+  this->phase_ = Phase::PHASE_GROUP_FIELD_COUNT;
 }
 
 void MasterbusScanner::next_tab_() {
@@ -248,7 +295,8 @@ void MasterbusScanner::next_tab_() {
   this->group_ = 0;
   this->group_reported_ = false;
   this->field_index_ = 0;
-  this->phase_ = Phase::PHASE_GROUP_FIELD_COUNT;
+  this->groups_known_ = false;
+  this->phase_ = Phase::PHASE_GROUP_COUNT;
   this->waiting_ = false;
 }
 
@@ -258,7 +306,9 @@ void MasterbusScanner::next_device_() {
   this->group_ = 0;
   this->group_reported_ = false;
   this->field_index_ = 0;
-  this->phase_ = Phase::PHASE_GROUP_FIELD_COUNT;
+  this->product_code_known_ = false;
+  this->groups_known_ = false;
+  this->phase_ = Phase::PHASE_PRODUCT_CODE;
   this->waiting_ = false;
 }
 
@@ -280,6 +330,29 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
   };
 
   switch (this->phase_) {
+    case Phase::PHASE_PRODUCT_CODE:
+    case Phase::PHASE_GROUP_COUNT: {
+      const uint8_t question =
+          this->phase_ == Phase::PHASE_PRODUCT_CODE ? DEVICE_PROPERTY_PRODUCT_CODE : group_count_question(this->tab_);
+      if (!is_device_property_header(data.data(), data.size(), question))
+        return false;
+      if (type == STRING_NOT_AVAILABLE_TYPE) {
+        // Equipment that does not carry the question says so, and the walk carries on without it.
+        this->advance_(false);
+        return true;
+      }
+      if (type != STRING_INFORMATION_TYPE || data.size() < DEVICE_PROPERTY_INFORMATION_LENGTH)
+        return false;
+      if (this->phase_ == Phase::PHASE_PRODUCT_CODE) {
+        this->product_code_ = value16(2);
+        this->product_code_known_ = true;
+      } else {
+        this->groups_in_tab_ = value16(2);
+        this->groups_known_ = true;
+      }
+      break;
+    }
+
     case Phase::PHASE_GROUP_FIELD_COUNT:
       if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 8)
         return false;
@@ -382,6 +455,19 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
 
   this->advance_(true);
   return true;
+}
+
+/// Name one device and, where it answered for it, the product it says it is. The product code is
+/// what tells a user which of the documented configurations is theirs, and the line is written for
+/// every device - including one that describes no fields at all, which would otherwise be missing
+/// from the configuration the converter builds.
+void MasterbusScanner::report_device_() {
+  const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
+  if (this->product_code_known_) {
+    ESP_LOGI(TAG, "device device=0x%06" PRIX32 " product=%u", address, static_cast<unsigned>(this->product_code_));
+  } else {
+    ESP_LOGI(TAG, "device device=0x%06" PRIX32, address);
+  }
 }
 
 /// Render one field as the configuration a user would write for it. The display type is what
