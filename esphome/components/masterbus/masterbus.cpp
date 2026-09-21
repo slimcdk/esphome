@@ -137,13 +137,12 @@ void MasterbusHub::report_scan() {
                   "CAN_H and CAN_L with everything powered down.");
     return;
   }
-  ESP_LOGI(TAG, "Scan found %u devices. Paste the block below under your masterbus hub:",
+  // Each device was named as it announced itself, and the walk carries the address on every line
+  // it writes, so there is nothing to repeat here. Only the walk's lines are configuration.
+  ESP_LOGI(TAG,
+           "Scan found %u devices. The lines that follow go into the converter on the "
+           "documentation page, which turns them into configuration.",
            static_cast<unsigned>(this->discovered_.size()));
-  ESP_LOGI(TAG, "  devices:");
-  for (const auto &found : this->discovered_) {
-    ESP_LOGI(TAG, "    - id: mb_device_%06" PRIX32, found.address);
-    ESP_LOGI(TAG, "      device: 0x%06" PRIX32, found.address);
-  }
   // Walking each device for its fields is the second half of the scan, and it transmits.
   this->scanner_.start();
   this->enable_loop();
