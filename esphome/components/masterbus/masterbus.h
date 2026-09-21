@@ -277,7 +277,8 @@ class MasterbusHub : public Component {
 #endif
 
 #ifdef USE_MASTERBUS_SCAN
-  /// Note that this address announced itself. Nothing is transmitted: devices announce unprompted.
+  /// Note that this address announced itself. Nothing is transmitted here: an announcement answers a
+  /// node request, whether this hub's or another node's.
   void record_announcement_(uint32_t address);
 #endif
 
