@@ -208,7 +208,11 @@ def entity_schema(
             cv.Optional(CONF_VALUE_TYPE, default=default_value_type): cv.enum(
                 {name: VALUE_TYPES[name] for name in value_types}, lower=True
             ),
-            cv.Optional(CONF_TIMEOUT): cv.positive_time_period_milliseconds,
+            # Zero would read as "follow the device", which is what leaving the key out already
+            # means. Refused rather than given a second spelling.
+            cv.Optional(CONF_TIMEOUT): cv.All(
+                cv.positive_not_null_time_period, cv.positive_time_period_milliseconds
+            ),
         }
     ).extend(cv.COMPONENT_SCHEMA)
 
