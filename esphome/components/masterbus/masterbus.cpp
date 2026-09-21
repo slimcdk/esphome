@@ -13,8 +13,8 @@ namespace esphome::masterbus {
 static const char *const TAG = "masterbus";
 
 #ifdef USE_MASTERBUS_SCAN
-/// How long to listen before reporting. Announcements arrive about three times a second per
-/// device, so this is many times longer than it needs to be.
+/// How long to listen before reporting. Every device answers a node request within a few
+/// milliseconds, so this is many times longer than it needs to be.
 static constexpr uint32_t SCAN_REQUEST_MS = 2000;
 static constexpr uint32_t SCAN_SETTLE_MS = 10000;
 #endif
@@ -106,8 +106,8 @@ bool MasterbusHub::request_nodes() {
   for (uint8_t i = 0; i < NODE_REQUEST_REPEATS; i++)
     sent |= this->send_(NODE_REQUEST_TYPE, NODE_REQUEST_ADDRESS, {});
   if (!sent) {
-    ESP_LOGW(TAG, "Could not put the node request on the bus. Scanning falls back to listening for "
-                  "devices that announce themselves unprompted.");
+    ESP_LOGW(TAG, "Could not put the node request on the bus. Scanning falls back to the announcements "
+                  "other nodes' requests bring in, and finds nothing where no other node is asking.");
   }
   return sent;
 }
@@ -168,8 +168,8 @@ void MasterbusHub::setup() {
                      [this]() { this->check_availability(App.get_loop_component_start_time()); });
 #endif
 #ifdef USE_MASTERBUS_SCAN
-  // Ask once the bus has settled after boot, then report what answered. A device that announces
-  // itself unprompted is picked up either way, but asking is what makes the list complete.
+  // Ask once the bus has settled after boot, then report what answered. A device another node asks
+  // about is picked up either way, but asking ourselves is what makes the list complete.
   this->set_timeout(SCAN_REQUEST_MS, [this]() { this->request_nodes(); });
   this->set_timeout(SCAN_SETTLE_MS, [this]() { this->report_scan(); });
 #endif
