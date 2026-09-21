@@ -216,6 +216,11 @@ class MasterbusHub : public Component {
   /// Write the discovered devices out as configuration the user can paste.
   void report_scan();
 
+  /// Ask a device one of the questions it answers about itself: which product it is, or how many
+  /// groups a tab holds. Equipment that does not carry a question refuses it outright, which is
+  /// not an error - see masterbus_protocol.h.
+  bool request_device_property(uint32_t address, uint8_t question);
+
   /// The three questions a scan asks about a device's structure. Each is asked per tab: the four
   /// tabs are the same protocol under different message numbers, so the tab only picks which.
   bool request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group,

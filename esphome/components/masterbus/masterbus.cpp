@@ -112,6 +112,10 @@ bool MasterbusHub::request_nodes() {
   return sent;
 }
 
+bool MasterbusHub::request_device_property(uint32_t address, uint8_t question) {
+  return this->send_(STRING_REQUEST_TYPE, address, {DEVICE_PROPERTY_SELECTOR, question});
+}
+
 bool MasterbusHub::request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group, MasterbusTab tab) {
   return this->send_(
       masterbus_request_type(group_message(tab)), address,
