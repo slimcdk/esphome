@@ -13,11 +13,11 @@ namespace esphome::masterbus {
 
 class MasterbusHub;
 
-/// The longest name and unit a scan will keep. Names seen on real equipment run to about fifteen
-/// characters ("Bat. temperature"); anything longer is truncated rather than dropped.
 /// How long a question waits before it is taken as unanswered, which is how the walk finds the
 /// end of a list and which properties a field does not carry.
 static constexpr uint32_t SCAN_ANSWER_TIMEOUT_MS = 200;
+/// The longest name and unit a scan will keep. Names seen on real equipment run to about fifteen
+/// characters ("Bat. temperature"); anything longer is truncated rather than dropped.
 static constexpr uint8_t SCAN_NAME_LENGTH = 32;
 static constexpr uint8_t SCAN_UNIT_LENGTH = 12;
 
@@ -59,8 +59,8 @@ class MasterbusScanner {
   void start();
   bool is_running() const { return this->phase_ != Phase::PHASE_IDLE; }
 
-  /// Drive one step. Sends at most one request per call.
-  /// Drive the walk one step, at the time the caller read off the clock.
+  /// Drive the walk one step, at the time the caller read off the clock. Sends at most one
+  /// request per call.
   void loop(uint32_t now);
 
   /// Offer a frame to the scan. Returns whether it answered what the scan was waiting for.

@@ -16,10 +16,6 @@ namespace esphome::masterbus {
 
 static const char *const TAG = "masterbus.scan";
 
-/// How long to wait for an answer before treating the question as unanswerable. Measured
-/// turnaround on a live bus is under a millisecond, so this is generous by three orders of
-/// magnitude - it is the end-of-list signal, not a latency budget.
-
 /// A device that answers nothing at all should not hold the walk up forever.
 static constexpr uint16_t MAX_FIELDS_PER_GROUP = 64;
 
@@ -151,6 +147,9 @@ void MasterbusScanner::advance_(bool answered) {
       this->chunk_ = 0;
       this->name_string_ = 0;
       this->group_name_[0] = '\0';
+      // Cleared with the name itself: a group whose name question goes unanswered would otherwise
+      // inherit the previous group's flag and report an empty name instead of no name at all.
+      this->group_named_ = false;
       this->group_reported_ = false;
       this->phase_ = Phase::PHASE_GROUP_NAME_ID;
       return;
@@ -194,7 +193,17 @@ void MasterbusScanner::advance_(bool answered) {
       return;
     case Phase::PHASE_FIELD_STEP:
       this->chunk_ = 0;
-      this->phase_ = this->name_string_ != 0 ? Phase::PHASE_FIELD_NAME_TEXT : Phase::PHASE_FIELD_UNIT_TEXT;
+      if (this->name_string_ != 0) {
+        this->phase_ = Phase::PHASE_FIELD_NAME_TEXT;
+        return;
+      }
+      // Asking for string zero would only burn the answer timeout, on every field that carries
+      // no unit - and most of them do not.
+      if (this->unit_string_ != 0) {
+        this->phase_ = Phase::PHASE_FIELD_UNIT_TEXT;
+        return;
+      }
+      this->finish_field_();
       return;
 
     case Phase::PHASE_FIELD_NAME_TEXT:

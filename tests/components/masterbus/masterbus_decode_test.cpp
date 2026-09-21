@@ -1027,11 +1027,72 @@ TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
   this->unanswered();  // minimum
   this->unanswered();  // maximum
   this->unanswered();  // step
-  this->unanswered();  // and the unit string it was never given a number for
 
   ASSERT_EQ(scan_lines().lines().size(), 2u);
   EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0");
   EXPECT_EQ(scan_lines().lines()[1], "field device=0x6D56EA tab=0 group=0 param=117 display=5");
+}
+
+// Asking the string table for entry zero would cost an answer timeout on every field that
+// carries no unit, and most of them do not.
+TEST_F(MasterbusTest, AFieldWithNoUnitIsNotAskedForTheUnitString) {
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x75, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x75, 0x00, 0x00, 0x05, 0x00});
+  // Neither a name string nor a unit string.
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x75, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x75, 0x00, 0x00, 0x00, 0x00});
+
+  this->canbus_.clear();
+  this->unanswered();  // minimum
+  this->unanswered();  // maximum
+  this->unanswered();  // step
+  this->hub_->scan_step(this->scan_now_);
+
+  for (const auto &frame : this->canbus_.sent)
+    EXPECT_NE(frame.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE)
+        << "the walk asked the string table for a field that carries no strings";
+}
+
+// The flag saying a group carries a name belongs to the group being walked, not to the last one
+// that had one.
+TEST_F(MasterbusTest, AGroupThatDoesNotAnswerForItsNameReportsNoNameAtAll) {
+  scan_lines().clear();
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+
+  // Group 0 holds one field and is called "Bank", through string 80.
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x50, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x01, 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x05, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x00, 0x00});
+  this->unanswered();  // minimum
+  this->unanswered();  // maximum
+  this->unanswered();  // step
+  this->unanswered();  // the group holds no second field
+
+  // Group 1 holds one field too, but says nothing when asked what it is called.
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  this->unanswered();  // the name question
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x01, 0x00, 0x00, 0x02, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x02, 0x00, 0x00, 0x05, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x02, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x02, 0x00, 0x00, 0x00, 0x00});
+  this->unanswered();  // minimum
+  this->unanswered();  // maximum
+  this->unanswered();  // step
+
+  ASSERT_EQ(scan_lines().lines().size(), 4u);
+  EXPECT_EQ(scan_lines().lines()[0], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
+  EXPECT_EQ(scan_lines().lines()[2], "group device=0x6D56EA tab=0 group=1");
 }
 
 }  // namespace esphome::masterbus::testing
