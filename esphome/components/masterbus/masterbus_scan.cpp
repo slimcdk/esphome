@@ -264,9 +264,18 @@ void MasterbusScanner::finish_field_() {
   this->name_string_ = 0;
   this->unit_string_ = 0;
   this->waiting_ = false;
+  if (this->field_index_ >= MAX_FIELDS_PER_GROUP && this->field_index_ < this->fields_in_group_) {
+    if (!this->cap_reported_) {
+      this->cap_reported_ = true;
+      ESP_LOGW(TAG, "Group %u of device 0x%06" PRIX32 " holds %u fields; only the first %u are reported", this->group_,
+               this->hub_->get_discovered_devices()[this->device_index_].address,
+               static_cast<unsigned>(this->fields_in_group_), static_cast<unsigned>(MAX_FIELDS_PER_GROUP));
+    }
+    this->next_group_();
+    return;
+  }
   // The group said how many fields it holds, so the last one is known without asking for one more.
-  // The cap is for a count no device should give.
-  if (this->field_index_ >= this->fields_in_group_ || this->field_index_ >= MAX_FIELDS_PER_GROUP) {
+  if (this->field_index_ >= this->fields_in_group_) {
     this->next_group_();
     return;
   }
@@ -276,6 +285,7 @@ void MasterbusScanner::finish_field_() {
 void MasterbusScanner::next_group_() {
   this->group_++;
   this->group_reported_ = false;
+  this->cap_reported_ = false;
   this->field_index_ = 0;
   this->waiting_ = false;
   // Past the last group the device owned up to, so the tab is finished without asking again.
@@ -296,6 +306,7 @@ void MasterbusScanner::next_tab_() {
   this->group_reported_ = false;
   this->field_index_ = 0;
   this->groups_known_ = false;
+  this->cap_reported_ = false;
   this->phase_ = Phase::PHASE_GROUP_COUNT;
   this->waiting_ = false;
 }
@@ -308,6 +319,7 @@ void MasterbusScanner::next_device_() {
   this->field_index_ = 0;
   this->product_code_known_ = false;
   this->groups_known_ = false;
+  this->cap_reported_ = false;
   this->phase_ = Phase::PHASE_PRODUCT_CODE;
   this->waiting_ = false;
 }
@@ -441,11 +453,20 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       // leaving "Batt" followed by whatever a stray chunk held.
       if (data[0] != STRING_REQUEST_MARKER || value16(1) != wanted)
         return false;
-      const bool ended = take_string_chunk(data.data(), data.size(), out, capacity);
+      if (data[3] == 0)
+        this->string_truncated_ = false;
+      const bool ended = take_string_chunk(data.data(), data.size(), out, capacity, &this->string_truncated_);
       this->chunk_ = data[3] + 1;
       this->waiting_ = false;
-      if (ended)
+      if (ended) {
+        if (this->string_truncated_) {
+          ESP_LOGW(TAG, "Device 0x%06" PRIX32 " sent a longer %s than %u characters; it is reported cut short",
+                   devices[this->device_index_].address,
+                   this->phase_ == Phase::PHASE_FIELD_UNIT_TEXT ? LOG_STR_LITERAL("unit") : LOG_STR_LITERAL("name"),
+                   static_cast<unsigned>(capacity - 1));
+        }
         this->advance_(false);  // the string is complete, move on the same way a refusal would
+      }
       return true;
     }
 
