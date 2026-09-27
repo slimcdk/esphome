@@ -1,0 +1,28 @@
+packages:
+  base: !include _base.yaml
+
+bms_emulator:
+  - id: bms
+    type: growatt_pylontech
+    canbus_id: inverter_can
+    update_interval: 500ms
+    voltage_id: pack_voltage
+    current_id: pack_current
+    state_of_charge_id: pack_soc
+    temperature_id: pack_temperature
+    state_of_health: 97
+    charge_voltage: 55.0
+    discharge_voltage: 48.0
+    charge_current_limit: !lambda "return id(pack_soc).state >= 98 ? 20.0f : 100.0f;"
+    discharge_current_limit: 100
+    charge_enabled: !lambda "return id(pack_soc).state < 100;"
+    discharge_enabled: false
+    module_count: 2
+    inverter_frame_id: 0x305
+    inverter_timeout: 10s
+
+binary_sensor:
+  - platform: bms_emulator
+    bms_emulator_id: bms
+    inverter_online:
+      name: Inverter online
