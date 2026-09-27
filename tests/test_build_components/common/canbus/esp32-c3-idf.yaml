@@ -1,0 +1,13 @@
+# Common CAN bus configuration for ESP32-C3 IDF tests
+
+substitutions:
+  can_tx_pin: GPIO3
+  can_rx_pin: GPIO1
+
+canbus:
+  - platform: esp32_can
+    id: canbus_bus
+    tx_pin: ${can_tx_pin}
+    rx_pin: ${can_rx_pin}
+    can_id: 4
+    bit_rate: 250kbps
