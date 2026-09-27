@@ -99,19 +99,23 @@ void MasterbusHub::record_announcement_(uint32_t address) {
   ESP_LOGI(TAG, "Scan found device 0x%06" PRIX32, address);
   this->discovered_.push_back({address, 1});
 }
+#endif
 
+#if defined(USE_MASTERBUS_SCAN) || defined(USE_MASTERBUS_NODE_REQUEST)
 bool MasterbusHub::request_nodes() {
   bool sent = false;
   // Repeated the way the vendor library repeats it, so a device that missed one still answers.
   for (uint8_t i = 0; i < NODE_REQUEST_REPEATS; i++)
     sent |= this->send_(NODE_REQUEST_TYPE, NODE_REQUEST_ADDRESS, {});
   if (!sent) {
-    ESP_LOGW(TAG, "Could not put the node request on the bus. Scanning falls back to the announcements "
-                  "other nodes' requests bring in, and finds nothing where no other node is asking.");
+    ESP_LOGW(TAG, "Could not put the node request on the bus. Devices then announce themselves only when "
+                  "another node asks, and where none does, nothing is heard from them until they are polled.");
   }
   return sent;
 }
+#endif
 
+#ifdef USE_MASTERBUS_SCAN
 bool MasterbusHub::request_device_property(uint32_t address, uint8_t question) {
   return this->send_(STRING_REQUEST_TYPE, address, {DEVICE_PROPERTY_SELECTOR, question});
 }
@@ -176,6 +180,11 @@ void MasterbusHub::setup() {
   // about is picked up either way, but asking ourselves is what makes the list complete.
   this->set_timeout(SCAN_REQUEST_MS, [this]() { this->request_nodes(); });
   this->set_timeout(SCAN_SETTLE_MS, [this]() { this->report_scan(); });
+#endif
+#ifdef USE_MASTERBUS_NODE_REQUEST
+  // An announcement is what keeps a device nobody polls online. Where no other node asks for them,
+  // this hub does.
+  this->set_interval(this->node_request_interval_ms_, [this]() { this->request_nodes(); });
 #endif
 }
 
@@ -253,6 +262,9 @@ void MasterbusHub::dump_config() {
 #endif
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
   ESP_LOGCONFIG(TAG, "  Raw frame logging: enabled");
+#endif
+#ifdef USE_MASTERBUS_NODE_REQUEST
+  ESP_LOGCONFIG(TAG, "  Node requests: every %" PRIu32 " ms", this->node_request_interval_ms_);
 #endif
 #ifdef MASTERBUS_DEVICE_COUNT
   for (auto *device : this->devices_) {
