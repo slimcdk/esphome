@@ -16,6 +16,7 @@ from esphome.components.const import CONF_VALUE_TYPE
 from esphome.components.masterbus import (
     CONF_LOG_ALL_FRAMES,
     CONF_MASTERBUS_DEVICE_ID,
+    CONF_NODE_REQUEST_INTERVAL,
     CONF_PARAM,
     CONF_TAB,
     CONFIG_SCHEMA,
@@ -106,6 +107,23 @@ def test_diagnostics_default_to_off() -> None:
     config = CONFIG_SCHEMA(_hub())
     assert config[CONF_SCAN] is False
     assert config[CONF_LOG_ALL_FRAMES] is False
+
+
+def test_node_requests_are_off_unless_asked_for() -> None:
+    """Another node usually asks already; a hub only takes it on when the user says so."""
+    assert CONF_NODE_REQUEST_INTERVAL not in CONFIG_SCHEMA(_hub())
+
+
+def test_node_request_interval_accepted() -> None:
+    config = CONFIG_SCHEMA(_hub(**{CONF_NODE_REQUEST_INTERVAL: "10s"}))
+    assert config[CONF_NODE_REQUEST_INTERVAL].total_milliseconds == 10000
+
+
+@pytest.mark.parametrize("interval", ["0s", "500ms"])
+def test_node_request_interval_below_a_second_rejected(interval: str) -> None:
+    """Every device answers every request, three times over; faster than a second only floods."""
+    with pytest.raises(cv.Invalid, match=CONF_NODE_REQUEST_INTERVAL):
+        CONFIG_SCHEMA(_hub(**{CONF_NODE_REQUEST_INTERVAL: interval}))
 
 
 # Device identifiers
@@ -291,6 +309,25 @@ def test_diagnostics_emit_defines_when_enabled(
     assert get_define_value("USE_MASTERBUS_LOG_ALL_FRAMES") is not None
     # The scan's storage is sized by a define, so it goes with it.
     assert get_define_value("MASTERBUS_SCAN_MAX_DEVICES") == "32"
+
+
+def test_node_requests_emit_no_define_when_off(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    generate_main(component_config_path("diagnostics_off.yaml"))
+    assert get_define_value("USE_MASTERBUS_NODE_REQUEST") is None
+
+
+def test_node_request_interval_is_scheduled(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    main_cpp = generate_main(component_config_path("node_requests.yaml"))
+    assert get_define_value("USE_MASTERBUS_NODE_REQUEST") is not None
+    assert "mb->set_node_request_interval(10000);" in main_cpp
+    # Asking on a timer is not a scan: nothing of the scan is built in with it.
+    assert get_define_value("USE_MASTERBUS_SCAN") is None
 
 
 def test_storage_counts_follow_the_declared_devices_and_entities(
