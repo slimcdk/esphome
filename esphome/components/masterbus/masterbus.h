@@ -211,8 +211,16 @@ class MasterbusHub : public Component {
   const StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> &get_discovered_devices() const {
     return this->discovered_;
   }
-  /// Ask every device on the bus to announce itself. This is the one thing a scan transmits.
+#endif
+#if defined(USE_MASTERBUS_SCAN) || defined(USE_MASTERBUS_NODE_REQUEST)
+  /// Ask every device on the bus to announce itself. A scan does it once; a hub with a node request
+  /// interval does it on that timer.
   bool request_nodes();
+#endif
+#ifdef USE_MASTERBUS_NODE_REQUEST
+  void set_node_request_interval(uint32_t interval_ms) { this->node_request_interval_ms_ = interval_ms; }
+#endif
+#ifdef USE_MASTERBUS_SCAN
   /// Write the discovered devices out as configuration the user can paste.
   void report_scan();
 
@@ -296,6 +304,9 @@ class MasterbusHub : public Component {
 
   canbus::Canbus *canbus_;
   std::vector<uint8_t> tx_;
+#ifdef USE_MASTERBUS_NODE_REQUEST
+  uint32_t node_request_interval_ms_{0};
+#endif
 #ifdef MASTERBUS_UNKNOWN_FRAME_COUNT
   StaticCallbackManager<MASTERBUS_UNKNOWN_FRAME_COUNT, void(const std::vector<uint8_t> &, uint8_t, uint32_t)>
       unknown_frame_callback_;

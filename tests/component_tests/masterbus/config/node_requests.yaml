@@ -1,0 +1,7 @@
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+    node_request_interval: 10s
