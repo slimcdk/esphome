@@ -1,0 +1,25 @@
+esphome:
+  name: bms-emulator-test
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+canbus:
+  - platform: esp32_can
+    id: inverter_can
+    tx_pin: GPIO25
+    rx_pin: GPIO26
+    can_id: 4
+    bit_rate: 500kbps
+
+sensor:
+  - platform: template
+    id: pack_voltage
+  - platform: template
+    id: pack_current
+  - platform: template
+    id: pack_soc
+  - platform: template
+    id: pack_temperature
