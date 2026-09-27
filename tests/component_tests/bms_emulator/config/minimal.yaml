@@ -1,0 +1,15 @@
+packages:
+  base: !include _base.yaml
+
+bms_emulator:
+  - id: bms
+    type: growatt_pylontech
+    canbus_id: inverter_can
+    voltage_id: pack_voltage
+    current_id: pack_current
+    state_of_charge_id: pack_soc
+    temperature_id: pack_temperature
+    charge_voltage: 55.0
+    discharge_voltage: 48.0
+    charge_current_limit: 100
+    discharge_current_limit: 100
