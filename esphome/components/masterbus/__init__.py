@@ -30,6 +30,7 @@ MULTI_CONF = True
 
 CONF_LOG_ALL_FRAMES = "log_all_frames"
 CONF_MASTERBUS_DEVICE_ID = "masterbus_device_id"
+CONF_NODE_REQUEST_INTERVAL = "node_request_interval"
 CONF_ON_OFFLINE = "on_offline"
 CONF_ON_ONLINE = "on_online"
 CONF_ON_UNKNOWN_FRAME = "on_unknown_frame"
@@ -125,6 +126,12 @@ CONFIG_SCHEMA = cv.All(
             ): cv.use_id(CanbusComponent),
             cv.Optional(CONF_SCAN, default=False): cv.boolean,
             cv.Optional(CONF_LOG_ALL_FRAMES, default=False): cv.boolean,
+            # Devices announce themselves only when asked. Where no other node asks, a hub can.
+            # Every device answers every request, three times over, so it is kept above a second.
+            cv.Optional(CONF_NODE_REQUEST_INTERVAL): cv.All(
+                cv.positive_time_period_milliseconds,
+                cv.Range(min=cv.TimePeriod(seconds=1)),
+            ),
             cv.Optional(CONF_ON_UNKNOWN_FRAME): automation.validate_automation(),
             cv.Optional(CONF_DEVICES): cv.ensure_list(DEVICE_SCHEMA),
         }
@@ -258,6 +265,9 @@ async def to_code(config: ConfigType) -> None:
         cg.add_define("MASTERBUS_SCAN_MAX_DEVICES", MAX_SCAN_DEVICES)
     if config[CONF_LOG_ALL_FRAMES]:
         cg.add_define("USE_MASTERBUS_LOG_ALL_FRAMES")
+    if (interval := config.get(CONF_NODE_REQUEST_INTERVAL)) is not None:
+        cg.add_define("USE_MASTERBUS_NODE_REQUEST")
+        cg.add(var.set_node_request_interval(interval))
 
     for conf in config.get(CONF_ON_UNKNOWN_FRAME, []):
         # The frames this fires for are by definition ones nothing else reads, so the cost of
