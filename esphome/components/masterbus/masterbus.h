@@ -197,10 +197,12 @@ class MasterbusHub : public Component {
   bool request_string(uint32_t address, uint16_t string_id, uint8_t chunk);
 
 #ifdef MASTERBUS_UNKNOWN_FRAME_COUNT
-  /// Fires for any frame whose message type this component cannot name. It sits on the hub and not
-  /// on a device on purpose: the frames worth catching here are the ones nobody has decoded, and
-  /// they may well come from equipment that was never declared - which is exactly the case a
-  /// device-level trigger cannot see.
+  /// Fires for any frame this component reads past without understanding: a message type it cannot
+  /// name, or a value message of a length that is neither a read nor an answer, such as another
+  /// node's write (see is_undecoded_frame()). The address is the frame's own, which for a write is
+  /// the device written to, not the sender. It sits on the hub and not on a device on purpose: the
+  /// frames worth catching here are the ones nobody has decoded, and they may well come from
+  /// equipment that was never declared - which is exactly the case a device-level trigger cannot see.
   template<typename F> void add_on_unknown_frame_callback(F &&callback) {
     this->unknown_frame_callback_.add(std::forward<F>(callback));
   }

@@ -51,10 +51,12 @@ static constexpr uint8_t MONITORING_REQUEST_TYPE = 0x30;
 static constexpr uint8_t MONITORING_INFORMATION_TYPE = 0x10;
 static constexpr uint8_t MONITORING_REQUEST_LENGTH = 2;
 static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
-// UNVERIFIED: the history and configuration tabs are read with their own message numbers but are
-// assumed to use the two lengths above, because every other message they share with monitoring -
-// group and property - is byte for byte the same across tabs. An answer of a different length is
-// dropped rather than misread, so a wrong assumption shows up as silence, not as a wrong value.
+// VERIFIED for the configuration tab, UNVERIFIED for history: both are read with their own message
+// numbers and the two lengths above. Configuration reads were answered in exactly this shape on a
+// live bus, by a battery block and a display panel, for floats, list options and text. History is
+// still assumed to follow, because every other message it shares with monitoring - group and
+// property - is byte for byte the same across tabs. An answer of a different length is dropped
+// rather than misread, so a wrong assumption shows up as silence, not as a wrong value.
 
 /// VERIFIED: a monitoring field is written with the same message type that reads it. What tells
 /// the two apart is the payload length: two bytes asks, six bytes writes.
@@ -403,7 +405,8 @@ enum class MasterbusGroupSelector : uint8_t {
 /// up in a capture of an unrelated installation exactly where this ordering predicts them -
 /// 0x34/0x14, 0x36/0x16 and 0x39/0x19, all carrying the group walk's framing, sent in one burst
 /// the moment a display panel opened a device's menu. That is what turns the ordering from a
-/// reading of a string table into a tested claim. The remaining six are marked DERIVED: they
+/// reading of a string table into a tested claim. A seventh, configuration data, was then read and
+/// answered on a live bus where the ordering put it. The remaining five are marked DERIVED: they
 /// follow from the same ordering and have not themselves been seen on a wire.
 enum class MasterbusMessage : uint8_t {
   MASTERBUS_MESSAGE_MONITORING_DATA = 0,         // VERIFIED  0x30 / 0x10
@@ -413,7 +416,7 @@ enum class MasterbusMessage : uint8_t {
   MASTERBUS_MESSAGE_ALARM_GROUP = 4,             // VERIFIED  0x34 / 0x14
   MASTERBUS_MESSAGE_HISTORY_PROPERTY = 5,        // DERIVED   0x35 / 0x15
   MASTERBUS_MESSAGE_HISTORY_GROUP = 6,           // VERIFIED  0x36 / 0x16
-  MASTERBUS_MESSAGE_CONFIGURATION_DATA = 7,      // DERIVED   0x37 / 0x17
+  MASTERBUS_MESSAGE_CONFIGURATION_DATA = 7,      // VERIFIED  0x37 / 0x17
   MASTERBUS_MESSAGE_CONFIGURATION_PROPERTY = 8,  // DERIVED   0x38 / 0x18
   MASTERBUS_MESSAGE_CONFIGURATION_GROUP = 9,     // VERIFIED  0x39 / 0x19
   MASTERBUS_MESSAGE_HISTORY_DATA = 10,           // DERIVED   0x3A / 0x1A
@@ -607,6 +610,23 @@ constexpr bool data_information_tab(uint8_t type, MasterbusTab &out) {
     out = MasterbusTab::MASTERBUS_TAB_CONFIGURATION;
     return true;
   }
+  return false;
+}
+
+/// Whether a frame is one this component reads past without understanding, and that a bus does
+/// not carry as a matter of course. That is a message type it cannot name, and a value message
+/// whose length is neither a read (two bytes) nor an answer (six). On the read's number that means
+/// a write or the frame after one, sent by another node, because a controller never hears its own.
+/// Reads, answers, walks and refusals are what a display panel produces all day, and reporting
+/// them would bury the frame worth seeing.
+constexpr bool is_undecoded_frame(uint8_t type, size_t length) {
+  if (!is_known_message_type(type))
+    return true;
+  MasterbusTab tab;
+  if (data_information_tab(type, tab))
+    return length != MONITORING_INFORMATION_LENGTH;
+  if (type >= MESSAGE_REQUEST_BASE && data_information_tab(type - MESSAGE_REQUEST_BASE + MESSAGE_INFORMATION_BASE, tab))
+    return length != MONITORING_REQUEST_LENGTH;
   return false;
 }
 
