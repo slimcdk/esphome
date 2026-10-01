@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "esphome/components/canbus/canbus.h"
@@ -22,21 +23,24 @@ enum class BmsEmulatorType : uint8_t {
 /** Plays a battery's BMS to an inverter on a CAN bus.
  *
  * The battery's measurements come from sensors and its limits and flags from templatable values;
- * every update the frame set of the configured type goes out. A measurement without a value sends
- * nothing at all, so that the inverter's own BMS timeout takes over instead of a stale reading.
+ * every update the frame set of the configured type goes out. A measurement or a limit without a
+ * value sends nothing at all, so that the inverter's own BMS timeout takes over instead of a stale
+ * or guessed reading.
  */
-class BmsEmulator : public PollingComponent {
+class BmsEmulator final : public PollingComponent {
  public:
-  BmsEmulator(canbus::Canbus *canbus, BmsEmulatorType type) : canbus_(canbus), type_(type) {}
+  BmsEmulator(canbus::Canbus *canbus, BmsEmulatorType type, sensor::Sensor *voltage, sensor::Sensor *current,
+              sensor::Sensor *state_of_charge, sensor::Sensor *temperature)
+      : canbus_(canbus),
+        type_(type),
+        voltage_(voltage),
+        current_(current),
+        state_of_charge_(state_of_charge),
+        temperature_(temperature) {}
 
   void setup() override;
   void update() override;
   void dump_config() override;
-
-  void set_voltage_sensor(sensor::Sensor *sensor) { this->voltage_ = sensor; }
-  void set_current_sensor(sensor::Sensor *sensor) { this->current_ = sensor; }
-  void set_state_of_charge_sensor(sensor::Sensor *sensor) { this->state_of_charge_ = sensor; }
-  void set_temperature_sensor(sensor::Sensor *sensor) { this->temperature_ = sensor; }
 
   template<typename V> void set_state_of_health(V value) { this->state_of_health_ = value; }
   template<typename V> void set_charge_voltage(V value) { this->charge_voltage_ = value; }
@@ -55,27 +59,35 @@ class BmsEmulator : public PollingComponent {
   }
 #endif
 
-  /// Take a frame from the bus, heard at the given time. Registered as the CAN receive callback in
-  /// setup(); public so that a test can drive the clock.
-  void on_frame(uint32_t can_id, bool extended_id, bool rtr, uint32_t now);
   /// Count the inverter as gone once its frame has been missing for the timeout. Called every
   /// update; public so that a test can drive the clock.
   void check_inverter(uint32_t now);
   bool is_inverter_online() const { return this->inverter_online_; }
 
  protected:
-  bool has_battery_data_() const;
-  void send_growatt_pylontech_();
-  void send_(uint32_t can_id, const growatt_pylontech::Frame &frame);
+  /// What one cycle sends, read once so that every frame carries the same values.
+  struct Reading {
+    float voltage, current, state_of_charge, temperature, state_of_health;
+    float charge_voltage, discharge_voltage, charge_current_limit, discharge_current_limit;
+    bool charge_enabled, discharge_enabled;
+  };
+
+  /// A frame from the bus, heard at the given time; the canbus receive callback.
+  void on_frame_(uint32_t can_id, bool extended_id, bool rtr, uint32_t now);
+  /// The values to send, or false if one the inverter acts on has none.
+  bool read_(Reading &reading);
+  void send_growatt_pylontech_(const Reading &reading);
+  /// False if the controller refused the frame, which ends the cycle.
+  bool send_(uint32_t can_id, const growatt_pylontech::Frame &frame);
   void set_inverter_online_(bool online);
 
   canbus::Canbus *canbus_;
   BmsEmulatorType type_;
 
-  sensor::Sensor *voltage_{nullptr};
-  sensor::Sensor *current_{nullptr};
-  sensor::Sensor *state_of_charge_{nullptr};
-  sensor::Sensor *temperature_{nullptr};
+  sensor::Sensor *voltage_;
+  sensor::Sensor *current_;
+  sensor::Sensor *state_of_charge_;
+  sensor::Sensor *temperature_;
   TemplatableValue<float> state_of_health_{};
   TemplatableValue<float> charge_voltage_{};
   TemplatableValue<float> discharge_voltage_{};
@@ -96,8 +108,8 @@ class BmsEmulator : public PollingComponent {
   uint8_t alive_counter_{0};
   /// Whether the last update sent the frame set, so the change is logged once rather than every cycle.
   bool feeding_{false};
-  /// One payload buffer for every frame: the CAN API takes a vector, and a fresh one per frame would
-  /// allocate seven times a second for months.
+  /// One payload buffer for every frame, reserved in setup(): the CAN API takes a vector, and a new
+  /// one per frame would allocate on every send.
   std::vector<uint8_t> tx_;
 };
 

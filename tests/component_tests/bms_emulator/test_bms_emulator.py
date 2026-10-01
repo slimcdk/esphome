@@ -64,7 +64,6 @@ def test_minimal_configuration_takes_the_documented_defaults() -> None:
     "key",
     [
         CONF_TYPE,
-        CONF_CANBUS_ID,
         CONF_VOLTAGE_ID,
         CONF_CURRENT_ID,
         CONF_STATE_OF_CHARGE_ID,
@@ -80,6 +79,27 @@ def test_required_keys(key: str) -> None:
     del config[key]
     with pytest.raises(cv.Invalid, match=key):
         CONFIG_SCHEMA(config)
+
+
+def test_units_are_accepted_on_voltages_and_currents() -> None:
+    config = CONFIG_SCHEMA(
+        _emulator(
+            **{
+                CONF_CHARGE_VOLTAGE: "55.0V",
+                CONF_DISCHARGE_VOLTAGE: "48V",
+                CONF_CHARGE_CURRENT_LIMIT: "20A",
+                CONF_DISCHARGE_CURRENT_LIMIT: "100 A",
+            }
+        )
+    )
+    assert config[CONF_CHARGE_VOLTAGE] == 55.0
+    assert config[CONF_DISCHARGE_CURRENT_LIMIT] == 100.0
+
+
+@pytest.mark.parametrize("key", [CONF_CHARGE_VOLTAGE, CONF_DISCHARGE_VOLTAGE])
+def test_voltages_are_not_negative(key: str) -> None:
+    with pytest.raises(cv.Invalid, match=key):
+        CONFIG_SCHEMA(_emulator(**{key: "-1V"}))
 
 
 def test_unknown_type_rejected() -> None:
@@ -117,13 +137,15 @@ def test_minimal_configuration_generates_the_emulator(
     generate_main: Callable[[str | Path], str],
     component_config_path: Callable[[str], Path],
 ) -> None:
+    # The only bus in the configuration is taken when canbus_id is left out, and the four required
+    # sensors are passed to the constructor.
     main_cpp = generate_main(component_config_path("minimal.yaml"))
     assert (
         "bms_emulator::BmsEmulator(inverter_can, "
-        "bms_emulator::BmsEmulatorType::BMS_EMULATOR_TYPE_GROWATT_PYLONTECH)"
+        "bms_emulator::BmsEmulatorType::BMS_EMULATOR_TYPE_GROWATT_PYLONTECH, "
+        "pack_voltage, pack_current, pack_soc, pack_temperature)"
     ) in main_cpp
-    assert "bms->set_voltage_sensor(pack_voltage);" in main_cpp
-    assert "bms->set_temperature_sensor(pack_temperature);" in main_cpp
+    assert "set_voltage_sensor" not in main_cpp
     assert "bms->set_inverter_frame_id(769);" in main_cpp
     assert "bms->set_inverter_timeout(5000);" in main_cpp
     assert "set_inverter_online_binary_sensor" not in main_cpp

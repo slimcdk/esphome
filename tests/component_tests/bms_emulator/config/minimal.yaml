@@ -4,7 +4,6 @@ packages:
 bms_emulator:
   - id: bms
     type: growatt_pylontech
-    canbus_id: inverter_can
     voltage_id: pack_voltage
     current_id: pack_current
     state_of_charge_id: pack_soc
