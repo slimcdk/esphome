@@ -38,7 +38,7 @@ CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(BmsEmulator),
         cv.Required(CONF_TYPE): cv.enum(TYPES, lower=True),
-        cv.Required(CONF_CANBUS_ID): cv.use_id(CanbusComponent),
+        cv.GenerateID(CONF_CANBUS_ID): cv.use_id(CanbusComponent),
         cv.Required(CONF_VOLTAGE_ID): cv.use_id(sensor.Sensor),
         cv.Required(CONF_CURRENT_ID): cv.use_id(sensor.Sensor),
         cv.Required(CONF_STATE_OF_CHARGE_ID): cv.use_id(sensor.Sensor),
@@ -46,11 +46,19 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_STATE_OF_HEALTH, default=100): cv.templatable(
             cv.float_range(min=0, max=100)
         ),
-        cv.Required(CONF_CHARGE_VOLTAGE): cv.templatable(cv.positive_float),
-        cv.Required(CONF_DISCHARGE_VOLTAGE): cv.templatable(cv.positive_float),
+        cv.Required(CONF_CHARGE_VOLTAGE): cv.templatable(
+            cv.All(cv.voltage, cv.positive_float)
+        ),
+        cv.Required(CONF_DISCHARGE_VOLTAGE): cv.templatable(
+            cv.All(cv.voltage, cv.positive_float)
+        ),
         # Both limits are magnitudes; the frame set decides how each is signed on the wire.
-        cv.Required(CONF_CHARGE_CURRENT_LIMIT): cv.templatable(cv.positive_float),
-        cv.Required(CONF_DISCHARGE_CURRENT_LIMIT): cv.templatable(cv.positive_float),
+        cv.Required(CONF_CHARGE_CURRENT_LIMIT): cv.templatable(
+            cv.All(cv.current, cv.positive_float)
+        ),
+        cv.Required(CONF_DISCHARGE_CURRENT_LIMIT): cv.templatable(
+            cv.All(cv.current, cv.positive_float)
+        ),
         cv.Optional(CONF_CHARGE_ENABLED, default=True): cv.templatable(cv.boolean),
         cv.Optional(CONF_DISCHARGE_ENABLED, default=True): cv.templatable(cv.boolean),
         cv.Optional(CONF_MODULE_COUNT, default=1): cv.int_range(min=1, max=255),
@@ -66,37 +74,51 @@ CONFIG_SCHEMA = cv.Schema(
 
 
 async def to_code(config: ConfigType) -> None:
-    canbus = await cg.get_variable(config[CONF_CANBUS_ID])
-    var = cg.new_Pvariable(config[CONF_ID], canbus, config[CONF_TYPE])
+    var = cg.new_Pvariable(
+        config[CONF_ID],
+        await cg.get_variable(config[CONF_CANBUS_ID]),
+        config[CONF_TYPE],
+        await cg.get_variable(config[CONF_VOLTAGE_ID]),
+        await cg.get_variable(config[CONF_CURRENT_ID]),
+        await cg.get_variable(config[CONF_STATE_OF_CHARGE_ID]),
+        await cg.get_variable(config[CONF_TEMPERATURE_ID]),
+    )
     await cg.register_component(var, config)
 
-    cg.add(var.set_voltage_sensor(await cg.get_variable(config[CONF_VOLTAGE_ID])))
-    cg.add(var.set_current_sensor(await cg.get_variable(config[CONF_CURRENT_ID])))
+    async def templatable_value(key: str, kind: MockObj) -> MockObj:
+        return await cg.templatable(config[key], [], kind)
+
     cg.add(
-        var.set_state_of_charge_sensor(
-            await cg.get_variable(config[CONF_STATE_OF_CHARGE_ID])
+        var.set_state_of_health(
+            await templatable_value(CONF_STATE_OF_HEALTH, cg.float_)
         )
     )
     cg.add(
-        var.set_temperature_sensor(await cg.get_variable(config[CONF_TEMPERATURE_ID]))
+        var.set_charge_voltage(await templatable_value(CONF_CHARGE_VOLTAGE, cg.float_))
     )
-
-    async def value(key: str, kind: MockObj) -> MockObj:
-        return await cg.templatable(config[key], [], kind)
-
-    cg.add(var.set_state_of_health(await value(CONF_STATE_OF_HEALTH, cg.float_)))
-    cg.add(var.set_charge_voltage(await value(CONF_CHARGE_VOLTAGE, cg.float_)))
-    cg.add(var.set_discharge_voltage(await value(CONF_DISCHARGE_VOLTAGE, cg.float_)))
     cg.add(
-        var.set_charge_current_limit(await value(CONF_CHARGE_CURRENT_LIMIT, cg.float_))
+        var.set_discharge_voltage(
+            await templatable_value(CONF_DISCHARGE_VOLTAGE, cg.float_)
+        )
+    )
+    cg.add(
+        var.set_charge_current_limit(
+            await templatable_value(CONF_CHARGE_CURRENT_LIMIT, cg.float_)
+        )
     )
     cg.add(
         var.set_discharge_current_limit(
-            await value(CONF_DISCHARGE_CURRENT_LIMIT, cg.float_)
+            await templatable_value(CONF_DISCHARGE_CURRENT_LIMIT, cg.float_)
         )
     )
-    cg.add(var.set_charge_enabled(await value(CONF_CHARGE_ENABLED, cg.bool_)))
-    cg.add(var.set_discharge_enabled(await value(CONF_DISCHARGE_ENABLED, cg.bool_)))
+    cg.add(
+        var.set_charge_enabled(await templatable_value(CONF_CHARGE_ENABLED, cg.bool_))
+    )
+    cg.add(
+        var.set_discharge_enabled(
+            await templatable_value(CONF_DISCHARGE_ENABLED, cg.bool_)
+        )
+    )
     cg.add(var.set_module_count(config[CONF_MODULE_COUNT]))
     cg.add(var.set_inverter_frame_id(config[CONF_INVERTER_FRAME_ID]))
     cg.add(var.set_inverter_timeout(config[CONF_INVERTER_TIMEOUT]))
