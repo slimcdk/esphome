@@ -11,10 +11,10 @@ bms_emulator:
     state_of_charge_id: pack_soc
     temperature_id: pack_temperature
     state_of_health: 97
-    charge_voltage: 55.0
-    discharge_voltage: 48.0
+    charge_voltage: 55.0V
+    discharge_voltage: 48V
     charge_current_limit: !lambda "return id(pack_soc).state >= 98 ? 20.0f : 100.0f;"
-    discharge_current_limit: 100
+    discharge_current_limit: 100A
     charge_enabled: !lambda "return id(pack_soc).state < 100;"
     discharge_enabled: false
     module_count: 2
