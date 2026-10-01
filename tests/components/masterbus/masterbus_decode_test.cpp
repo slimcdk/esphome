@@ -997,10 +997,19 @@ TEST_F(MasterbusTest, EveryMessageTheComponentCanNameIsLeftAlone) {
   int fired = 0;
   this->hub_->add_on_unknown_frame_callback([&fired](const std::vector<uint8_t> &, uint8_t, uint32_t) { fired++; });
 
-  // One from each family: the twelve tab messages at all three bases, then node and string.
+  // One from each family: the twelve tab messages at all three bases, then node and string. A
+  // value read or its answer is sent in the shape it has on the wire, because a data message of
+  // another length is something else (see below); the rest are not judged by their length.
   for (uint8_t message = 0; message < MESSAGE_COUNT; message++) {
-    for (uint8_t base : {MESSAGE_INFORMATION_BASE, MESSAGE_NOT_AVAILABLE_BASE, MESSAGE_REQUEST_BASE})
-      this->hub_->on_frame(frame_id(base + message, BATTERY_1), true, false, {0x00});
+    for (uint8_t base : {MESSAGE_INFORMATION_BASE, MESSAGE_NOT_AVAILABLE_BASE, MESSAGE_REQUEST_BASE}) {
+      std::vector<uint8_t> data{0x00};
+      MasterbusTab tab;
+      if (data_information_tab(base + message, tab))
+        data = {0x75, 0x00, 0x00, 0x00, 0x80, 0x3F};
+      else if (base == MESSAGE_REQUEST_BASE && data_information_tab(MESSAGE_INFORMATION_BASE + message, tab))
+        data = {0x75, 0x00};
+      this->hub_->on_frame(frame_id(base + message, BATTERY_1), true, false, data);
+    }
   }
   for (uint8_t type : {DEVICE_ANNOUNCEMENT_TYPE, NODE_NOT_AVAILABLE_TYPE, NODE_REQUEST_TYPE, STRING_INFORMATION_TYPE,
                        STRING_NOT_AVAILABLE_TYPE, STRING_REQUEST_TYPE})
@@ -1011,6 +1020,51 @@ TEST_F(MasterbusTest, EveryMessageTheComponentCanNameIsLeftAlone) {
   // And the gap either side of the tab block is still reported, so the bounds are not off by one.
   this->hub_->on_frame(frame_id(MESSAGE_INFORMATION_BASE - 1, BATTERY_1), true, false, {0x00});
   this->hub_->on_frame(frame_id(MESSAGE_REQUEST_BASE + MESSAGE_COUNT, BATTERY_1), true, false, {0x00});
+  EXPECT_EQ(fired, 2);
+}
+
+// A write rides the same message as a read and is told apart by its length alone, and the frame
+// that follows it is shorter again. This controller never hears its own frames, so a write seen
+// here was sent by some other node - a device carrying out one of its events, or a display panel
+// someone pressed - and that is exactly the traffic nothing else here reads.
+TEST_F(MasterbusTest, AWriteByAnotherNodeAndTheFrameAfterItReachTheHubTrigger) {
+  std::vector<std::tuple<std::vector<uint8_t>, uint8_t, uint32_t>> seen;
+  this->hub_->add_on_unknown_frame_callback([&seen](const std::vector<uint8_t> &data, uint8_t type, uint32_t device) {
+    seen.emplace_back(data, type, device);
+  });
+
+  // Field 117 set to 1.0, then the commit, both aimed at the device being written to.
+  this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, UNDECLARED_DEVICE), true, false,
+                       {0x75, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, UNDECLARED_DEVICE), true, false, {0x01, 0x00, 0x50, 0x00});
+  // The same shape on the configuration tab's message: no write there has been watched, which is
+  // all the more reason to report one.
+  const uint8_t configuration_request = masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_DATA);
+  this->hub_->on_frame(frame_id(configuration_request, BATTERY_1), true, false, {0x28, 0x00, 0x00, 0x00, 0xA0, 0x40});
+
+  ASSERT_EQ(seen.size(), 3u);
+  EXPECT_EQ(std::get<1>(seen[0]), MONITORING_REQUEST_TYPE);
+  EXPECT_EQ(std::get<2>(seen[0]), UNDECLARED_DEVICE) << "the address is the one written to";
+  EXPECT_EQ(std::get<0>(seen[1]).size(), MONITORING_WRITE_COMMIT_LENGTH);
+  EXPECT_EQ(std::get<1>(seen[2]), configuration_request);
+}
+
+// An answer to a value read that is not a field number and a float is a message this component
+// does not understand, whoever it came from, and it is said rather than dropped.
+TEST_F(MasterbusTest, AValueAnswerOfAnotherLengthReachesTheHubTrigger) {
+  int fired = 0;
+  this->hub_->add_on_unknown_frame_callback([&fired](const std::vector<uint8_t> &, uint8_t, uint32_t) { fired++; });
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, UNDECLARED_DEVICE), true, false, {0x75, 0x00, 0x01});
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x75, 0x00, 0x00, 0x00, 0x80, 0x3F, 0x00, 0x00});
+  EXPECT_EQ(fired, 2);
+
+  // Another node polling, and the answers it gets, are what a bus with a display on it carries all
+  // day. None of it is news.
+  this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, UNDECLARED_DEVICE), true, false, {0x75, 0x00});
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, UNDECLARED_DEVICE), true, false,
+                       {0x75, 0x00, 0x00, 0x00, 0x80, 0x3F});
   EXPECT_EQ(fired, 2);
 }
 
