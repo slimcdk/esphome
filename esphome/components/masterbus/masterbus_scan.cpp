@@ -366,21 +366,21 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     }
 
     case Phase::PHASE_GROUP_FIELD_COUNT:
-      if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 8)
+      if (type != this->group_answer_type_() || data.size() < 8)
         return false;
       // The count arrives as a float, which is odd for a count but consistent on every group seen.
       this->fields_in_group_ = static_cast<uint16_t>(value32(4));
       break;
 
     case Phase::PHASE_GROUP_NAME_ID:
-      if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 6)
+      if (type != this->group_answer_type_() || data.size() < 6)
         return false;
       this->name_string_ = value16(4);
       this->group_named_ = this->name_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_NUMBER:
-      if (type != masterbus_information_type(group_message(this->tab_)) || data.size() < 6)
+      if (type != this->group_answer_type_() || data.size() < 6)
         return false;
       this->field_ = {};
       this->field_.minimum = NAN;
@@ -392,20 +392,20 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       break;
 
     case Phase::PHASE_FIELD_DISPLAY_TYPE:
-      if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 6)
+      if (type != this->property_answer_type_() || data.size() < 6)
         return false;
       this->field_.display_type = static_cast<MasterbusDisplayType>(value16(4));
       break;
 
     case Phase::PHASE_FIELD_NAME_ID:
-      if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 6)
+      if (type != this->property_answer_type_() || data.size() < 6)
         return false;
       this->name_string_ = value16(4);
       this->field_.has_name = this->name_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_UNIT_ID:
-      if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 6)
+      if (type != this->property_answer_type_() || data.size() < 6)
         return false;
       this->unit_string_ = value16(4);
       this->field_.has_unit = this->unit_string_ != 0;
@@ -414,7 +414,7 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     case Phase::PHASE_FIELD_MINIMUM:
     case Phase::PHASE_FIELD_MAXIMUM:
     case Phase::PHASE_FIELD_STEP: {
-      if (type != masterbus_information_type(property_message(this->tab_)) || data.size() < 8)
+      if (type != this->property_answer_type_() || data.size() < 8)
         return false;
       const float value = value32(4);
       if (this->phase_ == Phase::PHASE_FIELD_MINIMUM) {

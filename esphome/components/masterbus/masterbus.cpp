@@ -122,20 +122,20 @@ bool MasterbusHub::request_device_property(uint32_t address, uint8_t question) {
 
 bool MasterbusHub::request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group, MasterbusTab tab) {
   return this->send_(
-      masterbus_request_type(group_message(tab)), address,
+      tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP).request, address,
       {static_cast<uint8_t>(selector), static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8)});
 }
 
 bool MasterbusHub::request_group_index(uint32_t address, uint16_t group, uint16_t index, MasterbusTab tab) {
   return this->send_(
-      masterbus_request_type(group_message(tab)), address,
+      tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP).request, address,
       {static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX),
        static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8), static_cast<uint8_t>(index)});
 }
 
 bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property, uint16_t param, MasterbusTab tab) {
   return this->send_(
-      masterbus_request_type(property_message(tab)), address,
+      tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).request, address,
       {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
@@ -300,18 +300,11 @@ void MasterbusEntity::check_stale(uint32_t now) {
 }
 
 bool MasterbusHub::request_field(const MasterbusEntity &entity) {
-  MasterbusMessage message;
-  if (!tab_data_message(entity.get_tab(), message)) {
-    // The alarm tab. Its structure can be walked, but the vendor carries its values in a message
-    // filed with the broadcast ones rather than with the tabs, and that message is not decoded.
-    ESP_LOGW(TAG, "Cannot poll field %u on the %s tab: the message that carries its values is not decoded",
-             entity.get_param(), masterbus_tab_to_string(entity.get_tab()));
-    return false;
-  }
   const uint16_t param = entity.get_param();
   ESP_LOGV(TAG, "Asking device 0x%06" PRIX32 " for field %u on the %s tab",
            entity.get_masterbus_device()->get_address(), param, masterbus_tab_to_string(entity.get_tab()));
-  return this->send_(masterbus_request_type(message), entity.get_masterbus_device()->get_address(),
+  return this->send_(tab_message(entity.get_tab(), MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request,
+                     entity.get_masterbus_device()->get_address(),
                      {static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 

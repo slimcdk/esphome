@@ -5,6 +5,7 @@
 #include <cstring>
 #include <deque>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
