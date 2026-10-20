@@ -656,14 +656,38 @@ TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndThenWhoWroteIt) {
   EXPECT_EQ(encode_uint32(source.data[5], source.data[4], source.data[3], source.data[2]), HUB_ADDRESS);
 }
 
-// Reading the configuration tab works; writing it does not. The two are separate decisions, and
-// this is the pair that keeps them separate.
-TEST_F(MasterbusTest, WriteSkipsTabsWithNoKnownWriteFormat) {
+// The vendor library writes every tab the way it writes monitoring: the tab's own request number,
+// the value, and then who wrote it on the next field.
+TEST_F(MasterbusTest, AFieldOnAnyTabIsWrittenOnThatTabsOwnRequestNumber) {
   auto *setting =
-      this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
+      this->add_sensor(40, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
 
-  EXPECT_FALSE(this->hub_->write_boolean(*setting, true));
-  EXPECT_TRUE(this->canbus_.sent.empty());
+  ASSERT_TRUE(this->hub_->write_value(*setting, 13.5f));
+
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  for (const auto &frame : this->canbus_.sent) {
+    EXPECT_EQ(frame.can_id, frame_id(0x37, BATTERY_1));
+    ASSERT_EQ(frame.can_data_length_code, MONITORING_WRITE_LENGTH);
+  }
+  const auto &write = this->canbus_.sent[0];
+  EXPECT_EQ(encode_uint16(write.data[1], write.data[0]), 40);
+  float value;
+  const uint32_t bits = encode_uint32(write.data[5], write.data[4], write.data[3], write.data[2]);
+  memcpy(&value, &bits, sizeof(value));
+  EXPECT_FLOAT_EQ(value, 13.5f);
+  const auto &source = this->canbus_.sent[1];
+  EXPECT_EQ(encode_uint16(source.data[1], source.data[0]), 41);
+  EXPECT_EQ(encode_uint32(source.data[5], source.data[4], source.data[3], source.data[2]), HUB_ADDRESS);
+
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    this->canbus_.clear();
+    auto *field = this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN, tab);
+    ASSERT_TRUE(this->hub_->write_boolean(*field, false));
+    ASSERT_EQ(this->canbus_.sent.size(), 2u);
+    EXPECT_EQ(this->canbus_.sent[0].can_id >> MESSAGE_TYPE_SHIFT,
+              tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request)
+        << masterbus_tab_to_string(tab);
+  }
 }
 
 TEST_F(MasterbusTest, AnAlarmFieldIsPolledAndAnsweredOnItsOwnMessageNumbers) {

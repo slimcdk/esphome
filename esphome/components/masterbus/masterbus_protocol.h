@@ -68,7 +68,8 @@ static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
 // value.
 
 /// VERIFIED: a monitoring field is written with the same message type that reads it. What tells
-/// the two apart is the payload length: two bytes asks, six bytes writes.
+/// the two apart is the payload length: two bytes asks, six bytes writes. LIBRARY: every other tab
+/// is written the same way, on its own request number.
 ///
 ///     write     type 0x30, 6 bytes: field number little-endian, then float32 little-endian
 ///

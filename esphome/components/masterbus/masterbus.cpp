@@ -313,23 +313,18 @@ bool MasterbusHub::write_boolean(const MasterbusEntity &entity, bool state) {
 }
 
 bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
-  // Reading a tab and writing it are separate questions. The write frame and the commit that
-  // follows it were captured on monitoring event fields and nowhere else, and the configuration
-  // tab is where a wrong frame changes a charger's voltage. Writing stays refused off monitoring
-  // until a write has been watched on that tab.
-  if (entity.get_tab() != MasterbusTab::MASTERBUS_TAB_MONITORING) {
-    ESP_LOGW(TAG, "Cannot write field %u on the %s tab: only monitoring writes have been verified", entity.get_param(),
-             masterbus_tab_to_string(entity.get_tab()));
-    return false;
-  }
+  // A write rides the tab's own request number, on every tab: that is how the vendor library
+  // writes. Only monitoring writes have been watched on a wire.
+  const uint8_t type = tab_message(entity.get_tab(), MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request;
   const uint16_t param = entity.get_param();
   const uint32_t address = entity.get_masterbus_device()->get_address();
-  ESP_LOGD(TAG, "Writing %.4g to field %u of device 0x%06" PRIX32, value, param, address);
+  ESP_LOGD(TAG, "Writing %.4g to field %u on the %s tab of device 0x%06" PRIX32, value, param,
+           masterbus_tab_to_string(entity.get_tab()), address);
 
   uint32_t bits;
   memcpy(&bits, &value, sizeof(bits));
   if (!this->send_(
-          MONITORING_REQUEST_TYPE, address,
+          type, address,
           {static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8), static_cast<uint8_t>(bits & 0xFF),
            static_cast<uint8_t>(bits >> 8), static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)})) {
     ESP_LOGW(TAG, "Could not put the write for field %u on the bus", param);
@@ -338,7 +333,7 @@ bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
 
   // Then who wrote it, on the next field number, the way the vendor library always does.
   const uint16_t source_param = static_cast<uint16_t>(param + 1);
-  if (!this->send_(MONITORING_REQUEST_TYPE, address,
+  if (!this->send_(type, address,
                    {static_cast<uint8_t>(source_param & 0xFF), static_cast<uint8_t>(source_param >> 8),
                     static_cast<uint8_t>(HUB_ADDRESS & 0xFF), static_cast<uint8_t>(HUB_ADDRESS >> 8),
                     static_cast<uint8_t>(HUB_ADDRESS >> 16), static_cast<uint8_t>(HUB_ADDRESS >> 24)})) {
