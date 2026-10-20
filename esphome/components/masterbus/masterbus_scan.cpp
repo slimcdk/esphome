@@ -57,6 +57,8 @@ void MasterbusScanner::start() {
   this->field_index_ = 0;
   this->completed_ = 0;
   this->product_code_known_ = false;
+  this->article_known_ = false;
+  this->product_name_known_ = false;
   this->groups_known_ = false;
   this->phase_ = Phase::PHASE_PRODUCT_CODE;
   this->waiting_ = false;
@@ -91,6 +93,16 @@ void MasterbusScanner::send_current_() {
   switch (this->phase_) {
     case Phase::PHASE_PRODUCT_CODE:
       this->hub_->request_device_property(address, DEVICE_PROPERTY_PRODUCT_CODE);
+      break;
+    case Phase::PHASE_ARTICLE_ID:
+      this->hub_->request_general_string(address, GENERAL_STRING_ARTICLE_NUMBER);
+      break;
+    case Phase::PHASE_PRODUCT_NAME_ID:
+      this->hub_->request_general_string(address, GENERAL_STRING_PRODUCT_NAME);
+      break;
+    case Phase::PHASE_ARTICLE_TEXT:
+    case Phase::PHASE_PRODUCT_NAME_TEXT:
+      this->hub_->request_string(address, this->name_string_, this->chunk_);
       break;
     case Phase::PHASE_GROUP_COUNT:
       this->hub_->request_device_property(address, group_count_question(this->tab_));
@@ -133,6 +145,18 @@ void MasterbusScanner::send_current_() {
     case Phase::PHASE_FIELD_STEP:
       this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_STEP, this->field_.param, this->tab_);
       break;
+    case Phase::PHASE_FIELD_FACTORY:
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_FACTORY, this->field_.param,
+                                   this->tab_);
+      break;
+    case Phase::PHASE_FIELD_WRITEABLE:
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE, this->field_.param,
+                                   this->tab_);
+      break;
+    case Phase::PHASE_FIELD_EVENTABLE:
+      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE, this->field_.param,
+                                   this->tab_);
+      break;
     case Phase::PHASE_FIELD_UNIT_TEXT:
       this->hub_->request_string(address, this->unit_string_, this->chunk_);
       break;
@@ -145,8 +169,34 @@ void MasterbusScanner::advance_(bool answered) {
   this->waiting_ = false;
   switch (this->phase_) {
     case Phase::PHASE_PRODUCT_CODE:
-      // Asked once per device, and the answer is reported whether it came or not: a device that
-      // refuses the question is still worth listing, and its fields are still worth walking.
+      this->article_[0] = '\0';
+      this->product_name_[0] = '\0';
+      this->phase_ = Phase::PHASE_ARTICLE_ID;
+      return;
+
+    // The device's own strings, each a question for which table entry holds it and then the entry.
+    // A device that carries neither is still listed and walked, the way one with no product code is.
+    case Phase::PHASE_ARTICLE_ID:
+      this->chunk_ = 0;
+      this->phase_ = answered ? Phase::PHASE_ARTICLE_TEXT : Phase::PHASE_PRODUCT_NAME_ID;
+      return;
+    case Phase::PHASE_ARTICLE_TEXT:
+      this->chunk_ = 0;
+      this->name_string_ = 0;
+      this->phase_ = Phase::PHASE_PRODUCT_NAME_ID;
+      return;
+    case Phase::PHASE_PRODUCT_NAME_ID:
+      if (answered) {
+        this->chunk_ = 0;
+        this->phase_ = Phase::PHASE_PRODUCT_NAME_TEXT;
+        return;
+      }
+      this->report_device_();
+      this->phase_ = Phase::PHASE_GROUP_COUNT;
+      return;
+    case Phase::PHASE_PRODUCT_NAME_TEXT:
+      this->chunk_ = 0;
+      this->name_string_ = 0;
       this->report_device_();
       this->phase_ = Phase::PHASE_GROUP_COUNT;
       return;
@@ -220,6 +270,15 @@ void MasterbusScanner::advance_(bool answered) {
       this->phase_ = Phase::PHASE_FIELD_STEP;
       return;
     case Phase::PHASE_FIELD_STEP:
+      this->phase_ = Phase::PHASE_FIELD_FACTORY;
+      return;
+    case Phase::PHASE_FIELD_FACTORY:
+      this->phase_ = Phase::PHASE_FIELD_WRITEABLE;
+      return;
+    case Phase::PHASE_FIELD_WRITEABLE:
+      this->phase_ = Phase::PHASE_FIELD_EVENTABLE;
+      return;
+    case Phase::PHASE_FIELD_EVENTABLE:
       this->chunk_ = 0;
       if (this->name_string_ != 0) {
         this->phase_ = Phase::PHASE_FIELD_NAME_TEXT;
@@ -318,6 +377,8 @@ void MasterbusScanner::next_device_() {
   this->group_reported_ = false;
   this->field_index_ = 0;
   this->product_code_known_ = false;
+  this->article_known_ = false;
+  this->product_name_known_ = false;
   this->groups_known_ = false;
   this->cap_reported_ = false;
   this->phase_ = Phase::PHASE_PRODUCT_CODE;
@@ -365,6 +426,24 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       break;
     }
 
+    case Phase::PHASE_ARTICLE_ID:
+    case Phase::PHASE_PRODUCT_NAME_ID: {
+      const uint8_t question =
+          this->phase_ == Phase::PHASE_ARTICLE_ID ? GENERAL_STRING_ARTICLE_NUMBER : GENERAL_STRING_PRODUCT_NAME;
+      if (!is_general_string_header(data.data(), data.size(), question))
+        return false;
+      if (type == STRING_NOT_AVAILABLE_TYPE) {
+        this->advance_(false);
+        return true;
+      }
+      if (type != STRING_INFORMATION_TYPE || data.size() < GENERAL_STRING_INFORMATION_LENGTH)
+        return false;
+      // Unlike a field's name, string 0 is a real entry here: the vendor's example device keeps its
+      // serial number there.
+      this->name_string_ = value16(2);
+      break;
+    }
+
     case Phase::PHASE_GROUP_FIELD_COUNT:
       if (type != this->group_answer_type_() || data.size() < 8)
         return false;
@@ -386,6 +465,9 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       this->field_.minimum = NAN;
       this->field_.maximum = NAN;
       this->field_.step = NAN;
+      this->field_.factory = NAN;
+      this->field_.writable = -1;
+      this->field_.eventable = -1;
       this->field_.group = this->group_;
       this->field_.tab = this->tab_;
       this->field_.param = value16(4);
@@ -427,6 +509,27 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       break;
     }
 
+    // The selector is checked as well as the length: these three follow each other, and a late
+    // answer to one must not be taken for the next.
+    case Phase::PHASE_FIELD_FACTORY:
+      if (type != this->property_answer_type_() || data.size() < 8 ||
+          data[0] != static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_FACTORY))
+        return false;
+      this->field_.factory = value32(4);
+      break;
+    case Phase::PHASE_FIELD_WRITEABLE:
+    case Phase::PHASE_FIELD_EVENTABLE: {
+      const bool first = this->phase_ == Phase::PHASE_FIELD_WRITEABLE;
+      const auto selector = static_cast<uint8_t>(first ? MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE
+                                                       : MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE);
+      if (type != this->property_answer_type_() || data.size() < 6 || data[0] != selector)
+        return false;
+      (first ? this->field_.writable : this->field_.eventable) = value16(4) != 0 ? 1 : 0;
+      break;
+    }
+
+    case Phase::PHASE_ARTICLE_TEXT:
+    case Phase::PHASE_PRODUCT_NAME_TEXT:
     case Phase::PHASE_GROUP_NAME_TEXT:
     case Phase::PHASE_FIELD_NAME_TEXT:
     case Phase::PHASE_FIELD_UNIT_TEXT: {
@@ -447,6 +550,12 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
         out = this->field_.name;
         capacity = SCAN_NAME_LENGTH;
         wanted = this->name_string_;
+      } else if (this->phase_ == Phase::PHASE_ARTICLE_TEXT || this->phase_ == Phase::PHASE_PRODUCT_NAME_TEXT) {
+        const bool article = this->phase_ == Phase::PHASE_ARTICLE_TEXT;
+        out = article ? this->article_ : this->product_name_;
+        capacity = SCAN_NAME_LENGTH;
+        wanted = this->name_string_;
+        (article ? this->article_known_ : this->product_name_known_) = true;
       }
       // The answer echoes the request header, so it says which string and which chunk it carries.
       // Believing our own counter instead once put the second half of "Battery" over the first,
@@ -462,7 +571,9 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
         if (this->string_truncated_) {
           ESP_LOGW(TAG, "Device 0x%06" PRIX32 " sent a longer %s than %u characters; it is reported cut short",
                    devices[this->device_index_].address,
-                   this->phase_ == Phase::PHASE_FIELD_UNIT_TEXT ? LOG_STR_LITERAL("unit") : LOG_STR_LITERAL("name"),
+                   this->phase_ == Phase::PHASE_FIELD_UNIT_TEXT ? LOG_STR_LITERAL("unit")
+                   : this->phase_ == Phase::PHASE_ARTICLE_TEXT  ? LOG_STR_LITERAL("article number")
+                                                                : LOG_STR_LITERAL("name"),
                    static_cast<unsigned>(capacity - 1));
         }
         this->advance_(false);  // the string is complete, move on the same way a refusal would
@@ -484,11 +595,21 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
 /// from the configuration the converter builds.
 void MasterbusScanner::report_device_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
-  if (this->product_code_known_) {
-    ESP_LOGI(TAG, "device device=0x%06" PRIX32 " product=%u", address, static_cast<unsigned>(this->product_code_));
-  } else {
-    ESP_LOGI(TAG, "device device=0x%06" PRIX32, address);
+  char quoted[SCAN_NAME_LENGTH * 4 + 3];
+  char product[16] = "";
+  if (this->product_code_known_)
+    snprintf(product, sizeof(product), " product=%u", static_cast<unsigned>(this->product_code_));
+  char article[sizeof(quoted) + 10] = "";
+  if (this->article_known_) {
+    quote_string(this->article_, quoted, sizeof(quoted));
+    snprintf(article, sizeof(article), " article=%s", quoted);
   }
+  char name[sizeof(quoted) + 8] = "";
+  if (this->product_name_known_) {
+    quote_string(this->product_name_, quoted, sizeof(quoted));
+    snprintf(name, sizeof(name), " name=%s", quoted);
+  }
+  ESP_LOGI(TAG, "device device=0x%06" PRIX32 "%s%s%s", address, product, article, name);
 }
 
 /// Render one field as the configuration a user would write for it. The display type is what
@@ -538,8 +659,18 @@ void MasterbusScanner::report_field_() {
   if (!std::isnan(this->field_.step))
     snprintf(range + at, sizeof(range) - at, " step=%g", this->field_.step);
 
-  ESP_LOGI(TAG, "field device=0x%06" PRIX32 " tab=%u group=%u param=%u%s%s%s%s", address,
-           static_cast<unsigned>(this->field_.tab), this->field_.group, this->field_.param, display, name, unit, range);
+  char extra[64] = "";
+  at = 0;
+  if (!std::isnan(this->field_.factory))
+    at += snprintf(extra + at, sizeof(extra) - at, " factory=%g", this->field_.factory);
+  if (this->field_.writable >= 0)
+    at += snprintf(extra + at, sizeof(extra) - at, " writable=%d", this->field_.writable);
+  if (this->field_.eventable >= 0)
+    snprintf(extra + at, sizeof(extra) - at, " eventable=%d", this->field_.eventable);
+
+  ESP_LOGI(TAG, "field device=0x%06" PRIX32 " tab=%u group=%u param=%u%s%s%s%s%s", address,
+           static_cast<unsigned>(this->field_.tab), this->field_.group, this->field_.param, display, name, unit, range,
+           extra);
 }
 
 }  // namespace esphome::masterbus

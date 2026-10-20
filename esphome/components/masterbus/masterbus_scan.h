@@ -36,6 +36,12 @@ struct MasterbusScannedField {
   float minimum;
   float maximum;
   float step;
+  /// The factory value, likewise not a number where the device did not answer for it.
+  float factory;
+  /// Whether the device says the field takes a write, and whether it is an event. -1 where the
+  /// device did not answer, otherwise 0 or 1.
+  int8_t writable;
+  int8_t eventable;
   /// Whether the field carries a name or a unit string at all, whatever the device then sent for
   /// it. A field with a name string the device would not hand over reads as an empty name.
   bool has_name;
@@ -76,6 +82,10 @@ class MasterbusScanner {
   enum class Phase : uint8_t {
     PHASE_IDLE,
     PHASE_PRODUCT_CODE,
+    PHASE_ARTICLE_ID,
+    PHASE_ARTICLE_TEXT,
+    PHASE_PRODUCT_NAME_ID,
+    PHASE_PRODUCT_NAME_TEXT,
     PHASE_GROUP_COUNT,
     PHASE_GROUP_FIELD_COUNT,
     PHASE_GROUP_NAME_ID,
@@ -87,6 +97,9 @@ class MasterbusScanner {
     PHASE_FIELD_MINIMUM,
     PHASE_FIELD_MAXIMUM,
     PHASE_FIELD_STEP,
+    PHASE_FIELD_FACTORY,
+    PHASE_FIELD_WRITEABLE,
+    PHASE_FIELD_EVENTABLE,
     PHASE_FIELD_NAME_TEXT,
     PHASE_FIELD_UNIT_TEXT,
   };
@@ -119,6 +132,12 @@ class MasterbusScanner {
   /// that does not carry it refuses outright, which is not an error.
   uint16_t product_code_{0};
   bool product_code_known_{false};
+  /// The device's article number and product name, and whether it handed either over. The serial
+  /// number is deliberately never asked for: it identifies one unit, and scans get pasted in public.
+  char article_[SCAN_NAME_LENGTH]{};
+  char product_name_[SCAN_NAME_LENGTH]{};
+  bool article_known_{false};
+  bool product_name_known_{false};
   /// Which tab is being walked. The four are the same protocol under different message numbers,
   /// so the walk below is unchanged by it - only the numbers the hub puts on the wire differ.
   MasterbusTab tab_{MasterbusTab::MASTERBUS_TAB_MONITORING};

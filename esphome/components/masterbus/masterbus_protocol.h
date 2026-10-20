@@ -294,12 +294,10 @@ inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8
 ///
 ///     08 02   monitoring groups      08 04   history groups
 ///     08 06   configuration groups   08 08   alarm groups
-///     09 03   the highest string id the device's table holds
 ///
-/// Checked against the 2022 capture, where a display panel asked all five of a MassCombi and a
+/// Checked against the 2022 capture, where a display panel asked all four of a MassCombi and a
 /// MasterShunt and then walked what it was told: eight of eight group counts matched the number of
-/// groups each device went on to answer for, across four tabs and two products, and both string
-/// bounds matched the highest id either device ever handed over.
+/// groups each device went on to answer for, across four tabs and two products.
 ///
 /// The walk reads the product code and the four group counts. A device that refuses a group count
 /// is walked the older way, by asking for the group after the last one and taking its silence as
@@ -321,6 +319,29 @@ static constexpr uint8_t DEVICE_PROPERTY_ALARM_GROUPS = 0x08;
 /// tell them apart.
 inline bool is_device_property_header(const uint8_t *data, size_t size, uint8_t question) {
   return size >= DEVICE_PROPERTY_REQUEST_LENGTH && data[0] == DEVICE_PROPERTY_SELECTOR && data[1] == question;
+}
+
+/// LIBRARY: a device's article number, serial number, product name and revision code are strings in
+/// its own table, and a question of the same family says which entry holds each one.
+///
+///     request   type 0x0E, 2 bytes: 0x09, which string (1 to 4)
+///     answer    type 0x0C, 4 bytes: those two, then the string id little-endian
+///     refused   type 0x0D, 2 bytes: the two alone
+///
+/// The vendor library asks all four of every device it finds, before it lists the device at all.
+/// VERIFIED: what the vendor calls the product name is the name the device carries - six identical
+/// battery blocks answered "BAT 1" to "BAT 6" - and the article number is the one on the label.
+/// 09 03 was once read here as the highest string id a table holds. It is the name's id, which on
+/// both devices measured was the last string in the table.
+static constexpr uint8_t GENERAL_STRING_SELECTOR = 0x09;
+static constexpr uint8_t GENERAL_STRING_INFORMATION_LENGTH = 4;
+static constexpr uint8_t GENERAL_STRING_ARTICLE_NUMBER = 1;
+static constexpr uint8_t GENERAL_STRING_SERIAL_NUMBER = 2;
+static constexpr uint8_t GENERAL_STRING_PRODUCT_NAME = 3;
+static constexpr uint8_t GENERAL_STRING_REVISION_CODE = 4;
+
+inline bool is_general_string_header(const uint8_t *data, size_t size, uint8_t question) {
+  return size >= 2 && data[0] == GENERAL_STRING_SELECTOR && data[1] == question;
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +370,9 @@ enum class MasterbusProperty : uint8_t {
   MASTERBUS_PROPERTY_STEP = 0x08,
   MASTERBUS_PROPERTY_NAME_STRING = 0x28,
   MASTERBUS_PROPERTY_UNIT_STRING = 0x2C,
+  MASTERBUS_PROPERTY_FACTORY = 0x09,
+  MASTERBUS_PROPERTY_WRITEABLE = 0x0B,
+  MASTERBUS_PROPERTY_EVENTABLE = 0x0D,
 };
 
 /// VERIFIED: the display type is what decides which ESPHome platform a field belongs to.
@@ -357,9 +381,14 @@ enum class MasterbusProperty : uint8_t {
 /// (checkbox, a state) while "Close relay" and "Open relay" answered 5 (button, a momentary
 /// command) - a distinction the library itself does not expose.
 ///
-/// UNVERIFIED: properties 0x09, 0x0B, 0x0C and 0x0D are flags. 0x0B and 0x0D are set together and
-/// only on the button fields, which fits eventable rather than writable. The writable flag has not
-/// been identified, and the display type answers the platform question without it.
+/// LIBRARY: property 0x09 carries a 32 bit value, the factory default by elimination, and 0x0B, 0x0C
+/// and 0x0D are booleans - a 16 bit number that is set or not. They match the three booleans of
+/// the vendor's own field description: writeable, GrayVisualization and eventable.
+///
+/// VERIFIED: 0x0B is writeable and 0x0D is eventable. A button answers both. A display panel's
+/// event settings on its configuration tab - which source, target, command and data each of its
+/// events uses - answered 0x0B set and 0x0D clear, every one of them: settings, written but not
+/// events. 0x0C is the greyed-out flag by elimination.
 
 // ---------------------------------------------------------------------------
 // Groups
@@ -391,9 +420,9 @@ enum class MasterbusGroupSelector : uint8_t {
 // Not decoded
 // ---------------------------------------------------------------------------
 //
-// UNKNOWN: which fields a device will accept a write for. No read-only flag has been found among
-// the properties, so a write the device ignores looks exactly like one it acted on. The vendor's
-// library names a "writeable" property, so one exists and has simply not been identified.
+// UNKNOWN: which of properties 0x0B and 0x0D is the writeable flag (see the field properties
+// above). Until a device answers them differently on one field, a write the device ignores looks
+// exactly like one it acted on.
 
 // ---------------------------------------------------------------------------
 // Bounds the configuration validates against
