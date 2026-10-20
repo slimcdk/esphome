@@ -380,27 +380,43 @@ TEST_F(MasterbusTest, AFrameAddressedToTheDeviceDoesNotProveItIsThere) {
   this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, BATTERY_1), true, false, {0x01, 0x00});
   EXPECT_FALSE(this->battery_->is_online());
 
-  // Nor does a type nobody has decoded: it may be somebody else's question.
-  this->hub_->on_frame(frame_id(0x04, BATTERY_1), true, false, {0x1B, 0xEA, 0x56});
+  // Nor does a type that is no message at all: it may be somebody else's question.
+  this->hub_->on_frame(frame_id(0x3A, BATTERY_1), true, false, {0x1B, 0xEA, 0x56});
   EXPECT_FALSE(this->battery_->is_online());
 }
 
 // Which half of each family a frame belongs to is the whole of the rule above: answers and
 // refusals come back from the device, requests go out to it.
 TEST_F(MasterbusTest, OnlyTheHalfOfEachFamilyTheDeviceSendsCounts) {
-  for (uint8_t message = 0; message < MESSAGE_COUNT; message++) {
-    EXPECT_TRUE(device_sent_message(MESSAGE_INFORMATION_BASE + message)) << "information " << +message;
-    EXPECT_TRUE(device_sent_message(MESSAGE_NOT_AVAILABLE_BASE + message)) << "refusal " << +message;
-    EXPECT_FALSE(device_sent_message(MESSAGE_REQUEST_BASE + message)) << "request " << +message;
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    for (MasterbusTabMessage message : MASTERBUS_TAB_MESSAGES) {
+      const MasterbusMessageNumbers numbers = tab_message(tab, message);
+      EXPECT_TRUE(device_sent_message(numbers.information)) << "answer " << +numbers.information;
+      EXPECT_TRUE(device_sent_message(numbers.not_available)) << "refusal " << +numbers.not_available;
+      EXPECT_FALSE(device_sent_message(numbers.request)) << "request " << +numbers.request;
+    }
   }
-  for (uint8_t type :
-       {DEVICE_ANNOUNCEMENT_TYPE, NODE_NOT_AVAILABLE_TYPE, STRING_INFORMATION_TYPE, STRING_NOT_AVAILABLE_TYPE})
+  for (uint8_t type : {DEVICE_ANNOUNCEMENT_TYPE, STRING_INFORMATION_TYPE, STRING_NOT_AVAILABLE_TYPE,
+                       BOOTLOADER_MESSAGE.information, BOOTLOADER_MESSAGE.not_available})
     EXPECT_TRUE(device_sent_message(type)) << "type " << +type;
-  for (uint8_t type : {NODE_REQUEST_TYPE, STRING_REQUEST_TYPE})
+  for (uint8_t type : {NODE_REQUEST_TYPE, STRING_REQUEST_TYPE, BOOTLOADER_MESSAGE.request})
     EXPECT_FALSE(device_sent_message(type)) << "type " << +type;
 
-  // A type nobody has decoded may be somebody's question, so it proves nothing either.
-  EXPECT_FALSE(device_sent_message(0x04));
+  // Which way the bus message runs is not known, and a number that is no message at all may be
+  // somebody's question, so neither proves anything.
+  EXPECT_FALSE(device_sent_message(BUS_MESSAGE_TYPE));
+  EXPECT_FALSE(device_sent_message(0x3A));
+}
+
+// The vendor's own library accepts exactly these numbers and refuses every other one, so this is
+// the whole of the protocol's message space and not a sample of it.
+TEST_F(MasterbusTest, TheComponentNamesTheMessagesTheVendorLibraryAcceptsAndNoOthers) {
+  const std::set<uint8_t> accepted{0x02, 0x04, 0x05, 0x06, 0x08, 0x0A, 0x0C, 0x0D, 0x0E, 0x10, 0x11, 0x12,
+                                   0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1B, 0x1D, 0x20, 0x21, 0x22,
+                                   0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2B, 0x2D, 0x30, 0x31, 0x32,
+                                   0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3B, 0x3D};
+  for (uint8_t type = 0; type < 64; type++)
+    EXPECT_EQ(is_known_message_type(type), accepted.count(type) == 1) << "type 0x" << std::hex << +type;
 }
 
 TEST_F(MasterbusTest, ADeviceIsJudgedTimedOutOnlyOnceItsTimeoutHasRun) {
@@ -647,14 +663,16 @@ TEST_F(MasterbusTest, WriteSkipsTabsWithNoKnownWriteFormat) {
   EXPECT_TRUE(this->canbus_.sent.empty());
 }
 
-TEST_F(MasterbusTest, PollSkipsTheAlarmTabBecauseItsValueMessageIsNotDecoded) {
-  // The alarm tab is the one tab the vendor does not give a Data message alongside the others, so
-  // its structure can be walked but its values cannot be asked for.
+TEST_F(MasterbusTest, AnAlarmFieldIsPolledAndAnsweredOnItsOwnMessageNumbers) {
   auto *alarm = this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_ALARM);
 
   alarm->update();
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_EQ(this->canbus_.sent[0].can_id >> MESSAGE_TYPE_SHIFT, 0x06);
 
-  EXPECT_TRUE(this->canbus_.sent.empty());
+  this->hub_->on_frame(frame_id(0x04, BATTERY_1), true, false, monitoring_answer(1, 1.0f));
+  ASSERT_EQ(alarm->values.size(), 1u);
+  EXPECT_FLOAT_EQ(alarm->values[0].as_float, 1.0f);
 }
 
 TEST_F(MasterbusTest, AConfigurationFieldIsPolledWithItsOwnMessageNumber) {
@@ -901,31 +919,53 @@ TEST_F(MasterbusTest, ScanPlacesStringChunksByTheirOwnHeader) {
 // pinned by traffic; the rest follow from the same ordering. These assert the pinned ones, because
 // if the ordering is ever edited it is those that must not move.
 TEST_F(MasterbusTest, MessageNumbersMatchTheTrafficThatPinsThem) {
-  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_DATA), 0x30);
-  EXPECT_EQ(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_DATA), 0x10);
-  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_PROPERTY), 0x31);
-  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_GROUP), 0x32);
+  using M = MasterbusTabMessage;
+  using T = MasterbusTab;
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_MONITORING, M::MASTERBUS_TAB_MESSAGE_DATA).request, 0x30);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_MONITORING, M::MASTERBUS_TAB_MESSAGE_DATA).information, 0x10);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_MONITORING, M::MASTERBUS_TAB_MESSAGE_PROPERTY).request, 0x31);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_MONITORING, M::MASTERBUS_TAB_MESSAGE_GROUP).request, 0x32);
   // Seen on an unrelated installation: a display panel walking the other tabs' group lists.
-  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_ALARM_GROUP), 0x34);
-  EXPECT_EQ(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_ALARM_GROUP), 0x14);
-  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_HISTORY_GROUP), 0x36);
-  EXPECT_EQ(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_HISTORY_GROUP), 0x16);
-  EXPECT_EQ(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_GROUP), 0x39);
-  EXPECT_EQ(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_GROUP), 0x19);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_ALARM, M::MASTERBUS_TAB_MESSAGE_GROUP).request, 0x34);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_ALARM, M::MASTERBUS_TAB_MESSAGE_GROUP).information, 0x14);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_HISTORY, M::MASTERBUS_TAB_MESSAGE_GROUP).request, 0x36);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_HISTORY, M::MASTERBUS_TAB_MESSAGE_GROUP).information, 0x16);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_CONFIGURATION, M::MASTERBUS_TAB_MESSAGE_GROUP).request, 0x39);
+  EXPECT_EQ(tab_message(T::MASTERBUS_TAB_CONFIGURATION, M::MASTERBUS_TAB_MESSAGE_GROUP).information, 0x19);
 }
 
-TEST_F(MasterbusTest, TheAlarmTabHasNoDataMessageAndTheOthersDo) {
-  // The vendor files AlarmData with the broadcast messages rather than with the tabs, so the alarm
-  // tab can be walked for what it holds without its values being readable. Anything that reads a
-  // value has to ask first.
-  MasterbusMessage message;
-  EXPECT_FALSE(tab_data_message(MasterbusTab::MASTERBUS_TAB_ALARM, message));
-  EXPECT_TRUE(tab_data_message(MasterbusTab::MASTERBUS_TAB_MONITORING, message));
-  EXPECT_EQ(masterbus_request_type(message), 0x30);
-  EXPECT_TRUE(tab_data_message(MasterbusTab::MASTERBUS_TAB_CONFIGURATION, message));
-  EXPECT_EQ(masterbus_request_type(message), 0x37);
-  EXPECT_TRUE(tab_data_message(MasterbusTab::MASTERBUS_TAB_HISTORY, message));
-  EXPECT_EQ(masterbus_request_type(message), 0x3A);
+TEST_F(MasterbusTest, EveryTabHasAValueMessageOfItsOwn) {
+  // Values are the one kind of tab message that follows no rule: the vendor library looks the
+  // numbers up, and alarm values sit down among the node messages, far from the other tabs.
+  const auto value = [](MasterbusTab tab) { return tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA); };
+  EXPECT_EQ(value(MasterbusTab::MASTERBUS_TAB_MONITORING).request, 0x30);
+  EXPECT_EQ(value(MasterbusTab::MASTERBUS_TAB_ALARM).request, 0x06);
+  EXPECT_EQ(value(MasterbusTab::MASTERBUS_TAB_ALARM).information, 0x04);
+  EXPECT_EQ(value(MasterbusTab::MASTERBUS_TAB_ALARM).not_available, 0x05);
+  EXPECT_EQ(value(MasterbusTab::MASTERBUS_TAB_HISTORY).request, 0x3B);
+  EXPECT_EQ(value(MasterbusTab::MASTERBUS_TAB_HISTORY).information, 0x1B);
+  EXPECT_EQ(value(MasterbusTab::MASTERBUS_TAB_HISTORY).not_available, 0x2B);
+  EXPECT_EQ(value(MasterbusTab::MASTERBUS_TAB_CONFIGURATION).request, 0x37);
+}
+
+TEST_F(MasterbusTest, AHistoryFieldIsPolledAndAnsweredOnItsOwnMessageNumbers) {
+  auto *history =
+      this->add_sensor(5, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_HISTORY);
+  auto *monitoring = this->add_sensor(5);
+
+  history->update();
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_EQ(this->canbus_.sent[0].can_id >> MESSAGE_TYPE_SHIFT, 0x3B);
+  ASSERT_EQ(this->canbus_.sent[0].can_data_length_code, MONITORING_REQUEST_LENGTH);
+
+  this->hub_->on_frame(frame_id(0x1B, BATTERY_1), true, false, monitoring_answer(5, 812.0f));
+  ASSERT_EQ(history->values.size(), 1u);
+  EXPECT_FLOAT_EQ(history->values[0].as_float, 812.0f);
+  EXPECT_TRUE(monitoring->values.empty());
+
+  // 0x1A was once taken for history's answer. The vendor library refuses it, so nothing takes it.
+  this->hub_->on_frame(frame_id(0x1A, BATTERY_1), true, false, monitoring_answer(5, 1.0f));
+  EXPECT_EQ(history->values.size(), 1u);
 }
 
 TEST_F(MasterbusTest, AStructuralRequestCarriesItsTabsOwnMessageNumber) {
@@ -959,15 +999,20 @@ TEST_F(MasterbusTest, TheScanIgnoresAnAnswerFromAnotherTab) {
   const size_t asked = this->canbus_.sent.size();
 
   // The walk starts on monitoring and is waiting for 0x12. This is the alarm tab's answer.
-  this->hub_->on_frame(frame_id(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_ALARM_GROUP), BATTERY_1),
-                       true, false, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  this->hub_->on_frame(
+      frame_id(
+          tab_message(MasterbusTab::MASTERBUS_TAB_ALARM, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP).information,
+          BATTERY_1),
+      true, false, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
   this->hub_->scan_step(this->scan_now_);
   EXPECT_EQ(this->canbus_.sent.size(), asked) << "the scan moved on after an answer from another tab";
 
   // The same payload under monitoring's own number is taken, and the walk asks its next question.
   this->hub_->on_frame(
-      frame_id(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_GROUP), BATTERY_1), true,
-      false, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+      frame_id(tab_message(MasterbusTab::MASTERBUS_TAB_MONITORING, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP)
+                   .information,
+               BATTERY_1),
+      true, false, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
   this->hub_->scan_step(this->scan_now_);
   ASSERT_EQ(this->canbus_.sent.size(), asked + 1);
   EXPECT_EQ(this->canbus_.sent.back().data[0],
@@ -983,12 +1028,12 @@ TEST_F(MasterbusTest, AnUndecodedMessageTypeReachesTheHubTrigger) {
     seen.emplace_back(data, type, device);
   });
 
-  // 0x04 is in no family this component can name. UNDECLARED_DEVICE is deliberate: a device-level
-  // trigger could not have seen this at all.
-  this->hub_->on_frame(frame_id(0x04, UNDECLARED_DEVICE), true, false, {0x1B, 0xEA, 0x56});
+  // 0x3A is no message at all: the vendor library refuses it. UNDECLARED_DEVICE is deliberate: a
+  // device-level trigger could not have seen this at all.
+  this->hub_->on_frame(frame_id(0x3A, UNDECLARED_DEVICE), true, false, {0x1B, 0xEA, 0x56});
 
   ASSERT_EQ(seen.size(), 1u);
-  EXPECT_EQ(std::get<1>(seen[0]), 0x04);
+  EXPECT_EQ(std::get<1>(seen[0]), 0x3A);
   EXPECT_EQ(std::get<2>(seen[0]), UNDECLARED_DEVICE);
   EXPECT_EQ(std::get<0>(seen[0]), (std::vector<uint8_t>{0x1B, 0xEA, 0x56}));
 }
@@ -997,30 +1042,46 @@ TEST_F(MasterbusTest, EveryMessageTheComponentCanNameIsLeftAlone) {
   int fired = 0;
   this->hub_->add_on_unknown_frame_callback([&fired](const std::vector<uint8_t> &, uint8_t, uint32_t) { fired++; });
 
-  // One from each family: the twelve tab messages at all three bases, then node and string. A
-  // value read or its answer is sent in the shape it has on the wire, because a data message of
-  // another length is something else (see below); the rest are not judged by their length.
-  for (uint8_t message = 0; message < MESSAGE_COUNT; message++) {
-    for (uint8_t base : {MESSAGE_INFORMATION_BASE, MESSAGE_NOT_AVAILABLE_BASE, MESSAGE_REQUEST_BASE}) {
-      std::vector<uint8_t> data{0x00};
-      MasterbusTab tab;
-      if (data_information_tab(base + message, tab))
-        data = {0x75, 0x00, 0x00, 0x00, 0x80, 0x3F};
-      else if (base == MESSAGE_REQUEST_BASE && data_information_tab(MESSAGE_INFORMATION_BASE + message, tab))
-        data = {0x75, 0x00};
-      this->hub_->on_frame(frame_id(base + message, BATTERY_1), true, false, data);
+  // Every tab message in all three of its forms, then node and string. A value read or its answer
+  // is sent in the shape it has on the wire, because a value message of another length is
+  // something else (see below); the rest are not judged by their length.
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    for (MasterbusTabMessage message : MASTERBUS_TAB_MESSAGES) {
+      const MasterbusMessageNumbers numbers = tab_message(tab, message);
+      const bool value = message == MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA;
+      this->hub_->on_frame(frame_id(numbers.request, BATTERY_1), true, false,
+                           value ? std::vector<uint8_t>{0x75, 0x00} : std::vector<uint8_t>{0x00});
+      this->hub_->on_frame(
+          frame_id(numbers.information, BATTERY_1), true, false,
+          value ? std::vector<uint8_t>{0x75, 0x00, 0x00, 0x00, 0x80, 0x3F} : std::vector<uint8_t>{0x00});
+      this->hub_->on_frame(frame_id(numbers.not_available, BATTERY_1), true, false, {0x00});
     }
   }
-  for (uint8_t type : {DEVICE_ANNOUNCEMENT_TYPE, NODE_NOT_AVAILABLE_TYPE, NODE_REQUEST_TYPE, STRING_INFORMATION_TYPE,
-                       STRING_NOT_AVAILABLE_TYPE, STRING_REQUEST_TYPE})
+  for (uint8_t type : {DEVICE_ANNOUNCEMENT_TYPE, NODE_REQUEST_TYPE, STRING_INFORMATION_TYPE, STRING_NOT_AVAILABLE_TYPE,
+                       STRING_REQUEST_TYPE})
     this->hub_->on_frame(frame_id(type, BATTERY_1), true, false, {0x00});
 
   EXPECT_EQ(fired, 0);
 
-  // And the gap either side of the tab block is still reported, so the bounds are not off by one.
-  this->hub_->on_frame(frame_id(MESSAGE_INFORMATION_BASE - 1, BATTERY_1), true, false, {0x00});
-  this->hub_->on_frame(frame_id(MESSAGE_REQUEST_BASE + MESSAGE_COUNT, BATTERY_1), true, false, {0x00});
+  // And a number either side of the tab block, so the bounds are not off by one.
+  this->hub_->on_frame(frame_id(0x0F, BATTERY_1), true, false, {0x00});
+  this->hub_->on_frame(frame_id(0x3E, BATTERY_1), true, false, {0x00});
   EXPECT_EQ(fired, 2);
+}
+
+// The bus message and the bootloader's are numbers the vendor library accepts and then never looks
+// inside, and this component reads nothing in them either. Neither is everyday traffic, which is
+// what makes one worth seeing.
+TEST_F(MasterbusTest, TheMessagesNobodyParsesReachTheHubTrigger) {
+  std::vector<uint8_t> seen;
+  this->hub_->add_on_unknown_frame_callback(
+      [&seen](const std::vector<uint8_t> &, uint8_t type, uint32_t) { seen.push_back(type); });
+
+  for (uint8_t type :
+       {BUS_MESSAGE_TYPE, BOOTLOADER_MESSAGE.request, BOOTLOADER_MESSAGE.information, BOOTLOADER_MESSAGE.not_available})
+    this->hub_->on_frame(frame_id(type, UNDECLARED_DEVICE), true, false, {0x00});
+
+  EXPECT_EQ(seen, (std::vector<uint8_t>{0x02, 0x3D, 0x1D, 0x2D}));
 }
 
 // A write rides the same message as a read and is told apart by its length alone, and the frame
@@ -1039,7 +1100,8 @@ TEST_F(MasterbusTest, AWriteByAnotherNodeAndTheFrameAfterItReachTheHubTrigger) {
   this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, UNDECLARED_DEVICE), true, false, {0x01, 0x00, 0x50, 0x00});
   // The same shape on the configuration tab's message: no write there has been watched, which is
   // all the more reason to report one.
-  const uint8_t configuration_request = masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_DATA);
+  const uint8_t configuration_request =
+      tab_message(MasterbusTab::MASTERBUS_TAB_CONFIGURATION, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request;
   this->hub_->on_frame(frame_id(configuration_request, BATTERY_1), true, false, {0x28, 0x00, 0x00, 0x00, 0xA0, 0x40});
 
   ASSERT_EQ(seen.size(), 3u);
