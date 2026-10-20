@@ -35,6 +35,12 @@ namespace esphome::masterbus {
 static constexpr uint32_t DEVICE_ADDRESS_MASK = 0x007FFFFF;
 static constexpr uint8_t MESSAGE_TYPE_SHIFT = 23;
 
+/// VERIFIED: the address this hub speaks as, which is the vendor library's own. The library asks
+/// for announcements under it, and every device answers a node request except the one whose
+/// address it carries, so this is a node identity and not a broadcast address. It is also what the
+/// library writes after every write it makes, as the node that made the change (see below).
+static constexpr uint32_t HUB_ADDRESS = 0x500001;
+
 // ---------------------------------------------------------------------------
 // Monitoring messages
 // ---------------------------------------------------------------------------
@@ -72,17 +78,11 @@ static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
 /// that carry no other value. Writing anything else is therefore not confirmed.
 static constexpr uint8_t MONITORING_WRITE_LENGTH = 6;
 
-/// UNVERIFIED as to meaning, VERIFIED as to necessity: every write the vendor library sent was
-/// immediately followed by a second write, to the field one higher, carrying these four bytes.
-/// The value never varied - the same bytes followed a write to field 117 and to field 119, so it
-/// is not derived from the field or the value. Neither of the higher fields exists in the device's
-/// own field list, so this is not an ordinary write and reads more like a commit. It is sent
-/// because the library sends it, not because its meaning is understood.
-static constexpr uint8_t MONITORING_WRITE_COMMIT_LENGTH = 4;
-inline const uint8_t *monitoring_write_commit() {
-  static const uint8_t COMMIT[MONITORING_WRITE_COMMIT_LENGTH] = {0x01, 0x00, 0x50, 0x00};
-  return COMMIT;
-}
+/// VERIFIED as to the bytes, LIBRARY as to their meaning: every write is followed by a second one,
+/// to the field one higher, whose value is the address of the node that wrote - HUB_ADDRESS, as a
+/// 32 bit number little-endian. The vendor library always sends its own, which is why the same
+/// four bytes, 01 00 50 00, followed a write to field 117 and to field 119. Neither higher field is
+/// in the device's own field list: the pair records which node set an eventable field off.
 
 /// VERIFIED, and the reason writing is not fire-and-forget: a write that goes out correctly is not
 /// the same as a command that took effect. Equipment can be shared between devices, and then only
@@ -170,17 +170,15 @@ inline bool decode_time(float value, MasterbusTime &out) {
 /// VERIFIED: asking every device to announce itself is a frame with no payload at all. The whole
 /// message is the identifier - the node request type against the address of whoever is asking.
 /// Every device on the bus answers it except the one whose address it carries: 120 requests
-/// carrying a real device's address were answered by exactly the seven others. So the address
-/// below is not a broadcast address but the vendor library's own node identity, which this hub
-/// borrows. Captured while the vendor library opened a fresh context: it sends the request three
-/// times in a row, and every device answers within about four milliseconds.
+/// carrying a real device's address were answered by exactly the seven others, which is why the
+/// hub asks under HUB_ADDRESS. Captured while the vendor library opened a fresh context: it sends
+/// the request three times in a row, and every device answers within about four milliseconds.
 ///
 /// Measured over 1797 requests in a 10 minute capture: exactly eight distinct devices answered
 /// each one - minimum eight, maximum eight - with a median delay of 5.8 ms.
 static constexpr uint8_t NODE_REQUEST_TYPE = 0x0A;
 // LIBRARY: a node request has no refusal on the wire. The vendor library has a NodeNa beside NodeReq
 // and NodeInfo, but it refuses 0x09, the number the string family's pattern would give it.
-static constexpr uint32_t NODE_REQUEST_ADDRESS = 0x500001;
 /// The library repeats it, so a device that missed the first still answers.
 static constexpr uint8_t NODE_REQUEST_REPEATS = 3;
 
@@ -391,9 +389,6 @@ enum class MasterbusGroupSelector : uint8_t {
 // ---------------------------------------------------------------------------
 // Not decoded
 // ---------------------------------------------------------------------------
-//
-// UNVERIFIED: what the frame that follows every write means. Its shape is recorded above; only its
-// purpose is open.
 //
 // UNKNOWN: which fields a device will accept a write for. No read-only flag has been found among
 // the properties, so a write the device ignores looks exactly like one it acted on. The vendor's
