@@ -106,7 +106,7 @@ bool MasterbusHub::request_nodes() {
   bool sent = false;
   // Repeated the way the vendor library repeats it, so a device that missed one still answers.
   for (uint8_t i = 0; i < NODE_REQUEST_REPEATS; i++)
-    sent |= this->send_(NODE_REQUEST_TYPE, NODE_REQUEST_ADDRESS, {});
+    sent |= this->send_(NODE_REQUEST_TYPE, HUB_ADDRESS, {});
   if (!sent) {
     ESP_LOGW(TAG, "Could not put the node request on the bus. Devices then announce themselves only when "
                   "another node asks, and where none does, nothing is heard from them until they are polled.");
@@ -336,13 +336,12 @@ bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
     return false;
   }
 
-  // The vendor library always follows a write with this second frame, addressed to the next field
-  // number. See masterbus_protocol.h: it is sent because the library sends it.
-  const uint16_t commit_param = static_cast<uint16_t>(param + 1);
-  const uint8_t *commit = monitoring_write_commit();
+  // Then who wrote it, on the next field number, the way the vendor library always does.
+  const uint16_t source_param = static_cast<uint16_t>(param + 1);
   if (!this->send_(MONITORING_REQUEST_TYPE, address,
-                   {static_cast<uint8_t>(commit_param & 0xFF), static_cast<uint8_t>(commit_param >> 8), commit[0],
-                    commit[1], commit[2], commit[3]})) {
+                   {static_cast<uint8_t>(source_param & 0xFF), static_cast<uint8_t>(source_param >> 8),
+                    static_cast<uint8_t>(HUB_ADDRESS & 0xFF), static_cast<uint8_t>(HUB_ADDRESS >> 8),
+                    static_cast<uint8_t>(HUB_ADDRESS >> 16), static_cast<uint8_t>(HUB_ADDRESS >> 24)})) {
     ESP_LOGW(TAG, "Wrote field %u but could not send the frame that follows it", param);
     return false;
   }
