@@ -8,11 +8,13 @@ namespace esphome::masterbus {
 
 // The MasterBus protocol, in two halves.
 //
-// The wire format below is not published and was derived by watching a live installation. Each
-// constant carries how far it is actually known, so that confirming one is a change to this file
-// alone:
+// The wire format below is not published. It was derived by watching a live installation and by
+// reading what the vendor's own library does. Each constant carries how far it is actually known,
+// so that confirming one is a change to this file alone:
 //
 //   VERIFIED    Measured against captured traffic, or read out of the vendor SDK's data files.
+//   LIBRARY     What the vendor's library sends and accepts, read out of the library rather than
+//               seen on a wire. Strong, but no device has yet been watched doing it.
 //   UNVERIFIED  Inferred and not yet contradicted. Treat as a guess.
 //
 // The data model further down is different in kind: it comes from the vendor's own documented
@@ -51,12 +53,13 @@ static constexpr uint8_t MONITORING_REQUEST_TYPE = 0x30;
 static constexpr uint8_t MONITORING_INFORMATION_TYPE = 0x10;
 static constexpr uint8_t MONITORING_REQUEST_LENGTH = 2;
 static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
-// VERIFIED for the configuration tab, UNVERIFIED for history: both are read with their own message
-// numbers and the two lengths above. Configuration reads were answered in exactly this shape on a
-// live bus, by a battery block and a display panel, for floats, list options and text. History is
-// still assumed to follow, because every other message it shares with monitoring - group and
-// property - is byte for byte the same across tabs. An answer of a different length is dropped
-// rather than misread, so a wrong assumption shows up as silence, not as a wrong value.
+// VERIFIED for the configuration tab, LIBRARY for alarm and history: every tab reads a value with
+// message numbers of its own (see tab_message() below) and the two lengths above. Configuration
+// reads were answered in exactly this shape on a live bus, by a battery block and a display panel,
+// for floats, list options and text. The vendor library builds and parses the other two tabs'
+// values the same way, but no device has been watched answering one. An answer of a different
+// length is dropped rather than misread, so a wrong assumption shows up as silence, not as a wrong
+// value.
 
 /// VERIFIED: a monitoring field is written with the same message type that reads it. What tells
 /// the two apart is the payload length: two bytes asks, six bytes writes.
@@ -175,10 +178,8 @@ inline bool decode_time(float value, MasterbusTime &out) {
 /// Measured over 1797 requests in a 10 minute capture: exactly eight distinct devices answered
 /// each one - minimum eight, maximum eight - with a median delay of 5.8 ms.
 static constexpr uint8_t NODE_REQUEST_TYPE = 0x0A;
-/// DERIVED: the vendor names a NodeNa beside NodeInfo and NodeReq, and the string family refuses
-/// one above its answer. No refusal to a node request has been captured - every device on the
-/// reference bus answers every time - so this is the pattern applied, not a measurement.
-static constexpr uint8_t NODE_NOT_AVAILABLE_TYPE = 0x09;
+// LIBRARY: a node request has no refusal on the wire. The vendor library has a NodeNa beside NodeReq
+// and NodeInfo, but it refuses 0x09, the number the string family's pattern would give it.
 static constexpr uint32_t NODE_REQUEST_ADDRESS = 0x500001;
 /// The library repeats it, so a device that missed the first still answers.
 static constexpr uint8_t NODE_REQUEST_REPEATS = 3;
@@ -388,138 +389,15 @@ enum class MasterbusGroupSelector : uint8_t {
 };
 
 // ---------------------------------------------------------------------------
-// Message numbering
-// ---------------------------------------------------------------------------
-
-/// VERIFIED as to layout, read out of the vendor's own shared library: the tab messages are one
-/// flat list, and each entry exists three times over - as an answer at 0x10, as a refusal at 0x20
-/// and as a request at 0x30. The library holds the names in that order, in three blocks with the
-/// same internal sequence, which is what gives the list below.
-///
-/// The order is the vendor's and it is not regular. The alarm tab has no Data entry here at all -
-/// the library files AlarmData with the broadcast messages instead - and the two remaining Data
-/// entries sit out of line with their own tabs. So this is a list to look up, never an arithmetic
-/// of tab and kind.
-///
-/// Three of the twelve were already decoded from traffic: monitoring's own. Three more then turned
-/// up in a capture of an unrelated installation exactly where this ordering predicts them -
-/// 0x34/0x14, 0x36/0x16 and 0x39/0x19, all carrying the group walk's framing, sent in one burst
-/// the moment a display panel opened a device's menu. That is what turns the ordering from a
-/// reading of a string table into a tested claim. A seventh, configuration data, was then read and
-/// answered on a live bus where the ordering put it. The remaining five are marked DERIVED: they
-/// follow from the same ordering and have not themselves been seen on a wire.
-enum class MasterbusMessage : uint8_t {
-  MASTERBUS_MESSAGE_MONITORING_DATA = 0,         // VERIFIED  0x30 / 0x10
-  MASTERBUS_MESSAGE_MONITORING_PROPERTY = 1,     // VERIFIED  0x31 / 0x11
-  MASTERBUS_MESSAGE_MONITORING_GROUP = 2,        // VERIFIED  0x32 / 0x12
-  MASTERBUS_MESSAGE_ALARM_PROPERTY = 3,          // DERIVED   0x33 / 0x13
-  MASTERBUS_MESSAGE_ALARM_GROUP = 4,             // VERIFIED  0x34 / 0x14
-  MASTERBUS_MESSAGE_HISTORY_PROPERTY = 5,        // DERIVED   0x35 / 0x15
-  MASTERBUS_MESSAGE_HISTORY_GROUP = 6,           // VERIFIED  0x36 / 0x16
-  MASTERBUS_MESSAGE_CONFIGURATION_DATA = 7,      // VERIFIED  0x37 / 0x17
-  MASTERBUS_MESSAGE_CONFIGURATION_PROPERTY = 8,  // DERIVED   0x38 / 0x18
-  MASTERBUS_MESSAGE_CONFIGURATION_GROUP = 9,     // VERIFIED  0x39 / 0x19
-  MASTERBUS_MESSAGE_HISTORY_DATA = 10,           // DERIVED   0x3A / 0x1A
-  MASTERBUS_MESSAGE_BOOTLOADER = 11,             // DERIVED   0x3B / 0x1B - out of scope, listed so
-                                                 // the list is the vendor's and not an edited one
-};
-
-static constexpr uint8_t MESSAGE_INFORMATION_BASE = 0x10;
-/// DERIVED: no refusal on a tab message has been captured. The string family refuses at
-/// STRING_NOT_AVAILABLE_TYPE, one above its answer, so this base is the pattern applied and not a
-/// measurement.
-static constexpr uint8_t MESSAGE_NOT_AVAILABLE_BASE = 0x20;
-static constexpr uint8_t MESSAGE_REQUEST_BASE = 0x30;
-/// How many entries the vendor's list holds. Every one of them exists at each of the three bases.
-static constexpr uint8_t MESSAGE_COUNT = 12;
-static_assert(static_cast<uint8_t>(MasterbusMessage::MASTERBUS_MESSAGE_BOOTLOADER) + 1 == MESSAGE_COUNT,
-              "the message count must follow the list, not be maintained beside it");
-
-constexpr uint8_t masterbus_request_type(MasterbusMessage message) {
-  return static_cast<uint8_t>(MESSAGE_REQUEST_BASE + static_cast<uint8_t>(message));
-}
-constexpr uint8_t masterbus_information_type(MasterbusMessage message) {
-  return static_cast<uint8_t>(MESSAGE_INFORMATION_BASE + static_cast<uint8_t>(message));
-}
-
-// The three that were decoded from traffic long before the list was found. Asserting them here is
-// what stops the list and the named constants above from drifting apart.
-static_assert(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_DATA) == MONITORING_REQUEST_TYPE,
-              "monitoring data request must stay 0x30");
-static_assert(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_DATA) ==
-                  MONITORING_INFORMATION_TYPE,
-              "monitoring data answer must stay 0x10");
-static_assert(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_PROPERTY) == PROPERTY_REQUEST_TYPE,
-              "monitoring property request must stay 0x31");
-static_assert(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_PROPERTY) ==
-                  PROPERTY_INFORMATION_TYPE,
-              "monitoring property answer must stay 0x11");
-static_assert(masterbus_request_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_GROUP) == GROUP_REQUEST_TYPE,
-              "monitoring group request must stay 0x32");
-static_assert(masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_GROUP) ==
-                  GROUP_INFORMATION_TYPE,
-              "monitoring group answer must stay 0x12");
-
-/// Whether a message type is one this component can name. Everything else is worth surfacing, and
-/// that is the point of the test: the vendor names messages nobody here has ever seen a number
-/// for - alarm data and the two bus messages among them - and the only way to learn where they sit
-/// is to catch one in the act.
-constexpr bool is_known_message_type(uint8_t type) {
-  if (type >= MESSAGE_INFORMATION_BASE && type < MESSAGE_INFORMATION_BASE + MESSAGE_COUNT)
-    return true;
-  if (type >= MESSAGE_NOT_AVAILABLE_BASE && type < MESSAGE_NOT_AVAILABLE_BASE + MESSAGE_COUNT)
-    return true;
-  if (type >= MESSAGE_REQUEST_BASE && type < MESSAGE_REQUEST_BASE + MESSAGE_COUNT)
-    return true;
-  return type == DEVICE_ANNOUNCEMENT_TYPE || type == NODE_NOT_AVAILABLE_TYPE || type == NODE_REQUEST_TYPE ||
-         type == STRING_INFORMATION_TYPE || type == STRING_NOT_AVAILABLE_TYPE || type == STRING_REQUEST_TYPE;
-}
-
-/// Whether a frame of this type is one the device itself sent. A request carries the address of
-/// the device it is aimed at and nothing about its sender, so a frame addressed to a device says
-/// only that somebody asked it something - never that it is there to answer.
-constexpr bool device_sent_message(uint8_t type) {
-  if (type >= MESSAGE_INFORMATION_BASE && type < MESSAGE_INFORMATION_BASE + MESSAGE_COUNT)
-    return true;
-  if (type >= MESSAGE_NOT_AVAILABLE_BASE && type < MESSAGE_NOT_AVAILABLE_BASE + MESSAGE_COUNT)
-    return true;
-  return type == DEVICE_ANNOUNCEMENT_TYPE || type == NODE_NOT_AVAILABLE_TYPE || type == STRING_INFORMATION_TYPE ||
-         type == STRING_NOT_AVAILABLE_TYPE;
-}
-
-// ---------------------------------------------------------------------------
 // Not decoded
 // ---------------------------------------------------------------------------
 //
 // UNVERIFIED: what the frame that follows every write means. Its shape is recorded above; only its
 // purpose is open.
 //
-// UNVERIFIED as to meaning, VERIFIED as to shape: three further request/answer pairs exist, and
-// they carry the group walk above byte for byte - selector, then the number little-endian, and an
-// answer of that header, a tag byte and a float.
-//
-//     0x34 / 0x14      0x36 / 0x16      0x39 / 0x19
-//
-// Only selector 0x07, the field count, has been seen on any of them. A display panel opening a
-// device's menu asks 0x32 for the monitoring group count, then runs all three of these in one
-// burst, and only then walks the monitoring fields - so they are near certainly the same walk over
-// the device's other tabs. Which pair is which tab is not settled, and no *value* read on those
-// tabs has been captured at all, which is why an entity outside the monitoring tab is refused
-// rather than guessed at.
-//
-// That they count groups rather than describe fields is settled, because the two readings disagree
-// and only one survives: read as field properties, 0x39 would be saying that the first field of a
-// DC shunt - its state of charge - has a maximum of 7.
-//
 // UNKNOWN: which fields a device will accept a write for. No read-only flag has been found among
 // the properties, so a write the device ignores looks exactly like one it acted on. The vendor's
 // library names a "writeable" property, so one exists and has simply not been identified.
-//
-// UNKNOWN: how an alarm's value is carried. The vendor names AlarmDataReq, AlarmDataInfo and
-// AlarmDataNa, so alarms can be asked for - but it files all three with NodeReq, NodeInfo and
-// BusInfo rather than with the other tabs, which is where broadcast messages live. Their numbers
-// are outside the tab list and have not been captured, because no alarm has been active on the
-// reference bus while anything was recording.
 
 // ---------------------------------------------------------------------------
 // Bounds the configuration validates against
@@ -550,33 +428,160 @@ enum class MasterbusTab : uint8_t {
   MASTERBUS_TAB_CONFIGURATION = 3,
 };
 
-/// Which message walks a tab's groups, and which reads one field's properties. Every tab has both.
-/// These are switches rather than arithmetic because the vendor's list is not in tab order - see
-/// the message numbering above.
-constexpr MasterbusMessage group_message(MasterbusTab tab) {
-  switch (tab) {
-    case MasterbusTab::MASTERBUS_TAB_ALARM:
-      return MasterbusMessage::MASTERBUS_MESSAGE_ALARM_GROUP;
-    case MasterbusTab::MASTERBUS_TAB_HISTORY:
-      return MasterbusMessage::MASTERBUS_MESSAGE_HISTORY_GROUP;
-    case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
-      return MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_GROUP;
+/// Every tab, for walking them all.
+static constexpr MasterbusTab MASTERBUS_TABS[] = {
+    MasterbusTab::MASTERBUS_TAB_MONITORING,
+    MasterbusTab::MASTERBUS_TAB_ALARM,
+    MasterbusTab::MASTERBUS_TAB_HISTORY,
+    MasterbusTab::MASTERBUS_TAB_CONFIGURATION,
+};
+
+// ---------------------------------------------------------------------------
+// Message numbering
+// ---------------------------------------------------------------------------
+
+/// One message as it exists three times over: the request a node sends, the answer a device gives,
+/// and the refusal it gives instead.
+struct MasterbusMessageNumbers {
+  uint8_t request;
+  uint8_t information;
+  uint8_t not_available;
+
+  constexpr bool contains(uint8_t type) const {
+    return type == this->request || type == this->information || type == this->not_available;
+  }
+};
+
+/// What a tab message is about: a field's value, one property of a field, or one of a group.
+enum class MasterbusTabMessage : uint8_t {
+  MASTERBUS_TAB_MESSAGE_DATA,
+  MASTERBUS_TAB_MESSAGE_PROPERTY,
+  MASTERBUS_TAB_MESSAGE_GROUP,
+};
+
+static constexpr MasterbusTabMessage MASTERBUS_TAB_MESSAGES[] = {
+    MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA,
+    MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY,
+    MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP,
+};
+
+/// LIBRARY as a table, VERIFIED entry by entry where it says so: the vendor library builds every
+/// tab message from the tab and what is asked about it, and its decoder accepts exactly these
+/// numbers.
+///
+///                     value             property          group
+///     monitoring      30 / 10 / 20      31 / 11 / 21      32 / 12 / 22
+///     alarm           06 / 04 / 05      33 / 13 / 23      34 / 14 / 24
+///     history         3B / 1B / 2B      35 / 15 / 25      36 / 16 / 26
+///     configuration   37 / 17 / 27      38 / 18 / 28      39 / 19 / 29
+///
+/// Each is request / answer / refusal. Properties and groups are arithmetic in the tab - two apart
+/// per tab for monitoring, alarm and history - and configuration is the exception. Values follow no
+/// rule: the library looks them up, and the alarm tab's sit down among the node messages.
+///
+/// VERIFIED on a wire: monitoring's three, the configuration value, and the requests and answers of
+/// the other three group walks, sent in one burst by a display panel opening a device's menu. The
+/// library is what says which walk belongs to which tab. No refusal of a tab message has been
+/// captured: a device that will not answer stays silent.
+///
+/// An earlier reading took the order the library stores its message names in for their numbering,
+/// and put history values at 0x3A. The library refuses 0x3A.
+constexpr MasterbusMessageNumbers tab_message(MasterbusTab tab, MasterbusTabMessage message) {
+  switch (message) {
+    case MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA:
+      switch (tab) {
+        case MasterbusTab::MASTERBUS_TAB_ALARM:
+          return {0x06, 0x04, 0x05};
+        case MasterbusTab::MASTERBUS_TAB_HISTORY:
+          return {0x3B, 0x1B, 0x2B};
+        case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
+          return {0x37, 0x17, 0x27};
+        default:
+          return {0x30, 0x10, 0x20};
+      }
+    case MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY:
+      switch (tab) {
+        case MasterbusTab::MASTERBUS_TAB_ALARM:
+          return {0x33, 0x13, 0x23};
+        case MasterbusTab::MASTERBUS_TAB_HISTORY:
+          return {0x35, 0x15, 0x25};
+        case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
+          return {0x38, 0x18, 0x28};
+        default:
+          return {0x31, 0x11, 0x21};
+      }
     default:
-      return MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_GROUP;
+      switch (tab) {
+        case MasterbusTab::MASTERBUS_TAB_ALARM:
+          return {0x34, 0x14, 0x24};
+        case MasterbusTab::MASTERBUS_TAB_HISTORY:
+          return {0x36, 0x16, 0x26};
+        case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
+          return {0x39, 0x19, 0x29};
+        default:
+          return {0x32, 0x12, 0x22};
+      }
   }
 }
 
-constexpr MasterbusMessage property_message(MasterbusTab tab) {
-  switch (tab) {
-    case MasterbusTab::MASTERBUS_TAB_ALARM:
-      return MasterbusMessage::MASTERBUS_MESSAGE_ALARM_PROPERTY;
-    case MasterbusTab::MASTERBUS_TAB_HISTORY:
-      return MasterbusMessage::MASTERBUS_MESSAGE_HISTORY_PROPERTY;
-    case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
-      return MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_PROPERTY;
-    default:
-      return MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_PROPERTY;
+// The three that were decoded from traffic long before the table was known. Asserting them here is
+// what stops the table and the named constants above from drifting apart.
+static_assert(tab_message(MasterbusTab::MASTERBUS_TAB_MONITORING, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA)
+                          .request == MONITORING_REQUEST_TYPE &&
+                  tab_message(MasterbusTab::MASTERBUS_TAB_MONITORING, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA)
+                          .information == MONITORING_INFORMATION_TYPE,
+              "monitoring data must stay 0x30 / 0x10");
+static_assert(
+    tab_message(MasterbusTab::MASTERBUS_TAB_MONITORING, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).request ==
+            PROPERTY_REQUEST_TYPE &&
+        tab_message(MasterbusTab::MASTERBUS_TAB_MONITORING, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY)
+                .information == PROPERTY_INFORMATION_TYPE,
+    "monitoring property must stay 0x31 / 0x11");
+static_assert(tab_message(MasterbusTab::MASTERBUS_TAB_MONITORING, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP)
+                          .request == GROUP_REQUEST_TYPE &&
+                  tab_message(MasterbusTab::MASTERBUS_TAB_MONITORING, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP)
+                          .information == GROUP_INFORMATION_TYPE,
+              "monitoring group must stay 0x32 / 0x12");
+
+/// LIBRARY: a number the vendor library accepts and then never looks inside. It names a BusReq and
+/// a BusInfo, and this is the one number left over for them, but nothing says which way it runs.
+static constexpr uint8_t BUS_MESSAGE_TYPE = 0x02;
+/// LIBRARY: accepted and never looked inside either - the bootloader's, the one triple left over.
+/// Firmware update over MasterBus is out of scope.
+static constexpr MasterbusMessageNumbers BOOTLOADER_MESSAGE{0x3D, 0x1D, 0x2D};
+
+/// LIBRARY: whether the vendor library would accept a message of this type. It refuses every other
+/// number, so a frame that fails this is not MasterBus as the vendor's own software speaks it.
+constexpr bool is_known_message_type(uint8_t type) {
+  if (type == BUS_MESSAGE_TYPE || type == DEVICE_ANNOUNCEMENT_TYPE || type == NODE_REQUEST_TYPE ||
+      type == STRING_INFORMATION_TYPE || type == STRING_NOT_AVAILABLE_TYPE || type == STRING_REQUEST_TYPE ||
+      BOOTLOADER_MESSAGE.contains(type))
+    return true;
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    for (MasterbusTabMessage message : MASTERBUS_TAB_MESSAGES) {
+      if (tab_message(tab, message).contains(type))
+        return true;
+    }
   }
+  return false;
+}
+
+/// Whether a frame of this type is one the device itself sent. A request carries the address of
+/// the device it is aimed at and nothing about its sender, so a frame addressed to a device says
+/// only that somebody asked it something - never that it is there to answer. The bus message is
+/// left out, because which way it runs is not known.
+constexpr bool device_sent_message(uint8_t type) {
+  if (type == DEVICE_ANNOUNCEMENT_TYPE || type == STRING_INFORMATION_TYPE || type == STRING_NOT_AVAILABLE_TYPE ||
+      type == BOOTLOADER_MESSAGE.information || type == BOOTLOADER_MESSAGE.not_available)
+    return true;
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    for (MasterbusTabMessage message : MASTERBUS_TAB_MESSAGES) {
+      const MasterbusMessageNumbers numbers = tab_message(tab, message);
+      if (type == numbers.information || type == numbers.not_available)
+        return true;
+    }
+  }
+  return false;
 }
 
 /// Which of the device property questions asks how many groups a tab holds. The numbering is the
@@ -598,56 +603,42 @@ constexpr uint8_t group_count_question(MasterbusTab tab) {
 /// tabs answer with the same payload shape, so the message number is the only thing that says
 /// which tab a value came from - taking one for another would publish a field from the wrong tab.
 constexpr bool data_information_tab(uint8_t type, MasterbusTab &out) {
-  if (type == masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_DATA)) {
-    out = MasterbusTab::MASTERBUS_TAB_MONITORING;
-    return true;
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    if (tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).information == type) {
+      out = tab;
+      return true;
+    }
   }
-  if (type == masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_HISTORY_DATA)) {
-    out = MasterbusTab::MASTERBUS_TAB_HISTORY;
-    return true;
-  }
-  if (type == masterbus_information_type(MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_DATA)) {
-    out = MasterbusTab::MASTERBUS_TAB_CONFIGURATION;
-    return true;
+  return false;
+}
+
+/// The same for the request that reads a value - and, six bytes long, writes one.
+constexpr bool data_request_tab(uint8_t type, MasterbusTab &out) {
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    if (tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request == type) {
+      out = tab;
+      return true;
+    }
   }
   return false;
 }
 
 /// Whether a frame is one this component reads past without understanding, and that a bus does
-/// not carry as a matter of course. That is a message type it cannot name, and a value message
-/// whose length is neither a read (two bytes) nor an answer (six). On the read's number that means
-/// a write or the frame after one, sent by another node, because a controller never hears its own.
-/// Reads, answers, walks and refusals are what a display panel produces all day, and reporting
-/// them would bury the frame worth seeing.
+/// not carry as a matter of course. That is a type the vendor library would refuse, the bus and
+/// bootloader messages nobody looks inside, and a value message whose length is neither a read
+/// (two bytes) nor an answer (six). On a read's number that means a write or the frame after one,
+/// sent by another node, because a controller never hears its own. Reads, answers, walks and
+/// refusals are what a display panel produces all day, and reporting them would bury the frame
+/// worth seeing.
 constexpr bool is_undecoded_frame(uint8_t type, size_t length) {
-  if (!is_known_message_type(type))
+  if (!is_known_message_type(type) || type == BUS_MESSAGE_TYPE || BOOTLOADER_MESSAGE.contains(type))
     return true;
   MasterbusTab tab;
   if (data_information_tab(type, tab))
     return length != MONITORING_INFORMATION_LENGTH;
-  if (type >= MESSAGE_REQUEST_BASE && data_information_tab(type - MESSAGE_REQUEST_BASE + MESSAGE_INFORMATION_BASE, tab))
+  if (data_request_tab(type, tab))
     return length != MONITORING_REQUEST_LENGTH;
   return false;
-}
-
-/// The message that reads a field's value, and whether the tab has one at all. The alarm tab does
-/// not: the vendor files AlarmData with the broadcast messages rather than with the tabs, and its
-/// numbering is unknown. So a tab can be walked for what it contains without its values being
-/// readable, which is exactly the state the alarm tab is in.
-constexpr bool tab_data_message(MasterbusTab tab, MasterbusMessage &out) {
-  switch (tab) {
-    case MasterbusTab::MASTERBUS_TAB_MONITORING:
-      out = MasterbusMessage::MASTERBUS_MESSAGE_MONITORING_DATA;
-      return true;
-    case MasterbusTab::MASTERBUS_TAB_HISTORY:
-      out = MasterbusMessage::MASTERBUS_MESSAGE_HISTORY_DATA;
-      return true;
-    case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
-      out = MasterbusMessage::MASTERBUS_MESSAGE_CONFIGURATION_DATA;
-      return true;
-    default:
-      return false;
-  }
 }
 
 /// How a device asks for a field to be displayed, and what decides which ESPHome platform the

@@ -99,6 +99,14 @@ class MasterbusScanner {
   void next_tab_();
   void next_device_();
   void report_field_();
+  /// Where the answers to the walk on the current tab arrive. Every tab answers in the same shape,
+  /// so this number is all that keeps one tab's answer from being taken for another's.
+  uint8_t group_answer_type_() const {
+    return tab_message(this->tab_, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP).information;
+  }
+  uint8_t property_answer_type_() const {
+    return tab_message(this->tab_, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).information;
+  }
 
   MasterbusHub *hub_;
   Phase phase_{Phase::PHASE_IDLE};
