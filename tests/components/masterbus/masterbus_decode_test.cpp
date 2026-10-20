@@ -629,9 +629,10 @@ TEST_F(MasterbusTest, AnAnswerOlderThanTheCadenceDoesNotSuppressOurRequest) {
   EXPECT_EQ(this->canbus_.sent[0].can_id, 0x186D56EA);
 }
 
-TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndTheFrameThatFollowsIt) {
+TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndThenWhoWroteIt) {
   // Captured from the vendor library closing a battery relay: the write is a monitoring request
-  // carrying a float, and a second frame to the next field number always follows it.
+  // carrying a float, and a second write to the next field number always follows it, carrying the
+  // writer's own address.
   auto *relay = this->add_sensor(117);
 
   ASSERT_TRUE(this->hub_->write_boolean(*relay, true));
@@ -643,14 +644,16 @@ TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndTheFrameThatFollowsIt) {
   EXPECT_EQ(encode_uint16(write.data[1], write.data[0]), 117);
   EXPECT_EQ(encode_uint32(write.data[5], write.data[4], write.data[3], write.data[2]), 0x3F800000);
 
-  const auto &commit = this->canbus_.sent[1];
-  EXPECT_EQ(commit.can_id, 0x186D56EA);
-  ASSERT_EQ(commit.can_data_length_code, MONITORING_WRITE_LENGTH);
-  EXPECT_EQ(encode_uint16(commit.data[1], commit.data[0]), 118);
-  EXPECT_EQ(commit.data[2], 0x01);
-  EXPECT_EQ(commit.data[3], 0x00);
-  EXPECT_EQ(commit.data[4], 0x50);
-  EXPECT_EQ(commit.data[5], 0x00);
+  const auto &source = this->canbus_.sent[1];
+  EXPECT_EQ(source.can_id, 0x186D56EA);
+  ASSERT_EQ(source.can_data_length_code, MONITORING_WRITE_LENGTH);
+  EXPECT_EQ(encode_uint16(source.data[1], source.data[0]), 118);
+  // The bytes the capture holds, and what they are.
+  EXPECT_EQ(source.data[2], 0x01);
+  EXPECT_EQ(source.data[3], 0x00);
+  EXPECT_EQ(source.data[4], 0x50);
+  EXPECT_EQ(source.data[5], 0x00);
+  EXPECT_EQ(encode_uint32(source.data[5], source.data[4], source.data[3], source.data[2]), HUB_ADDRESS);
 }
 
 // Reading the configuration tab works; writing it does not. The two are separate decisions, and
@@ -1094,10 +1097,12 @@ TEST_F(MasterbusTest, AWriteByAnotherNodeAndTheFrameAfterItReachTheHubTrigger) {
     seen.emplace_back(data, type, device);
   });
 
-  // Field 117 set to 1.0, then the commit, both aimed at the device being written to.
+  // Field 117 set to 1.0, then field 118 set to the writer's address, both aimed at the device
+  // being written to.
   this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, UNDECLARED_DEVICE), true, false,
                        {0x75, 0x00, 0x00, 0x00, 0x80, 0x3F});
-  this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, UNDECLARED_DEVICE), true, false, {0x01, 0x00, 0x50, 0x00});
+  this->hub_->on_frame(frame_id(MONITORING_REQUEST_TYPE, UNDECLARED_DEVICE), true, false,
+                       {0x76, 0x00, 0x01, 0x00, 0x50, 0x00});
   // The same shape on the configuration tab's message: no write there has been watched, which is
   // all the more reason to report one.
   const uint8_t configuration_request =
@@ -1107,7 +1112,7 @@ TEST_F(MasterbusTest, AWriteByAnotherNodeAndTheFrameAfterItReachTheHubTrigger) {
   ASSERT_EQ(seen.size(), 3u);
   EXPECT_EQ(std::get<1>(seen[0]), MONITORING_REQUEST_TYPE);
   EXPECT_EQ(std::get<2>(seen[0]), UNDECLARED_DEVICE) << "the address is the one written to";
-  EXPECT_EQ(std::get<0>(seen[1]).size(), MONITORING_WRITE_COMMIT_LENGTH);
+  EXPECT_EQ(std::get<0>(seen[1]), (std::vector<uint8_t>{0x76, 0x00, 0x01, 0x00, 0x50, 0x00}));
   EXPECT_EQ(std::get<1>(seen[2]), configuration_request);
 }
 
