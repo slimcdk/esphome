@@ -230,6 +230,8 @@ class MasterbusHub : public Component {
   /// groups a tab holds. Equipment that does not carry a question refuses it outright, which is
   /// not an error - see masterbus_protocol.h.
   bool request_device_property(uint32_t address, uint8_t question);
+  /// Ask which string table entry holds one of the device's own strings (GENERAL_STRING_*).
+  bool request_general_string(uint32_t address, uint8_t question);
 
   /// The three questions a scan asks about a device's structure. Each is asked per tab: the four
   /// tabs are the same protocol under different message numbers, so the tab only picks which.

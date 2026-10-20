@@ -73,10 +73,29 @@ class MasterbusTest : public ::testing::Test {
     this->refuse_device_property(group_count_question(tab));
   }
 
-  /// Take the walk past the question it opens each device with, which is the product it is.
+  /// Take the walk past the questions it opens each device with: the product it is, answered, then
+  /// its article number and product name, refused the way equipment that does not carry them does.
   void answer_product_code(uint16_t code) {
     this->answer(STRING_INFORMATION_TYPE, {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE,
                                            static_cast<uint8_t>(code & 0xFF), static_cast<uint8_t>(code >> 8)});
+    this->refuse_device_strings();
+  }
+
+  /// Refuse the article number and the product name, in the order the walk asks for them.
+  void refuse_device_strings() {
+    for (uint8_t question : {GENERAL_STRING_ARTICLE_NUMBER, GENERAL_STRING_PRODUCT_NAME}) {
+      this->hub_->scan_step(this->scan_now_);
+      this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
+                           {GENERAL_STRING_SELECTOR, question});
+    }
+  }
+
+  /// Let the walk ask the three questions that follow a field's step - its factory value and the
+  /// two flags - and hear nothing back, which is how a field that carries none of them answers.
+  void unanswered_factory_and_flags() {
+    this->unanswered();
+    this->unanswered();
+    this->unanswered();
   }
 
   /// Let the walk send its next question and hear nothing back, which is how it learns that a
@@ -905,6 +924,7 @@ TEST_F(MasterbusTest, ScanReassemblesAStringFromItsChunks) {
   this->answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});
+  this->unanswered_factory_and_flags();
 
   // "Battery" arrives as "Batt" then "ery" with its terminator.
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
@@ -933,6 +953,7 @@ TEST_F(MasterbusTest, ScanPlacesStringChunksByTheirOwnHeader) {
   this->answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});
+  this->unanswered_factory_and_flags();
 
   // A chunk of string 98 arrives in the middle; it belongs to nobody here.
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x62, 0x00, 0x00, 'Z', 'Z', 'Z', 'Z'});
@@ -1182,6 +1203,10 @@ TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
   this->answer(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x70, 0x42});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0xCD, 0xCC, 0xCC, 0x3D});
+  // Factory value 13.8, then writeable set and eventable clear: a setting, not a button.
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x09, 0x01, 0x00, 0x00, 0xCD, 0xCC, 0x5C, 0x41});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x0B, 0x01, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x0D, 0x01, 0x00, 0x00, 0x00, 0x00});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x0A, 0x00, 0x00, 'V', 0x00});
@@ -1191,7 +1216,7 @@ TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
   EXPECT_EQ(scan_lines().lines()[1], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
   EXPECT_EQ(scan_lines().lines()[2],
             "field device=0x6D56EA tab=0 group=0 param=1 display=1 name=\"Battery\" unit=\"V\" min=0 max=60 "
-            "step=0.1");
+            "step=0.1 factory=13.8 writable=1 eventable=0");
 }
 
 // What a device did not answer for is absent, rather than reported as a value it never sent.
@@ -1213,6 +1238,7 @@ TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
   this->unanswered();  // minimum
   this->unanswered();  // maximum
   this->unanswered();  // step
+  this->unanswered_factory_and_flags();
 
   ASSERT_EQ(scan_lines().lines().size(), 3u);
   EXPECT_EQ(scan_lines().lines()[1], "group device=0x6D56EA tab=0 group=0");
@@ -1239,6 +1265,7 @@ TEST_F(MasterbusTest, AFieldWithNoUnitIsNotAskedForTheUnitString) {
   this->unanswered();  // minimum
   this->unanswered();  // maximum
   this->unanswered();  // step
+  this->unanswered_factory_and_flags();
   this->hub_->scan_step(this->scan_now_);
 
   for (const auto &frame : this->canbus_.sent)
@@ -1267,6 +1294,7 @@ TEST_F(MasterbusTest, AGroupThatDoesNotAnswerForItsNameReportsNoNameAtAll) {
   this->unanswered();  // minimum
   this->unanswered();  // maximum
   this->unanswered();  // step
+  this->unanswered_factory_and_flags();
 
   // Group 1 holds one field too, but says nothing when asked what it is called.
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
@@ -1278,6 +1306,7 @@ TEST_F(MasterbusTest, AGroupThatDoesNotAnswerForItsNameReportsNoNameAtAll) {
   this->unanswered();  // minimum
   this->unanswered();  // maximum
   this->unanswered();  // step
+  this->unanswered_factory_and_flags();
 
   ASSERT_EQ(scan_lines().lines().size(), 5u);
   EXPECT_EQ(scan_lines().lines()[1], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
@@ -1305,9 +1334,48 @@ TEST_F(MasterbusTest, ScanReportsTheProductADeviceSaysItIs) {
   // 08:3f:02:00 - the answer a lithium battery block gives, recorded off the bus.
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
                        {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE, 0x02, 0x00});
+  // The line waits for the article number and the product name, asked next.
+  EXPECT_TRUE(scan_lines().lines().empty());
+  this->refuse_device_strings();
 
   ASSERT_EQ(scan_lines().lines().size(), 1u);
   EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA product=2");
+}
+
+// The article number is the one printed on the equipment's label, and the product name is what the
+// vendor calls it. Both are strings in the device's own table, which a GeneralString question
+// points into. The serial number is never asked for: it identifies one unit, and a scan is pasted
+// into forums.
+TEST_F(MasterbusTest, ScanReportsTheArticleNumberAndTheProductName) {
+  scan_lines().clear();
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer(STRING_INFORMATION_TYPE, {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE, 0x02, 0x00});
+
+  // Article number: string 2.
+  this->hub_->scan_step(this->scan_now_);
+  ASSERT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
+  ASSERT_EQ(this->canbus_.sent.back().can_data_length_code, 2);
+  EXPECT_EQ(this->canbus_.sent.back().data[0], GENERAL_STRING_SELECTOR);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], GENERAL_STRING_ARTICLE_NUMBER);
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {GENERAL_STRING_SELECTOR, GENERAL_STRING_ARTICLE_NUMBER, 0x02, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x00, '6', '6', '0', '2'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x01, '5', '0', '0', '0'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x02, 0x00});
+  // Product name: string 1.
+  this->hub_->scan_step(this->scan_now_);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], GENERAL_STRING_PRODUCT_NAME);
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {GENERAL_STRING_SELECTOR, GENERAL_STRING_PRODUCT_NAME, 0x01, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x01, 0x00, 0x00, 'M', 'L', 'I', 0x00});
+
+  ASSERT_EQ(scan_lines().lines().size(), 1u);
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA product=2 article=\"66025000\" name=\"MLI\"");
+  for (const auto &frame : this->canbus_.sent) {
+    if ((frame.can_id >> MESSAGE_TYPE_SHIFT) == STRING_REQUEST_TYPE && frame.data[0] == GENERAL_STRING_SELECTOR)
+      EXPECT_NE(frame.data[1], GENERAL_STRING_SERIAL_NUMBER) << "the walk asked for the serial number";
+  }
 }
 
 // Equipment that does not carry a product code refuses the question outright - one device on the
@@ -1319,6 +1387,7 @@ TEST_F(MasterbusTest, ADeviceThatCarriesNoProductCodeIsStillListedAndWalked) {
   this->hub_->scan_step(this->scan_now_);
   this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
                        {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE});
+  this->refuse_device_strings();
 
   ASSERT_EQ(scan_lines().lines().size(), 1u);
   EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA");
@@ -1384,6 +1453,7 @@ TEST_F(MasterbusTest, TheWalkStopsAtTheLastGroupAndFieldTheDeviceCounted) {
   this->unanswered();  // minimum
   this->unanswered();  // maximum
   this->unanswered();  // step
+  this->unanswered_factory_and_flags();
 
   this->canbus_.clear();
   this->hub_->scan_step(this->scan_now_);
@@ -1413,6 +1483,7 @@ TEST_F(MasterbusTest, ANameLongerThanTheBufferIsReportedCutShort) {
   this->unanswered();  // minimum
   this->unanswered();  // maximum
   this->unanswered();  // step
+  this->unanswered_factory_and_flags();
 
   // Forty characters, where the buffer holds thirty-one and a terminator.
   for (uint8_t chunk = 0; chunk < 10; chunk++)
