@@ -49,6 +49,12 @@ binary_sensor:
     param: 0x0015
     name: Charger state
     update_interval: 1min
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0002
+    name: Battery low voltage alarm
+    tab: alarm
+    update_interval: 1min
 
 text_sensor:
   - platform: masterbus
