@@ -440,6 +440,10 @@ void MasterbusScanner::next_field_text_() {
 void MasterbusScanner::complete_field_() {
   this->report_field_();
   this->entry_ = 0;
+  if (this->field_.maximum == 0.0f) {
+    this->next_field_();
+    return;
+  }
   switch (this->field_.display_type) {
     case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_RADIO:
     case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DROPDOWN:
@@ -461,11 +465,13 @@ void MasterbusScanner::complete_field_() {
 void MasterbusScanner::next_entry_() {
   this->entry_++;
   this->option_string_ = 0;
-  // The maximum is how many entries the vendor library asks for. One more is asked, in case a
-  // device counts its maximum inclusively, and the silence after the last ends the list either way.
+  // The maximum is how many entries there are: 102 of 102 option lists on the reference bus held
+  // exactly that many. A device answers past the end of a device list or an event with filler -
+  // FF FF FF FF, a number one past its eventables - so the walk stops at the maximum, as the vendor
+  // library does, and only a field without one is walked until the device falls silent.
   uint8_t entries = MAX_LIST_ENTRIES;
   if (this->field_.maximum >= 0.0f && this->field_.maximum < MAX_LIST_ENTRIES)
-    entries = static_cast<uint8_t>(this->field_.maximum) + 1;
+    entries = static_cast<uint8_t>(this->field_.maximum);
   if (this->entry_ >= entries) {
     this->next_field_();
     return;

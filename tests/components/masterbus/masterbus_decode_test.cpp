@@ -1668,8 +1668,7 @@ TEST_F(MasterbusTest, ANameLongerThanTheBufferIsReportedCutShort) {
 }
 
 // A dropdown answers with an index; what each option is called is a string the device holds, and
-// selector 0x26 with the option's index says which. The list ends where the device stops
-// answering, which here is right at the maximum.
+// selector 0x26 with the option's index says which. There are as many as the field's maximum.
 TEST_F(MasterbusTest, ScanReadsTheNameOfEveryOptionOfAList) {
   scan_lines().clear();
   this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DROPDOWN, 2.0f);
@@ -1686,7 +1685,10 @@ TEST_F(MasterbusTest, ScanReadsTheNameOfEveryOptionOfAList) {
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x40, 0x00, 0x00, 'O', 'f', 'f', 0x00});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x26, 12, 0x00, 0x01, 0x41, 0x00});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x41, 0x00, 0x00, 'O', 'n'});
-  this->unanswered();  // there is no option 2
+  // Two options, and the walk does not ask for a third.
+  this->hub_->scan_step(this->scan_now_);
+  EXPECT_NE(this->canbus_.sent.back().data[0],
+            static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_OPTION_STRING));
 
   ASSERT_EQ(scan_lines().lines().size(), 5u);
   EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 name=\"Off\"");
@@ -1716,7 +1718,6 @@ TEST_F(MasterbusTest, ScanReadsTheEntriesOfADeviceList) {
   this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
                        {0x20, 12, 0x00, 0x00, 0x1B, 0xEA, 0x56, 0x01});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x20, 12, 0x00, 0x01, 0x14, 0x30, 0x5E, 0x03});
-  this->unanswered();
 
   ASSERT_EQ(scan_lines().lines().size(), 5u);
   EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 entry=0x6D56EA");
@@ -1735,7 +1736,6 @@ TEST_F(MasterbusTest, ScanReadsWhatAnEventFieldWatches) {
   EXPECT_EQ(this->canbus_.sent.back().data[3], 0);
   this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0F, 12, 0x00, 0x00, 0x00, 0x00});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x0F, 12, 0x00, 0x01, 0x01, 0x00});
-  this->unanswered();
 
   ASSERT_EQ(scan_lines().lines().size(), 5u);
   EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 source=0x535E30 eventable=0");
