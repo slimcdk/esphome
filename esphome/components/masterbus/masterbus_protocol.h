@@ -84,8 +84,8 @@ static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
 ///
 /// Captured while driving the vendor library's own "Open relay" and "Close relay" calls against a
 /// battery block: twelve writes, all of this shape, and the relay opened on the first of them.
-/// Only the value 1.0 has been seen on the wire, because the fields exercised were event fields
-/// that carry no other value. Writing anything else is therefore not confirmed.
+/// VERIFIED for a number too: 40.0 written to a display panel's Backlight, a percentage, was read
+/// back as 40, and the field after it was left as it was.
 static constexpr uint8_t MONITORING_WRITE_LENGTH = 6;
 
 /// VERIFIED as to the bytes, LIBRARY as to their meaning: a write to an event field is followed by a
