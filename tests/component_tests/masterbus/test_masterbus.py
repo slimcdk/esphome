@@ -35,7 +35,6 @@ from esphome.const import (
     CONF_ID,
     CONF_NAME,
     CONF_OPTIONS,
-    CONF_SCAN,
     CONF_TIMEOUT,
     CONF_UPDATE_INTERVAL,
 )
@@ -82,7 +81,13 @@ def test_hub_requires_a_canbus_id() -> None:
 
 def test_hub_without_devices_accepted() -> None:
     """A hub with nothing declared under it is how a scan is run on an unknown bus."""
-    CONFIG_SCHEMA(_hub(**{CONF_SCAN: True}))
+    CONFIG_SCHEMA(_hub())
+
+
+def test_scan_is_an_action_not_an_option() -> None:
+    """A scan at boot is the action in on_boot; the hub has no switch of its own for it."""
+    with pytest.raises(cv.Invalid, match="scan"):
+        CONFIG_SCHEMA(_hub(scan=True))
 
 
 def test_polling_is_off_unless_asked_for() -> None:
@@ -108,7 +113,6 @@ def test_hub_takes_no_update_interval() -> None:
 def test_diagnostics_default_to_off() -> None:
     """Nothing is transmitted and nothing is logged until the user asks for it."""
     config = CONFIG_SCHEMA(_hub())
-    assert config[CONF_SCAN] is False
     assert config[CONF_LOG_ALL_FRAMES] is False
 
 
@@ -392,14 +396,6 @@ def test_diagnostics_emit_defines_when_enabled(
     assert get_define_value("MASTERBUS_SCAN_MAX_DEVICES") == "32"
 
 
-def test_scan_at_boot_is_asked_for(
-    generate_main: Callable[[str | Path], str],
-    component_config_path: Callable[[str], Path],
-) -> None:
-    main_cpp = generate_main(component_config_path("diagnostics_on.yaml"))
-    assert "mb->set_scan_at_boot(true);" in main_cpp
-
-
 def test_a_scan_action_compiles_the_scan_in_without_scanning_at_boot(
     generate_main: Callable[[str | Path], str],
     component_config_path: Callable[[str], Path],
@@ -408,7 +404,6 @@ def test_a_scan_action_compiles_the_scan_in_without_scanning_at_boot(
     main_cpp = generate_main(component_config_path("scan_on_demand.yaml"))
     assert get_define_value("USE_MASTERBUS_SCAN") is not None
     assert get_define_value("MASTERBUS_SCAN_MAX_DEVICES") == "32"
-    assert "set_scan_at_boot" not in main_cpp
     assert "->start_scan();" in main_cpp
 
 

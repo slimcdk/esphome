@@ -299,10 +299,9 @@ class MasterbusHub : public Component {
   void set_node_request_interval(uint32_t interval_ms) { this->node_request_interval_ms_ = interval_ms; }
 #endif
 #ifdef USE_MASTERBUS_SCAN
-  /// Ask every device to announce itself, then walk the ones that did and report them - what a scan
-  /// at boot does, on demand. Ignored while a walk is still running.
+  /// Ask every device to announce itself, then walk the ones that did and report them. Started by
+  /// the masterbus.scan action, at boot or from a button; ignored while a walk is still running.
   void start_scan();
-  void set_scan_at_boot(bool scan_at_boot) { this->scan_at_boot_ = scan_at_boot; }
   /// Write the discovered devices out as configuration the user can paste.
   void report_scan();
 
@@ -423,7 +422,6 @@ class MasterbusHub : public Component {
 #ifdef USE_MASTERBUS_SCAN
   StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> discovered_;
   MasterbusScanner scanner_{this};
-  bool scan_at_boot_{false};
   // Between asking for announcements and reporting them, when each new device is worth a line.
   bool scan_listening_{false};
 #endif
