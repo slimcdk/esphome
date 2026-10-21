@@ -684,6 +684,17 @@ constexpr bool data_information_tab(uint8_t type, MasterbusTab &out) {
   return false;
 }
 
+/// The same for an answer to a property question.
+constexpr bool property_information_tab(uint8_t type, MasterbusTab &out) {
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    if (tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).information == type) {
+      out = tab;
+      return true;
+    }
+  }
+  return false;
+}
+
 /// The same for the request that reads a value - and, six bytes long, writes one.
 constexpr bool data_request_tab(uint8_t type, MasterbusTab &out) {
   for (MasterbusTab tab : MASTERBUS_TABS) {

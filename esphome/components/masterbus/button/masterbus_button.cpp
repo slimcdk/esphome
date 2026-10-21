@@ -2,6 +2,7 @@
 
 namespace esphome::masterbus {
 
-void MasterbusButton::press_action() { this->device_->get_hub()->write_boolean(*this, true); }
+// An event such as "Close relay" reads false whatever it did, so there is nothing to read back.
+void MasterbusButton::press_action() { this->write(1.0f, false); }
 
 }  // namespace esphome::masterbus
