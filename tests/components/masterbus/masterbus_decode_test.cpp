@@ -74,20 +74,55 @@ class MasterbusTest : public ::testing::Test {
   }
 
   /// Take the walk past the questions it opens each device with: its eventables, answered, then
-  /// its article number and product name, refused the way equipment that does not carry them does.
-  void answer_eventables(uint16_t code) {
+  /// everything else it asks about the device, refused the way equipment that does not carry it does.
+  void answer_eventables(uint16_t count) {
     this->answer(STRING_INFORMATION_TYPE, {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES,
-                                           static_cast<uint8_t>(code & 0xFF), static_cast<uint8_t>(code >> 8)});
+                                           static_cast<uint8_t>(count & 0xFF), static_cast<uint8_t>(count >> 8)});
     this->refuse_device_strings();
+    this->refuse_software_version();
+    this->refuse_general_counts();
   }
 
-  /// Refuse the article number and the product name, in the order the walk asks for them.
+  /// Refuse the next question of the 0x0E family, the way a device does: its two byte header,
+  /// sent back under 0x0D.
+  void refuse_next() {
+    this->hub_->scan_step(this->scan_now_);
+    const auto &asked = this->canbus_.sent.back();
+    this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false, {asked.data[0], asked.data[1]});
+  }
+
+  /// Refuse the device's four strings - article number, serial number, product name and revision
+  /// code - in the order the walk asks for them.
   void refuse_device_strings() {
-    for (uint8_t question : {GENERAL_STRING_ARTICLE_NUMBER, GENERAL_STRING_PRODUCT_NAME}) {
+    for (uint8_t question = GENERAL_STRING_ARTICLE_NUMBER; question <= GENERAL_STRING_REVISION_CODE; question++) {
       this->hub_->scan_step(this->scan_now_);
       this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
                            {GENERAL_STRING_SELECTOR, question});
     }
+  }
+
+  /// Refuse the first processor's software version, which ends the list of processors at none.
+  void refuse_software_version() {
+    this->hub_->scan_step(this->scan_now_);
+    this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false, {SOFTWARE_VERSION_SELECTOR, 0});
+  }
+
+  /// How many counts a device is asked once, after the line that names it: every one the vendor
+  /// library accepts, but for the ones the walk asks on its own account.
+  static unsigned general_count_round() {
+    unsigned count = 0;
+    for (unsigned question = 1; question <= GENERAL_COUNT_LAST_QUESTION; question++) {
+      if (is_general_count_question(question) && question != GENERAL_COUNT_EVENTABLES &&
+          question != GENERAL_COUNT_MONITORING_GROUPS && question != GENERAL_COUNT_HISTORY_GROUPS &&
+          question != GENERAL_COUNT_CONFIGURATION_GROUPS && question != GENERAL_COUNT_ALARM_GROUPS)
+        count++;
+    }
+    return count;
+  }
+
+  void refuse_general_counts() {
+    for (unsigned i = 0; i < general_count_round(); i++)
+      this->refuse_next();
   }
 
   /// Let the walk ask the three questions that follow a field's step - its factory value and the
@@ -96,6 +131,11 @@ class MasterbusTest : public ::testing::Test {
     this->unanswered();
     this->unanswered();
     this->unanswered();
+    // Then the long name, which the walk stops asking a device for after three fields without one.
+    if (this->long_names_unanswered_ < 3) {
+      this->unanswered();
+      this->long_names_unanswered_++;
+    }
   }
 
   /// Let the walk send its next question and hear nothing back, which is how it learns that a
@@ -106,8 +146,36 @@ class MasterbusTest : public ::testing::Test {
     this->hub_->scan_step(this->scan_now_);
   }
 
+  /// Walk to a lone field 12 in group 0 of the configuration tab's first group - display type and
+  /// maximum as given, nothing else answered - and leave the walk at the field's first list entry.
+  void walk_to_list_field(MasterbusDisplayType display, float maximum) {
+    this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+    this->hub_->report_scan();
+    this->answer_eventables(2);
+    this->answer_group_count(1);
+    uint32_t bits;
+    const float one = 1.0f;
+    memcpy(&bits, &one, sizeof(bits));
+    this->answer(GROUP_INFORMATION_TYPE,
+                 {0x07, 0x00, 0x00, 0x00, static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
+                  static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)});
+    this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // no group name
+    this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 12, 0x00});
+    this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 12, 0x00, 0x00, static_cast<uint8_t>(display), 0x00});
+    this->unanswered();  // no name
+    this->unanswered();  // no unit
+    this->unanswered();  // no minimum
+    memcpy(&bits, &maximum, sizeof(bits));
+    this->answer(PROPERTY_INFORMATION_TYPE,
+                 {0x07, 12, 0x00, 0x00, static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
+                  static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)});
+    this->unanswered();  // no step
+    this->unanswered_factory_and_flags();
+  }
+
   /// The walk's own clock, moved on only by a question nobody answers.
   uint32_t scan_now_{0};
+  uint8_t long_names_unanswered_{0};
   RecordingCanbus canbus_;
   std::unique_ptr<MasterbusHub> hub_;
   std::unique_ptr<MasterbusDevice> battery_;
@@ -1207,6 +1275,7 @@ TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
   this->answer(PROPERTY_INFORMATION_TYPE, {0x09, 0x01, 0x00, 0x00, 0xCD, 0xCC, 0x5C, 0x41});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x0B, 0x01, 0x00, 0x00, 0x01, 0x00});
   this->answer(PROPERTY_INFORMATION_TYPE, {0x0D, 0x01, 0x00, 0x00, 0x00, 0x00});
+  this->unanswered();  // no long name
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x0A, 0x00, 0x00, 'V', 0x00});
@@ -1334,19 +1403,20 @@ TEST_F(MasterbusTest, ScanReportsTheDevicesClassAndItsEventables) {
   // 08:3f:02:00 - the answer a lithium battery block gives, recorded off the bus.
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
                        {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES, 0x02, 0x00});
-  // The line waits for the article number and the product name, asked next.
-  EXPECT_TRUE(scan_lines().lines().empty());
+  // The line waits for the device's strings and its processors, asked next.
   this->refuse_device_strings();
+  EXPECT_TRUE(scan_lines().lines().empty());
+  this->refuse_software_version();
 
   ASSERT_EQ(scan_lines().lines().size(), 1u);
   EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA class=27 eventables=2");
 }
 
-// The article number is the one printed on the equipment's label, and the product name is what the
-// vendor calls it. Both are strings in the device's own table, which a GeneralString question
-// points into. The serial number is never asked for: it identifies one unit, and a scan is pasted
-// into forums.
-TEST_F(MasterbusTest, ScanReportsTheArticleNumberAndTheProductName) {
+// A device's article number, serial number, product name and revision code are strings in its own
+// table, and a GeneralString question - 1 to 4, in that order - says which entry holds each. Then
+// each processor's software version, until the device refuses the one past its last. The serial
+// number here is the vendor's own made-up one, from its example device.
+TEST_F(MasterbusTest, ScanReportsTheDevicesOwnStringsAndItsFirmware) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
@@ -1363,19 +1433,40 @@ TEST_F(MasterbusTest, ScanReportsTheArticleNumberAndTheProductName) {
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x00, '6', '6', '0', '2'});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x01, '5', '0', '0', '0'});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x02, 0x00});
+  // Serial number: string 0, which is a real entry here.
+  this->hub_->scan_step(this->scan_now_);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], GENERAL_STRING_SERIAL_NUMBER);
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {GENERAL_STRING_SELECTOR, GENERAL_STRING_SERIAL_NUMBER, 0x00, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x00, 0x00, 0x00, 'A', 'B', '0', '0'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x00, 0x00, 0x01, 'A', '0', '0', '0'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x00, 0x00, 0x02, '1'});
   // Product name: string 1.
   this->hub_->scan_step(this->scan_now_);
   EXPECT_EQ(this->canbus_.sent.back().data[1], GENERAL_STRING_PRODUCT_NAME);
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
                        {GENERAL_STRING_SELECTOR, GENERAL_STRING_PRODUCT_NAME, 0x01, 0x00});
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x01, 0x00, 0x00, 'M', 'L', 'I', 0x00});
+  // No revision code.
+  this->hub_->scan_step(this->scan_now_);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], GENERAL_STRING_REVISION_CODE);
+  this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
+                       {GENERAL_STRING_SELECTOR, GENERAL_STRING_REVISION_CODE});
+
+  // One processor, at 61.1 as the vendor library prints 82:00:01:3D, and none after it.
+  this->hub_->scan_step(this->scan_now_);
+  ASSERT_EQ(this->canbus_.sent.back().can_data_length_code, 2);
+  EXPECT_EQ(this->canbus_.sent.back().data[0], SOFTWARE_VERSION_SELECTOR);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], 0);
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {SOFTWARE_VERSION_SELECTOR, 0x00, 0x01, 0x3D, 0x00, 0x00});
+  this->hub_->scan_step(this->scan_now_);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], 1);
+  this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false, {SOFTWARE_VERSION_SELECTOR, 0x01});
 
   ASSERT_EQ(scan_lines().lines().size(), 1u);
-  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA class=27 eventables=2 article=\"66025000\" name=\"MLI\"");
-  for (const auto &frame : this->canbus_.sent) {
-    if ((frame.can_id >> MESSAGE_TYPE_SHIFT) == STRING_REQUEST_TYPE && frame.data[0] == GENERAL_STRING_SELECTOR)
-      EXPECT_NE(frame.data[1], GENERAL_STRING_SERIAL_NUMBER) << "the walk asked for the serial number";
-  }
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA class=27 eventables=2 article=\"66025000\" "
+                                     "serial=\"AB00A0001\" name=\"MLI\" firmware=\"61.1\"");
 }
 
 // Equipment that does not carry eventables refuses the question outright - one device on the
@@ -1388,11 +1479,14 @@ TEST_F(MasterbusTest, ADeviceThatRefusesEventablesIsStillListedAndWalked) {
   this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
                        {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES});
   this->refuse_device_strings();
+  this->refuse_software_version();
 
   ASSERT_EQ(scan_lines().lines().size(), 1u);
   EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA class=27");
 
-  // And the walk carried on: first how many groups the tab holds, then the group itself.
+  // And the walk carried on: the round of counts, then how many groups the tab holds, then the
+  // group itself.
+  this->refuse_general_counts();
   this->canbus_.clear();
   this->hub_->scan_step(this->scan_now_);
   ASSERT_EQ(this->canbus_.sent.size(), 1u);
@@ -1404,6 +1498,46 @@ TEST_F(MasterbusTest, ADeviceThatRefusesEventablesIsStillListedAndWalked) {
   this->hub_->scan_step(this->scan_now_);
   ASSERT_EQ(this->canbus_.sent.size(), 1u);
   EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, GROUP_REQUEST_TYPE);
+}
+
+// Every count the vendor library accepts is asked once, in order, and each answer is reported as
+// it stands: what most of them mean is the vendor's name for them, not something seen on a bus.
+// The ones the walk asks for its own use are not asked twice.
+TEST_F(MasterbusTest, ScanAsksEveryCountOnceAndReportsWhatWasAnswered) {
+  scan_lines().clear();
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer(STRING_INFORMATION_TYPE, {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES, 0x02, 0x00});
+  this->refuse_device_strings();
+  this->refuse_software_version();
+  scan_lines().clear();
+
+  std::vector<uint8_t> asked;
+  for (unsigned i = 0; i < general_count_round(); i++) {
+    this->hub_->scan_step(this->scan_now_);
+    const auto &frame = this->canbus_.sent.back();
+    ASSERT_EQ(frame.data[0], GENERAL_COUNT_SELECTOR);
+    asked.push_back(frame.data[1]);
+    if (frame.data[1] == 0x0B) {
+      // SoftwareVersion, by the vendor's name.
+      this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                           {GENERAL_COUNT_SELECTOR, 0x0B, 0x3D, 0x00});
+    } else {
+      this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
+                           {GENERAL_COUNT_SELECTOR, frame.data[1]});
+    }
+  }
+
+  EXPECT_TRUE(std::is_sorted(asked.begin(), asked.end()));
+  for (uint8_t question : asked) {
+    EXPECT_TRUE(is_general_count_question(question)) << "asked 0x" << std::hex << unsigned{question};
+    EXPECT_NE(question, GENERAL_COUNT_EVENTABLES);
+    EXPECT_NE(question, GENERAL_COUNT_MONITORING_GROUPS);
+  }
+  EXPECT_EQ(asked.front(), 0x01);
+  EXPECT_EQ(asked.back(), GENERAL_COUNT_LAST_QUESTION);
+  ASSERT_EQ(scan_lines().lines().size(), 1u);
+  EXPECT_EQ(scan_lines().lines()[0], "count device=0x6D56EA q=0x0B value=61");
 }
 
 // A string chunk and a general count arrive under the same message number, so the first byte is
@@ -1493,6 +1627,130 @@ TEST_F(MasterbusTest, ANameLongerThanTheBufferIsReportedCutShort) {
   ASSERT_FALSE(scan_lines().lines().empty());
   const std::string &line = scan_lines().lines().back();
   EXPECT_NE(line.find("name=\"abcdabcdabcdabcdabcdabcdabcdabc\""), std::string::npos) << line;
+}
+
+// A dropdown answers with an index; what each option is called is a string the device holds, and
+// selector 0x26 with the option's index says which. The list ends where the device stops
+// answering, which here is right at the maximum.
+TEST_F(MasterbusTest, ScanReadsTheNameOfEveryOptionOfAList) {
+  scan_lines().clear();
+  this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DROPDOWN, 2.0f);
+  ASSERT_EQ(scan_lines().lines().size(), 3u);
+  EXPECT_EQ(scan_lines().lines()[2], "field device=0x6D56EA tab=0 group=0 param=12 display=3 max=2");
+
+  this->hub_->scan_step(this->scan_now_);
+  const auto &asked = this->canbus_.sent.back();
+  EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, PROPERTY_REQUEST_TYPE);
+  ASSERT_EQ(asked.can_data_length_code, 4);
+  EXPECT_EQ(asked.data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_OPTION_STRING));
+  EXPECT_EQ(asked.data[3], 0);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x26, 12, 0x00, 0x00, 0x40, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x40, 0x00, 0x00, 'O', 'f', 'f', 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x26, 12, 0x00, 0x01, 0x41, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x41, 0x00, 0x00, 'O', 'n'});
+  this->unanswered();  // there is no option 2
+
+  ASSERT_EQ(scan_lines().lines().size(), 5u);
+  EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 name=\"Off\"");
+  EXPECT_EQ(scan_lines().lines()[4], "option device=0x6D56EA tab=0 param=12 index=1 name=\"On\"");
+}
+
+// An answer to a list property echoes the index it answers. One for the previous option arriving
+// late is not this option's name.
+TEST_F(MasterbusTest, AnOptionAnswerForAnotherIndexIsNotTaken) {
+  scan_lines().clear();
+  this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_RADIO, 3.0f);
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x26, 12, 0x00, 0x00, 0x40, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x40, 0x00, 0x00, 'A', 0x00});
+  // Asked for option 1; the answer for option 0 comes again.
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x26, 12, 0x00, 0x00, 0x40, 0x00});
+  EXPECT_EQ(this->canbus_.sent.back().data[3], 1) << "the walk moved on on an answer for another index";
+}
+
+// A device list holds device addresses, 32 bits each, under selector 0x20; the maximum says how
+// many. The vendor library resolves them against the devices it has found, so they are reported
+// as they came.
+TEST_F(MasterbusTest, ScanReadsTheEntriesOfADeviceList) {
+  scan_lines().clear();
+  this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DEVICE_LIST, 2.0f);
+  this->hub_->scan_step(this->scan_now_);
+  EXPECT_EQ(this->canbus_.sent.back().data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE));
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x20, 12, 0x00, 0x00, 0xEA, 0x56, 0x6D, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x20, 12, 0x00, 0x01, 0x30, 0x5E, 0x53, 0x00});
+  this->unanswered();
+
+  ASSERT_EQ(scan_lines().lines().size(), 5u);
+  EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 entry=0x6D56EA");
+  EXPECT_EQ(scan_lines().lines()[4], "option device=0x6D56EA tab=0 param=12 index=1 entry=0x535E30");
+}
+
+// An event field points at a field on another device: selector 0x20 with index 0 names the device,
+// and 0x0F with each index a field number on it. Its options are named by that device's fields,
+// which the same scan walks.
+TEST_F(MasterbusTest, ScanReadsWhatAnEventFieldWatches) {
+  scan_lines().clear();
+  this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_EVENT, 2.0f);
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x20, 12, 0x00, 0x00, 0x30, 0x5E, 0x53, 0x00});
+  this->hub_->scan_step(this->scan_now_);
+  EXPECT_EQ(this->canbus_.sent.back().data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_EVENT_FIELD));
+  EXPECT_EQ(this->canbus_.sent.back().data[3], 0);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0F, 12, 0x00, 0x00, 32, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x0F, 12, 0x00, 0x01, 33, 0x00});
+  this->unanswered();
+
+  ASSERT_EQ(scan_lines().lines().size(), 5u);
+  EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 source=0x535E30 field=32");
+  EXPECT_EQ(scan_lines().lines()[4], "option device=0x6D56EA tab=0 param=12 index=1 source=0x535E30 field=33");
+}
+
+// Some equipment carries a longer form of a field's name. It is reported where it says more than
+// the name does; a device that carries none is not asked again after three fields without one.
+TEST_F(MasterbusTest, ScanReportsALongNameAndStopsAskingADeviceThatHasNone) {
+  scan_lines().clear();
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer_eventables(2);
+  this->answer_group_count(1);
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xA0, 0x40});  // five fields
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
+  for (uint8_t param = 1; param <= 5; param++) {
+    this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, static_cast<uint8_t>(param - 1), param, 0x00});
+    this->answer(PROPERTY_INFORMATION_TYPE, {0x02, param, 0x00, 0x00, 0x01, 0x00});
+    this->answer(PROPERTY_INFORMATION_TYPE, {0x28, param, 0x00, 0x00, 0x61, 0x00});  // name string 97
+    for (int i = 0; i < 7; i++)
+      this->unanswered();  // unit, minimum, maximum, step, factory, writeable, eventable
+    this->hub_->scan_step(this->scan_now_);
+    const bool asked_long = this->canbus_.sent.back().data[0] ==
+                            static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_LONG_NAME_STRING);
+    if (param == 1) {
+      ASSERT_TRUE(asked_long);
+      this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                           {0x29, param, 0x00, 0x00, 0x62, 0x00});  // long name string 98
+      this->unanswered();                                           // no very long name
+      this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 0x00});
+      this->answer(STRING_INFORMATION_TYPE, {0x30, 0x62, 0x00, 0x00, 'B', 'a', 't', 't'});
+      this->answer(STRING_INFORMATION_TYPE, {0x30, 0x62, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+      continue;
+    }
+    if (param <= 4) {
+      // Asked of the next three fields too, which answer nothing.
+      ASSERT_TRUE(asked_long) << "field " << unsigned{param};
+      this->scan_now_ += SCAN_ANSWER_TIMEOUT_MS;
+      this->hub_->scan_step(this->scan_now_);
+    } else {
+      EXPECT_FALSE(asked_long) << "a fourth field was asked for a long name after three without";
+      this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                           {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 0x00});
+      break;
+    }
+    this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 0x00});
+  }
+
+  ASSERT_GE(scan_lines().lines().size(), 3u);
+  EXPECT_EQ(scan_lines().lines()[2],
+            "field device=0x6D56EA tab=0 group=0 param=1 display=1 name=\"Bat\" long_name=\"Battery\"");
+  EXPECT_EQ(scan_lines().lines()[3], "field device=0x6D56EA tab=0 group=0 param=2 display=1 name=\"Bat\"");
 }
 
 }  // namespace esphome::masterbus::testing

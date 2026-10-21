@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -108,7 +109,8 @@ class ScanLines {
     if (header != std::string::npos)
       line = line.substr(header + 3);
     // Only the lines the converter reads. What the scan says around them is wording.
-    if (line.rfind("device ", 0) == 0 || line.rfind("group ", 0) == 0 || line.rfind("field ", 0) == 0)
+    if (line.rfind("device ", 0) == 0 || line.rfind("group ", 0) == 0 || line.rfind("field ", 0) == 0 ||
+        line.rfind("option ", 0) == 0 || line.rfind("count ", 0) == 0)
       this->lines_.push_back(line);
   }
 

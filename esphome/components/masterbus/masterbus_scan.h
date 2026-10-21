@@ -20,6 +20,9 @@ static constexpr uint32_t SCAN_ANSWER_TIMEOUT_MS = 200;
 /// characters ("Bat. temperature"); anything longer is truncated rather than dropped.
 static constexpr uint8_t SCAN_NAME_LENGTH = 32;
 static constexpr uint8_t SCAN_UNIT_LENGTH = 12;
+/// How many processors a device's software versions are kept for. The vendor's example device has
+/// one; past this many the walk stops asking.
+static constexpr uint8_t SCAN_MAX_PROCESSORS = 8;
 
 /** What the scan learned about one field.
  *
@@ -48,14 +51,16 @@ struct MasterbusScannedField {
   bool has_unit;
   char name[SCAN_NAME_LENGTH];
   char unit[SCAN_UNIT_LENGTH];
+  /// The longer forms of the name some equipment carries, empty where it carries none.
+  char long_name[SCAN_NAME_LENGTH];
+  char very_long_name[SCAN_NAME_LENGTH];
 };
 
 /** Walks the devices a scan discovered and reports their fields as pasteable configuration.
  *
  * A device answers one question at a time, so this is a state machine: each tick sends one
  * request and consumes the answer to the previous one. A question a device does not answer is
- * taken as "this does not exist" after a timeout, which is also how the end of a group list and
- * the end of a field list are found - the vendor's own group count is not decoded.
+ * taken as "this does not exist" after a timeout, which is also how the end of a list is found.
  */
 class MasterbusScanner {
  public:
@@ -82,10 +87,10 @@ class MasterbusScanner {
   enum class Phase : uint8_t {
     PHASE_IDLE,
     PHASE_EVENTABLES,
-    PHASE_ARTICLE_ID,
-    PHASE_ARTICLE_TEXT,
-    PHASE_PRODUCT_NAME_ID,
-    PHASE_PRODUCT_NAME_TEXT,
+    PHASE_DEVICE_STRING_ID,
+    PHASE_DEVICE_STRING_TEXT,
+    PHASE_SOFTWARE_VERSION,
+    PHASE_GENERAL_COUNT,
     PHASE_GROUP_COUNT,
     PHASE_GROUP_FIELD_COUNT,
     PHASE_GROUP_NAME_ID,
@@ -100,18 +105,35 @@ class MasterbusScanner {
     PHASE_FIELD_FACTORY,
     PHASE_FIELD_WRITEABLE,
     PHASE_FIELD_EVENTABLE,
+    PHASE_FIELD_LONG_NAME_ID,
+    PHASE_FIELD_VERY_LONG_NAME_ID,
     PHASE_FIELD_NAME_TEXT,
     PHASE_FIELD_UNIT_TEXT,
+    PHASE_FIELD_LONG_NAME_TEXT,
+    PHASE_FIELD_VERY_LONG_NAME_TEXT,
+    PHASE_OPTION_ID,
+    PHASE_OPTION_TEXT,
+    PHASE_LIST_DEVICE,
+    PHASE_EVENT_SOURCE,
+    PHASE_EVENT_FIELD,
   };
 
   void send_current_();
   void advance_(bool answered);
+  void next_device_string_();
   void report_device_();
-  void finish_field_();
+  void next_general_count_();
+  /// Read the field's strings out of the table, one after the other, then report the field.
+  void next_field_text_();
+  /// Report the field and walk its list, if it has one.
+  void complete_field_();
+  void next_entry_();
+  void next_field_();
   void next_group_();
   void next_tab_();
   void next_device_();
   void report_field_();
+  void report_entry_(uint32_t value);
   /// Where the answers to the walk on the current tab arrive. Every tab answers in the same shape,
   /// so this number is all that keeps one tab's answer from being taken for another's.
   uint8_t group_answer_type_() const {
@@ -132,12 +154,19 @@ class MasterbusScanner {
   /// that does not carry it refuses outright, which is not an error.
   uint16_t eventables_{0};
   bool eventables_known_{false};
-  /// The device's article number and product name, and whether it handed either over. The serial
-  /// number is deliberately never asked for: it identifies one unit, and scans get pasted in public.
-  char article_[SCAN_NAME_LENGTH]{};
-  char product_name_[SCAN_NAME_LENGTH]{};
-  bool article_known_{false};
-  bool product_name_known_{false};
+  /// The device's own strings - article number, serial number, product name and revision code, in
+  /// the vendor's numbering from 1 - and which of them it handed over.
+  uint8_t device_string_{0};
+  char device_strings_[4][SCAN_NAME_LENGTH]{};
+  uint8_t device_strings_known_{0};
+  /// The software version of each processor that answered, and which one is being asked.
+  uint8_t processor_{0};
+  uint16_t software_versions_[SCAN_MAX_PROCESSORS]{};
+  /// The count being asked, of the ones every device is asked once.
+  uint8_t general_count_{0};
+  /// How many fields in a row went without an answer for a long name. Most equipment carries none,
+  /// and asking every field would cost a timeout each.
+  uint8_t long_names_silent_{0};
   /// Which tab is being walked. The four are the same protocol under different message numbers,
   /// so the walk below is unchanged by it - only the numbers the hub puts on the wire differ.
   MasterbusTab tab_{MasterbusTab::MASTERBUS_TAB_MONITORING};
@@ -158,12 +187,21 @@ class MasterbusScanner {
   bool group_named_{false};
   uint16_t field_index_{0};
   uint16_t fields_in_group_{0};
-  /// The string being fetched, whether that is a group's name or a field's. Only one string is
-  /// ever in flight, so one slot is enough.
+  /// The string being fetched, whether that is a device's, a group's or a field's name. Only one
+  /// string is ever in flight, so one slot is enough; a field's other strings wait their turn.
   uint16_t name_string_{0};
   uint16_t unit_string_{0};
+  uint16_t long_name_string_{0};
+  uint16_t very_long_name_string_{0};
   uint8_t chunk_{0};
   uint16_t completed_{0};
+  /// The entry of a list field being asked for, and what it is known by so far: an option's
+  /// string and text, and the device an event watches.
+  uint8_t entry_{0};
+  uint16_t option_string_{0};
+  char option_text_[SCAN_NAME_LENGTH]{};
+  uint32_t event_source_{0};
+  bool event_source_known_{false};
   MasterbusScannedField field_{};
 };
 
