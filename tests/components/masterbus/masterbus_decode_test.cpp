@@ -754,13 +754,14 @@ TEST_F(MasterbusTest, AnAnswerOlderThanTheCadenceDoesNotSuppressOurRequest) {
   EXPECT_EQ(this->canbus_.sent[0].can_id, 0x186D56EA);
 }
 
-TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndThenWhoWroteIt) {
+TEST_F(MasterbusTest, WritingAnEventSendsTheValueAndThenWhoWroteIt) {
   // Captured from the vendor library closing a battery relay: the write is a monitoring request
-  // carrying a float, and a second write to the next field number always follows it, carrying the
+  // carrying a float, and a second write to the next field number follows it, carrying the
   // writer's own address.
   auto *relay = this->add_sensor(117);
+  relay->on_eventable_answer(true);
 
-  ASSERT_TRUE(this->hub_->write_boolean(*relay, true));
+  ASSERT_TRUE(this->hub_->write_value(*relay, 1.0f));
 
   ASSERT_EQ(this->canbus_.sent.size(), 2u);
   const auto &write = this->canbus_.sent[0];
@@ -781,34 +782,41 @@ TEST_F(MasterbusTest, WritingABooleanSendsTheValueAndThenWhoWroteIt) {
   EXPECT_EQ(encode_uint32(source.data[5], source.data[4], source.data[3], source.data[2]), HUB_ADDRESS);
 }
 
-// The vendor library writes every tab the way it writes monitoring: the tab's own request number,
-// the value, and then who wrote it on the next field.
+// A field that is no event has a field of its own one number up - a display panel's Backlight is 42
+// and its Page duration 43 - so the write is the value alone.
+TEST_F(MasterbusTest, AWriteToAFieldThatIsNoEventLeavesTheNextFieldAlone) {
+  auto *backlight = this->add_sensor(42);
+  backlight->on_eventable_answer(false);
+
+  ASSERT_TRUE(this->hub_->write_value(*backlight, 70.0f));
+
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_EQ(encode_uint16(this->canbus_.sent[0].data[1], this->canbus_.sent[0].data[0]), 42);
+}
+
+// The vendor library writes every tab the way it writes monitoring: the tab's own request number
+// and the value.
 TEST_F(MasterbusTest, AFieldOnAnyTabIsWrittenOnThatTabsOwnRequestNumber) {
   auto *setting =
       this->add_sensor(40, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT, MasterbusTab::MASTERBUS_TAB_CONFIGURATION);
 
   ASSERT_TRUE(this->hub_->write_value(*setting, 13.5f));
 
-  ASSERT_EQ(this->canbus_.sent.size(), 2u);
-  for (const auto &frame : this->canbus_.sent) {
-    EXPECT_EQ(frame.can_id, frame_id(0x37, BATTERY_1));
-    ASSERT_EQ(frame.can_data_length_code, MONITORING_WRITE_LENGTH);
-  }
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
   const auto &write = this->canbus_.sent[0];
+  EXPECT_EQ(write.can_id, frame_id(0x37, BATTERY_1));
+  ASSERT_EQ(write.can_data_length_code, MONITORING_WRITE_LENGTH);
   EXPECT_EQ(encode_uint16(write.data[1], write.data[0]), 40);
   float value;
   const uint32_t bits = encode_uint32(write.data[5], write.data[4], write.data[3], write.data[2]);
   memcpy(&value, &bits, sizeof(value));
   EXPECT_FLOAT_EQ(value, 13.5f);
-  const auto &source = this->canbus_.sent[1];
-  EXPECT_EQ(encode_uint16(source.data[1], source.data[0]), 41);
-  EXPECT_EQ(encode_uint32(source.data[5], source.data[4], source.data[3], source.data[2]), HUB_ADDRESS);
 
   for (MasterbusTab tab : MASTERBUS_TABS) {
     this->canbus_.clear();
     auto *field = this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN, tab);
-    ASSERT_TRUE(this->hub_->write_boolean(*field, false));
-    ASSERT_EQ(this->canbus_.sent.size(), 2u);
+    ASSERT_TRUE(this->hub_->write_value(*field, 0.0f));
+    ASSERT_EQ(this->canbus_.sent.size(), 1u);
     EXPECT_EQ(this->canbus_.sent[0].can_id >> MESSAGE_TYPE_SHIFT,
               tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request)
         << masterbus_tab_to_string(tab);
@@ -1874,7 +1882,7 @@ class SchedulingEntity : public RecordingEntity {
  public:
   using RecordingEntity::RecordingEntity;
   using MasterbusEntity::read_back_;
-  using MasterbusEntity::writeable_unanswered_;
+  using MasterbusEntity::questions_unanswered_;
 };
 
 static bool is_data_write(const canbus::CanFrame &frame) {
@@ -1882,30 +1890,36 @@ static bool is_data_write(const canbus::CanFrame &frame) {
          frame.can_data_length_code == MONITORING_WRITE_LENGTH;
 }
 
-// The first write to a field asks the device whether the field takes one, and goes out once it
-// says yes - the two frames of a write, as before.
+// The first write to a field asks the device whether the field takes one and whether it is an
+// event, and goes out once it has said - for an event, followed by who wrote it.
 TEST_F(MasterbusTest, AFieldIsWrittenOnceTheDeviceSaysItTakesAWrite) {
   SchedulingEntity entity(this->battery_.get(), 117, MasterbusTab::MASTERBUS_TAB_MONITORING,
                           MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
   this->hub_->register_entity(&entity);
 
   EXPECT_TRUE(entity.write(1.0f));
-  ASSERT_EQ(this->canbus_.sent.size(), 1u);
-  const auto &asked = this->canbus_.sent.back();
-  EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, PROPERTY_REQUEST_TYPE);
-  ASSERT_EQ(asked.can_data_length_code, 3);
-  EXPECT_EQ(asked.data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE));
-  EXPECT_EQ(asked.data[1], 117);
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  for (const auto &asked : this->canbus_.sent) {
+    EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, PROPERTY_REQUEST_TYPE);
+    ASSERT_EQ(asked.can_data_length_code, 3);
+    EXPECT_EQ(asked.data[1], 117);
+  }
+  EXPECT_EQ(this->canbus_.sent[0].data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE));
+  EXPECT_EQ(this->canbus_.sent[1].data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE));
 
+  // A yes alone is not enough: whether the next field is touched depends on the second answer.
   this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
                        {0x0B, 117, 0x00, 0x00, 0x01, 0x00});
-  ASSERT_EQ(this->canbus_.sent.size(), 3u);
-  EXPECT_TRUE(is_data_write(this->canbus_.sent[1]));
-  EXPECT_EQ(this->canbus_.sent[1].data[0], 117);
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x0D, 117, 0x00, 0x00, 0x01, 0x00});
+  ASSERT_EQ(this->canbus_.sent.size(), 4u);
   EXPECT_TRUE(is_data_write(this->canbus_.sent[2]));
-  EXPECT_EQ(this->canbus_.sent[2].data[0], 118);
+  EXPECT_EQ(this->canbus_.sent[2].data[0], 117);
+  EXPECT_TRUE(is_data_write(this->canbus_.sent[3]));
+  EXPECT_EQ(this->canbus_.sent[3].data[0], 118);
 
-  // The answer is kept: the next write goes out at once.
+  // The answers are kept: the next write goes out at once.
   this->canbus_.clear();
   EXPECT_TRUE(entity.write(1.0f));
   ASSERT_EQ(this->canbus_.sent.size(), 2u);
@@ -1925,13 +1939,57 @@ TEST_F(MasterbusTest, AFieldThatSaysItTakesNoWriteIsNotWritten) {
   EXPECT_TRUE(this->canbus_.sent.empty());
 }
 
-// The answer is broadcast like any other, so one a display panel asked for counts too.
+// A write the device refuses is refused before it has said whether the field is an event.
+TEST_F(MasterbusTest, ANoNeedsNoSecondAnswer) {
+  SchedulingEntity entity(this->battery_.get(), 1, MasterbusTab::MASTERBUS_TAB_MONITORING,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT);
+  this->hub_->register_entity(&entity);
+  entity.write(5.0f);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0B, 1, 0x00, 0x00, 0x00, 0x00});
+  this->canbus_.clear();
+  entity.questions_unanswered_();
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
+// A display panel's settings answer that they take a write and are no event: the write is the
+// value alone, and the field after it is not touched.
+TEST_F(MasterbusTest, ASettingIsWrittenWithoutTouchingTheNextField) {
+  SchedulingEntity entity(this->battery_.get(), 42, MasterbusTab::MASTERBUS_TAB_MONITORING,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT);
+  this->hub_->register_entity(&entity);
+  entity.write(70.0f);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0B, 42, 0x00, 0x00, 0x01, 0x00});
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0D, 42, 0x00, 0x00, 0x00, 0x00});
+
+  ASSERT_EQ(this->canbus_.sent.size(), 3u);
+  EXPECT_TRUE(is_data_write(this->canbus_.sent[2]));
+  EXPECT_EQ(this->canbus_.sent[2].data[0], 42);
+}
+
+// A device that says a field takes a write but not whether it is an event has it written as no
+// event: the frame after it would land on a field nobody asked to change.
+TEST_F(MasterbusTest, AFieldThatDoesNotSayItIsAnEventIsWrittenAsNone) {
+  SchedulingEntity entity(this->battery_.get(), 42, MasterbusTab::MASTERBUS_TAB_MONITORING,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT);
+  this->hub_->register_entity(&entity);
+  entity.write(70.0f);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0B, 42, 0x00, 0x00, 0x01, 0x00});
+  entity.questions_unanswered_();
+
+  ASSERT_EQ(this->canbus_.sent.size(), 3u);
+  EXPECT_TRUE(is_data_write(this->canbus_.sent[2]));
+  EXPECT_EQ(this->canbus_.sent[2].data[0], 42);
+}
+
+// The answers are broadcast like any other, so ones a display panel asked for count too.
 TEST_F(MasterbusTest, SomebodyElsesAnswerOnWhetherAFieldTakesAWriteCounts) {
   SchedulingEntity entity(this->battery_.get(), 117, MasterbusTab::MASTERBUS_TAB_MONITORING,
                           MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
   this->hub_->register_entity(&entity);
   this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
                        {0x0B, 117, 0x00, 0x00, 0x01, 0x00});
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x0D, 117, 0x00, 0x00, 0x01, 0x00});
 
   EXPECT_TRUE(entity.write(1.0f));
   ASSERT_EQ(this->canbus_.sent.size(), 2u);
@@ -1945,11 +2003,12 @@ TEST_F(MasterbusTest, AnUnansweredQuestionStillLetsTheWriteThroughAndTheFieldIsR
                           MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT);
   this->hub_->register_entity(&entity);
   entity.write(42.0f);
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
   EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, 0x38);
-  entity.writeable_unanswered_();
+  entity.questions_unanswered_();
   ASSERT_EQ(this->canbus_.sent.size(), 3u);
-  EXPECT_EQ(this->canbus_.sent[1].can_id >> MESSAGE_TYPE_SHIFT, 0x37);
-  EXPECT_EQ(this->canbus_.sent[1].can_data_length_code, MONITORING_WRITE_LENGTH);
+  EXPECT_EQ(this->canbus_.sent[2].can_id >> MESSAGE_TYPE_SHIFT, 0x37);
+  EXPECT_EQ(this->canbus_.sent[2].can_data_length_code, MONITORING_WRITE_LENGTH);
 
   entity.read_back_();
   ASSERT_EQ(this->canbus_.sent.size(), 4u);
@@ -1965,6 +2024,7 @@ TEST_F(MasterbusTest, AHubWithAnAddressOfItsOwnSpeaksUnderIt) {
 
   SchedulingEntity entity(this->battery_.get(), 117, MasterbusTab::MASTERBUS_TAB_MONITORING,
                           MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  entity.on_eventable_answer(true);
   this->hub_->write_value(entity, 1.0f);
   const auto &after = this->canbus_.sent.back();
   EXPECT_EQ(encode_uint32(after.data[5], after.data[4], after.data[3], after.data[2]), 0x3BFFFEu);

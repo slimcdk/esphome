@@ -88,11 +88,17 @@ static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
 /// that carry no other value. Writing anything else is therefore not confirmed.
 static constexpr uint8_t MONITORING_WRITE_LENGTH = 6;
 
-/// VERIFIED as to the bytes, LIBRARY as to their meaning: every write is followed by a second one,
-/// to the field one higher, whose value is the address of the node that wrote - HUB_ADDRESS, as a
-/// 32 bit number little-endian. The vendor library always sends its own, which is why the same
-/// four bytes, 01 00 50 00, followed a write to field 117 and to field 119. Neither higher field is
-/// in the device's own field list: the pair records which node set an eventable field off.
+/// VERIFIED as to the bytes, LIBRARY as to their meaning: a write to an event field is followed by a
+/// second one, to the field one higher, whose value is the address of the node that wrote -
+/// HUB_ADDRESS, as a 32 bit number little-endian. The vendor library always sends its own, which is
+/// why the same four bytes, 01 00 50 00, followed a write to field 117 and to field 119. Neither
+/// higher field is in the device's own field list: the pair records which node set an event off.
+///
+/// VERIFIED that this is for events only. The library writes nothing but booleans to events, and on
+/// the reference bus the only fields a device calls eventable (property 0x0D) are the battery
+/// blocks' 117 and 119. Every other writable field has a field of its own one number up: a display
+/// panel's Backlight is 42 and its Page duration 43, its Close relay switch 32 and its Open relay
+/// switch 33. So the second frame goes only to a field the device says is an event.
 
 /// VERIFIED, and the reason writing is not fire-and-forget: a write that goes out correctly is not
 /// the same as a command that took effect. Equipment can be shared between devices, and then only
