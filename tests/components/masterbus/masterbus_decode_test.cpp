@@ -1705,17 +1705,17 @@ TEST_F(MasterbusTest, AnOptionAnswerForAnotherIndexIsNotTaken) {
   EXPECT_EQ(this->canbus_.sent.back().data[3], 1) << "the walk moved on on an answer for another index";
 }
 
-// A device list holds device addresses, 32 bits each, under selector 0x20; the maximum says how
-// many. The vendor library resolves them against the devices it has found, so they are reported
-// as they came.
+// A device list holds device addresses under selector 0x20, packed the way an announcement packs
+// one; the maximum says how many. The entries below are the ones the battery blocks' event settings
+// answered on the reference bus: BAT 1 and the display panel.
 TEST_F(MasterbusTest, ScanReadsTheEntriesOfADeviceList) {
   scan_lines().clear();
   this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DEVICE_LIST, 2.0f);
   this->hub_->scan_step(this->scan_now_);
   EXPECT_EQ(this->canbus_.sent.back().data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE));
   this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
-                       {0x20, 12, 0x00, 0x00, 0xEA, 0x56, 0x6D, 0x00});
-  this->answer(PROPERTY_INFORMATION_TYPE, {0x20, 12, 0x00, 0x01, 0x30, 0x5E, 0x53, 0x00});
+                       {0x20, 12, 0x00, 0x00, 0x1B, 0xEA, 0x56, 0x01});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x20, 12, 0x00, 0x01, 0x14, 0x30, 0x5E, 0x03});
   this->unanswered();
 
   ASSERT_EQ(scan_lines().lines().size(), 5u);
@@ -1723,23 +1723,23 @@ TEST_F(MasterbusTest, ScanReadsTheEntriesOfADeviceList) {
   EXPECT_EQ(scan_lines().lines()[4], "option device=0x6D56EA tab=0 param=12 index=1 entry=0x535E30");
 }
 
-// An event field points at a field on another device: selector 0x20 with index 0 names the device,
-// and 0x0F with each index a field number on it. Its options are named by that device's fields,
-// which the same scan walks.
+// An event field lists what another device can be told to do: selector 0x20 with index 0 names the
+// device, packed as in an announcement, and 0x0F with each index one of its eventables by number.
+// That device's count 0x40 + n says which of its fields eventable n is.
 TEST_F(MasterbusTest, ScanReadsWhatAnEventFieldWatches) {
   scan_lines().clear();
   this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_EVENT, 2.0f);
-  this->answer(PROPERTY_INFORMATION_TYPE, {0x20, 12, 0x00, 0x00, 0x30, 0x5E, 0x53, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x20, 12, 0x00, 0x00, 0x14, 0x30, 0x5E, 0x03});
   this->hub_->scan_step(this->scan_now_);
   EXPECT_EQ(this->canbus_.sent.back().data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_EVENT_FIELD));
   EXPECT_EQ(this->canbus_.sent.back().data[3], 0);
-  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0F, 12, 0x00, 0x00, 32, 0x00});
-  this->answer(PROPERTY_INFORMATION_TYPE, {0x0F, 12, 0x00, 0x01, 33, 0x00});
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0F, 12, 0x00, 0x00, 0x00, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x0F, 12, 0x00, 0x01, 0x01, 0x00});
   this->unanswered();
 
   ASSERT_EQ(scan_lines().lines().size(), 5u);
-  EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 source=0x535E30 field=32");
-  EXPECT_EQ(scan_lines().lines()[4], "option device=0x6D56EA tab=0 param=12 index=1 source=0x535E30 field=33");
+  EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 source=0x535E30 eventable=0");
+  EXPECT_EQ(scan_lines().lines()[4], "option device=0x6D56EA tab=0 param=12 index=1 source=0x535E30 eventable=1");
 }
 
 // Some equipment carries a longer form of a field's name. It is reported where it says more than
