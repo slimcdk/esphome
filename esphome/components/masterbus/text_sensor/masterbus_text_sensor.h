@@ -9,21 +9,21 @@ class MasterbusTextSensor : public text_sensor::TextSensor, public MasterbusEnti
  public:
   using MasterbusEntity::MasterbusEntity;
 
-  void publish_masterbus_value(const MasterbusValue &value) override {
-    switch (value.type) {
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT:
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME:
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE:
-        this->publish_state(value.as_text);
-        break;
-      default:
-        this->publish_masterbus_unavailable();
-        break;
-    }
+  /// The names of a list field's entries, in the device's own order. Codegen only: the table is
+  /// static and outlives the sensor.
+  void set_options(const char *const *options, size_t count) {
+    this->options_ = options;
+    this->option_count_ = count;
   }
+
+  void publish_masterbus_value(const MasterbusValue &value) override;
   // A text sensor has no way to clear a published string, so the state flag is all that can be
   // dropped here.
   void publish_masterbus_unavailable() override { this->set_has_state(false); }
+
+ protected:
+  const char *const *options_{nullptr};
+  size_t option_count_{0};
 };
 
 }  // namespace esphome::masterbus

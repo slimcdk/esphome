@@ -7,7 +7,10 @@ namespace esphome::masterbus {
 ESPHOME_LOG_TAG(TAG, "masterbus.select");
 
 void MasterbusSelect::publish_masterbus_value(const MasterbusValue &value) {
-  if (value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION) {
+  // A device list and an event field answer with the index of an entry, the way a list option does.
+  if (value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION &&
+      value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID &&
+      value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE) {
     this->publish_masterbus_unavailable();
     return;
   }

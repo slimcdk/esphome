@@ -410,7 +410,11 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
         decoded.as_boolean = value != 0.0f;
         break;
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION:
-        decoded.as_raw = static_cast<uint32_t>(value);
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID:
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE:
+        // Each answers with the index of an entry in a list the device holds. An index cannot be
+        // negative, so a negative one is out of range rather than wrapped round to a huge one.
+        decoded.as_raw = value < 0.0f ? UINT32_MAX : static_cast<uint32_t>(value);
         break;
 #ifdef USE_MASTERBUS_TEXT
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT:
@@ -445,7 +449,6 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
         break;
       }
       default:
-        // Device identifier and eventable have no entity that declares them.
         entity->publish_masterbus_unavailable();
         continue;
     }
