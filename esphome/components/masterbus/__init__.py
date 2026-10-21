@@ -13,7 +13,6 @@ from esphome.const import (
     CONF_DEVICES,
     CONF_ID,
     CONF_PLATFORM,
-    CONF_SCAN,
     CONF_TIMEOUT,
     CONF_UPDATE_INTERVAL,
     SCHEDULER_DONT_RUN,
@@ -149,7 +148,6 @@ CONFIG_SCHEMA = cv.All(
                 msg="a MasterBus hub needs the id of the canbus component it listens on",
             ): cv.use_id(CanbusComponent),
             cv.Optional(CONF_ADDRESS, default=HUB_ADDRESS): _hub_address,
-            cv.Optional(CONF_SCAN, default=False): cv.boolean,
             cv.Optional(CONF_LOG_ALL_FRAMES, default=False): cv.boolean,
             # Devices announce themselves only when asked. Where no other node asks, a hub can.
             # Every device answers every request, three times over, so it is kept above a second.
@@ -274,12 +272,6 @@ async def register_info_entity(device: MockObj, var: MockObj) -> None:
     cg.add(device.register_info_entity(var))
 
 
-def _request_scan() -> None:
-    """Compile the scan in, for a scan at boot or one an automation starts."""
-    cg.add_define("USE_MASTERBUS_SCAN")
-    cg.add_define("MASTERBUS_SCAN_MAX_DEVICES", MAX_SCAN_DEVICES)
-
-
 SCAN_ACTION_SCHEMA = cv.Schema({cv.GenerateID(): cv.use_id(MasterbusHub)})
 _scan_action = automation.apply_action_builder(
     "masterbus.scan", SCAN_ACTION_SCHEMA, automation.ApplyCall("start_scan()")
@@ -295,7 +287,9 @@ async def scan_action_to_code(
     template_arg: cg.TemplateArguments,
     args: TemplateArgsType,
 ) -> MockObj:
-    _request_scan()
+    # The scan is compiled in only where something starts one, at boot or from a button.
+    cg.add_define("USE_MASTERBUS_SCAN")
+    cg.add_define("MASTERBUS_SCAN_MAX_DEVICES", MAX_SCAN_DEVICES)
     return await _scan_action(config, action_id, template_arg, args)
 
 
@@ -306,9 +300,6 @@ async def to_code(config: ConfigType) -> None:
     if config[CONF_ADDRESS] != HUB_ADDRESS:
         cg.add(var.set_address(config[CONF_ADDRESS]))
 
-    if config[CONF_SCAN]:
-        _request_scan()
-        cg.add(var.set_scan_at_boot(True))
     if config[CONF_LOG_ALL_FRAMES]:
         cg.add_define("USE_MASTERBUS_LOG_ALL_FRAMES")
     if (interval := config.get(CONF_NODE_REQUEST_INTERVAL)) is not None:

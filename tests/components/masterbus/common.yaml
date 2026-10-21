@@ -100,7 +100,7 @@ switch:
     name: Charger state control
 
 button:
-  # A scan on demand rather than at boot, which compiles the scan in without scan: true.
+  # A scan on demand: the action alone compiles the scan in.
   - platform: template
     name: Scan the bus
     on_press:

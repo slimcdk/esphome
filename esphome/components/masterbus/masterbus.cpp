@@ -250,10 +250,6 @@ void MasterbusHub::setup() {
   this->set_interval(AVAILABILITY_INTERVAL_MS,
                      [this]() { this->check_availability(App.get_loop_component_start_time()); });
 #endif
-#ifdef USE_MASTERBUS_SCAN
-  if (this->scan_at_boot_)
-    this->start_scan();
-#endif
 #ifdef USE_MASTERBUS_NODE_REQUEST
   // An announcement is what keeps a device nobody polls online. Where no other node asks for them,
   // this hub does.
@@ -280,7 +276,7 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
 #endif
 #ifdef USE_MASTERBUS_SCAN
   // A scan listens on its own account. It must not sit behind the device list: the whole point of
-  // scanning is to find devices nobody has declared yet, so a configuration with `scan: true` and
+  // scanning is to find devices nobody has declared yet, so a configuration that scans and declares
   // no `devices:` is exactly the case that has to work.
   if (type == DEVICE_ANNOUNCEMENT_TYPE && data.size() >= DEVICE_ANNOUNCEMENT_LENGTH)
     this->record_announcement_(decode_announced_address(data.data()));
@@ -359,9 +355,6 @@ void MasterbusHub::dump_config() {
                 "MasterBus:\n"
                 "  Address: 0x%06" PRIX32,
                 this->address_);
-#ifdef USE_MASTERBUS_SCAN
-  ESP_LOGCONFIG(TAG, "  Scan at boot: %s", YESNO(this->scan_at_boot_));
-#endif
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
   ESP_LOGCONFIG(TAG, "  Raw frame logging: enabled");
 #endif
