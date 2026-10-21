@@ -8,6 +8,7 @@ from esphome.components.canbus import CONF_CANBUS_ID, CanbusComponent
 from esphome.components.const import CONF_VALUE_TYPE
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_ADDRESS,
     CONF_DEVICE,
     CONF_DEVICES,
     CONF_ID,
@@ -40,6 +41,9 @@ CONF_TAB = "tab"
 # Both bounds mirror masterbus_protocol.h, which is where the wire format is recorded.
 MAX_DEVICE_ADDRESS = 0x007FFFFF
 MAX_PARAM = 0xFFFF
+# The vendor library's own address, which a hub borrows unless given one of its own.
+HUB_ADDRESS = 0x500001
+DEVICE_CLASS_SHIFT = 18
 
 # How many devices a scan will list. A MasterBus network is a boat's electrical system, not a
 # fieldbus - the largest installation seen carries nine devices.
@@ -91,7 +95,25 @@ def _device_address(value: Any) -> int:
     return address
 
 
+def _hub_address(value: Any) -> int:
+    address = _device_address(value)
+    if address >> DEVICE_CLASS_SHIFT == 0:
+        raise cv.Invalid(
+            f"'{CONF_ADDRESS}' {address:#X} has no device class: the top five bits of a MasterBus "
+            f"address say what kind of node it is, and no node is class 0"
+        )
+    return address
+
+
 def _validate_unique_devices(config: ConfigType) -> ConfigType:
+    if (address := config[CONF_ADDRESS]) in {
+        device[CONF_DEVICE] for device in config.get(CONF_DEVICES, [])
+    }:
+        raise cv.Invalid(
+            f"the hub's own '{CONF_ADDRESS}' {address:#X} is also a declared device. Every device "
+            f"answers a node request except the one whose address it carries, so that device would "
+            f"never be heard announcing itself."
+        )
     declared: dict[int, str] = {}
     for device in config.get(CONF_DEVICES, []):
         address = device[CONF_DEVICE]
@@ -125,6 +147,7 @@ CONFIG_SCHEMA = cv.All(
                 CONF_CANBUS_ID,
                 msg="a MasterBus hub needs the id of the canbus component it listens on",
             ): cv.use_id(CanbusComponent),
+            cv.Optional(CONF_ADDRESS, default=HUB_ADDRESS): _hub_address,
             cv.Optional(CONF_SCAN, default=False): cv.boolean,
             cv.Optional(CONF_LOG_ALL_FRAMES, default=False): cv.boolean,
             # Devices announce themselves only when asked. Where no other node asks, a hub can.
@@ -254,6 +277,8 @@ async def to_code(config: ConfigType) -> None:
     canbus = await cg.get_variable(config[CONF_CANBUS_ID])
     var = cg.new_Pvariable(config[CONF_ID], canbus)
     await cg.register_component(var, config)
+    if config[CONF_ADDRESS] != HUB_ADDRESS:
+        cg.add(var.set_address(config[CONF_ADDRESS]))
 
     if config[CONF_SCAN]:
         cg.add_define("USE_MASTERBUS_SCAN")

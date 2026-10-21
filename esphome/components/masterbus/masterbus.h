@@ -122,7 +122,21 @@ class MasterbusEntity : public PollingComponent {
   void set_stale_timeout(uint32_t timeout_ms) { this->stale_timeout_ms_ = timeout_ms; }
   uint32_t get_stale_timeout() const { return this->stale_timeout_ms_; }
 
+  /// Write the field. The first write asks the device whether the field takes one at all (property
+  /// 0x0B) and goes out once it says yes; a field that says no is not written. With read_back the
+  /// field is read again shortly afterwards, so the entity shows what the device kept rather than
+  /// what was asked for. Returns whether the write, or the question before it, reached the bus.
+  bool write(float value, bool read_back = true);
+  /// The device's word on whether this field takes a write, whoever asked for it.
+  void on_writeable_answer(bool writeable);
+
  protected:
+  bool perform_write_(float value, bool read_back);
+  /// The device did not say whether the field takes a write. It is written anyway: a write a device
+  /// declines does nothing, and the question is asked again before the next one.
+  void writeable_unanswered_();
+  void read_back_();
+
   MasterbusDevice *device_;
   uint32_t stale_timeout_ms_{0};
   uint32_t last_value_at_{0};
@@ -133,6 +147,12 @@ class MasterbusEntity : public PollingComponent {
   bool value_was_ours_{false};
   // Already reported unavailable for its own timeout, so it is not reported again every second.
   bool stale_{false};
+  // Whether the device says the field takes a write: -1 not yet known, then 0 or 1. And a write
+  // waiting for that answer, with what it is to write.
+  int8_t writeable_{-1};
+  bool write_pending_{false};
+  bool pending_read_back_{false};
+  float pending_value_{0.0f};
   uint16_t param_;
   MasterbusTab tab_;
   MasterbusValueType value_type_;
@@ -284,8 +304,6 @@ class MasterbusHub : public Component {
                      MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
   bool request_group_index(uint32_t address, uint16_t group, uint16_t index,
                            MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
-  bool request_property(uint32_t address, MasterbusProperty property, uint16_t param,
-                        MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
   /// One entry of a list property: an option's name, a device-list entry, an event's field.
   bool request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
                               MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
@@ -298,6 +316,15 @@ class MasterbusHub : public Component {
   const MasterbusScannedField &get_scanned_field() const { return this->scanner_.get_last_field(); }
   const char *get_scanned_group_name() const { return this->scanner_.get_group_name(); }
 #endif
+
+  /// Ask a device for one property of one field.
+  bool request_property(uint32_t address, MasterbusProperty property, uint16_t param,
+                        MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
+
+  /// The address this hub speaks as: what it asks for announcements under, and what it writes after
+  /// every write as the node that made it. The vendor library's own by default.
+  void set_address(uint32_t address) { this->address_ = address; }
+  uint32_t get_address() const { return this->address_; }
 
   /// Ask a device to set one of its boolean fields. Returns whether the request reached the bus.
   /// Set a boolean field. True is what the vendor library sends to fire an event field such as
@@ -374,6 +401,7 @@ class MasterbusHub : public Component {
 
   canbus::Canbus *canbus_;
   std::vector<uint8_t> tx_;
+  uint32_t address_{HUB_ADDRESS};
 #ifdef USE_MASTERBUS_NODE_REQUEST
   uint32_t node_request_interval_ms_{0};
 #endif

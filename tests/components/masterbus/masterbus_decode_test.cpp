@@ -1869,4 +1869,105 @@ TEST_F(MasterbusTest, ADeviceIsReadAgainWhenItsStatusVersionChangesOrItAsksToBe)
   EXPECT_EQ(article->texts.size(), 3u);
 }
 
+// Lets a test stand in for the scheduler, which a host test does not run.
+class SchedulingEntity : public RecordingEntity {
+ public:
+  using RecordingEntity::RecordingEntity;
+  using MasterbusEntity::read_back_;
+  using MasterbusEntity::writeable_unanswered_;
+};
+
+static bool is_data_write(const canbus::CanFrame &frame) {
+  return (frame.can_id >> MESSAGE_TYPE_SHIFT) == MONITORING_REQUEST_TYPE &&
+         frame.can_data_length_code == MONITORING_WRITE_LENGTH;
+}
+
+// The first write to a field asks the device whether the field takes one, and goes out once it
+// says yes - the two frames of a write, as before.
+TEST_F(MasterbusTest, AFieldIsWrittenOnceTheDeviceSaysItTakesAWrite) {
+  SchedulingEntity entity(this->battery_.get(), 117, MasterbusTab::MASTERBUS_TAB_MONITORING,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  this->hub_->register_entity(&entity);
+
+  EXPECT_TRUE(entity.write(1.0f));
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  const auto &asked = this->canbus_.sent.back();
+  EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, PROPERTY_REQUEST_TYPE);
+  ASSERT_EQ(asked.can_data_length_code, 3);
+  EXPECT_EQ(asked.data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE));
+  EXPECT_EQ(asked.data[1], 117);
+
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x0B, 117, 0x00, 0x00, 0x01, 0x00});
+  ASSERT_EQ(this->canbus_.sent.size(), 3u);
+  EXPECT_TRUE(is_data_write(this->canbus_.sent[1]));
+  EXPECT_EQ(this->canbus_.sent[1].data[0], 117);
+  EXPECT_TRUE(is_data_write(this->canbus_.sent[2]));
+  EXPECT_EQ(this->canbus_.sent[2].data[0], 118);
+
+  // The answer is kept: the next write goes out at once.
+  this->canbus_.clear();
+  EXPECT_TRUE(entity.write(1.0f));
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  EXPECT_TRUE(is_data_write(this->canbus_.sent[0]));
+}
+
+// A field that says it takes no write is not written, and is not asked again.
+TEST_F(MasterbusTest, AFieldThatSaysItTakesNoWriteIsNotWritten) {
+  SchedulingEntity entity(this->battery_.get(), 1, MasterbusTab::MASTERBUS_TAB_MONITORING,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT);
+  this->hub_->register_entity(&entity);
+  entity.write(5.0f);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x0B, 1, 0x00, 0x00, 0x00, 0x00});
+  this->canbus_.clear();
+
+  EXPECT_FALSE(entity.write(5.0f));
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
+// The answer is broadcast like any other, so one a display panel asked for counts too.
+TEST_F(MasterbusTest, SomebodyElsesAnswerOnWhetherAFieldTakesAWriteCounts) {
+  SchedulingEntity entity(this->battery_.get(), 117, MasterbusTab::MASTERBUS_TAB_MONITORING,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  this->hub_->register_entity(&entity);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x0B, 117, 0x00, 0x00, 0x01, 0x00});
+
+  EXPECT_TRUE(entity.write(1.0f));
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  EXPECT_TRUE(is_data_write(this->canbus_.sent[0]));
+}
+
+// A device that does not answer the question is written anyway once it has had its chance, and
+// the field is read back afterwards - our own read, so it does not stand in for the next poll.
+TEST_F(MasterbusTest, AnUnansweredQuestionStillLetsTheWriteThroughAndTheFieldIsReadBack) {
+  SchedulingEntity entity(this->battery_.get(), 20, MasterbusTab::MASTERBUS_TAB_CONFIGURATION,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT);
+  this->hub_->register_entity(&entity);
+  entity.write(42.0f);
+  EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, 0x38);
+  entity.writeable_unanswered_();
+  ASSERT_EQ(this->canbus_.sent.size(), 3u);
+  EXPECT_EQ(this->canbus_.sent[1].can_id >> MESSAGE_TYPE_SHIFT, 0x37);
+  EXPECT_EQ(this->canbus_.sent[1].can_data_length_code, MONITORING_WRITE_LENGTH);
+
+  entity.read_back_();
+  ASSERT_EQ(this->canbus_.sent.size(), 4u);
+  EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, 0x37);
+  EXPECT_EQ(this->canbus_.sent.back().can_data_length_code, MONITORING_REQUEST_LENGTH);
+}
+
+// A hub can speak under an address of its own, in the node request and after every write.
+TEST_F(MasterbusTest, AHubWithAnAddressOfItsOwnSpeaksUnderIt) {
+  this->hub_->set_address(0x3BFFFE);
+  this->hub_->request_nodes();
+  EXPECT_EQ(this->canbus_.sent.back().can_id, frame_id(NODE_REQUEST_TYPE, 0x3BFFFE));
+
+  SchedulingEntity entity(this->battery_.get(), 117, MasterbusTab::MASTERBUS_TAB_MONITORING,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  this->hub_->write_value(entity, 1.0f);
+  const auto &after = this->canbus_.sent.back();
+  EXPECT_EQ(encode_uint32(after.data[5], after.data[4], after.data[3], after.data[2]), 0x3BFFFEu);
+}
+
 }  // namespace esphome::masterbus::testing

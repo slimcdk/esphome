@@ -25,6 +25,15 @@ static constexpr uint32_t SCAN_SETTLE_MS = 10000;
 static constexpr uint32_t AVAILABILITY_INTERVAL_MS = 1000;
 #endif
 
+/// How long a write waits for the device to say whether the field takes one. A property answer
+/// comes back within milliseconds.
+static constexpr uint32_t WRITEABLE_TIMEOUT_MS = 500;
+/// How long after a write the field is read again. The device answers at once, but may take a
+/// moment to act on a command - a contactor has to move.
+static constexpr uint32_t READ_BACK_DELAY_MS = 200;
+static constexpr uint32_t WRITEABLE_TIMEOUT_ID = 0;
+static constexpr uint32_t READ_BACK_TIMEOUT_ID = 1;
+
 #ifdef USE_MASTERBUS_TEXT
 /// How long a string read may go unanswered before the field it belongs to is given up on and the
 /// slot handed to whoever asks next. Measured turnaround is under a millisecond.
@@ -132,7 +141,7 @@ bool MasterbusHub::request_nodes() {
   bool sent = false;
   // Repeated the way the vendor library repeats it, so a device that missed one still answers.
   for (uint8_t i = 0; i < NODE_REQUEST_REPEATS; i++)
-    sent |= this->send_(NODE_REQUEST_TYPE, HUB_ADDRESS, {});
+    sent |= this->send_(NODE_REQUEST_TYPE, this->address_, {});
   if (!sent) {
     ESP_LOGW(TAG, "Could not put the node request on the bus. Devices then announce themselves only when "
                   "another node asks, and where none does, nothing is heard from them until they are polled.");
@@ -161,12 +170,6 @@ bool MasterbusHub::request_group_index(uint32_t address, uint16_t group, uint16_
       tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_GROUP).request, address,
       {static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX),
        static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8), static_cast<uint8_t>(index)});
-}
-
-bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property, uint16_t param, MasterbusTab tab) {
-  return this->send_(
-      tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).request, address,
-      {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
 bool MasterbusHub::request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
@@ -286,9 +289,21 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   if (this->take_text_frame_(type, address, data))
     return;
 #endif
+  // A device's word on whether a field takes a write is broadcast like any answer, so it counts
+  // whoever asked for it.
+  MasterbusTab tab;
+  if (property_information_tab(type, tab) && data.size() >= 6 &&
+      data[0] == static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE)) {
+    const uint16_t field = encode_uint16(data[2], data[1]);
+    const bool writeable = encode_uint16(data[5], data[4]) != 0;
+    for (auto *entity : this->entities_) {
+      if (entity->get_masterbus_device() == device && entity->get_tab() == tab && entity->get_param() == field)
+        entity->on_writeable_answer(writeable);
+    }
+    return;
+  }
   // Which tab the value belongs to is carried by the message number and nothing else, so it is
   // read back out here and handed on: an entity only takes a value from its own tab.
-  MasterbusTab tab;
   if (!data_information_tab(type, tab))
     return;
   if (data.size() < MONITORING_INFORMATION_LENGTH) {
@@ -315,7 +330,10 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
 }
 
 void MasterbusHub::dump_config() {
-  ESP_LOGCONFIG(TAG, "MasterBus:");
+  ESP_LOGCONFIG(TAG,
+                "MasterBus:\n"
+                "  Address: 0x%06" PRIX32,
+                this->address_);
 #ifdef USE_MASTERBUS_SCAN
   ESP_LOGCONFIG(TAG, "  Scan: enabled");
 #endif
@@ -367,6 +385,72 @@ bool MasterbusHub::request_field(const MasterbusEntity &entity) {
                      {static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
+bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property, uint16_t param, MasterbusTab tab) {
+  return this->send_(
+      tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).request, address,
+      {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
+}
+
+bool MasterbusEntity::write(float value, bool read_back) {
+  if (this->writeable_ == 0) {
+    ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " takes no write, by the device's own word; not written",
+             this->param_, this->device_->get_address());
+    return false;
+  }
+  if (this->writeable_ == 1)
+    return this->perform_write_(value, read_back);
+  // A write already waiting for the answer just takes the newer value.
+  const bool asked = this->write_pending_;
+  this->write_pending_ = true;
+  this->pending_value_ = value;
+  this->pending_read_back_ = read_back;
+  if (asked)
+    return true;
+  if (!this->device_->get_hub()->request_property(
+          this->device_->get_address(), MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE, this->param_, this->tab_)) {
+    this->write_pending_ = false;
+    ESP_LOGW(TAG, "Could not ask whether field %u takes a write", this->param_);
+    return false;
+  }
+  this->set_timeout(WRITEABLE_TIMEOUT_ID, WRITEABLE_TIMEOUT_MS, [this]() { this->writeable_unanswered_(); });
+  return true;
+}
+
+void MasterbusEntity::on_writeable_answer(bool writeable) {
+  this->writeable_ = writeable ? 1 : 0;
+  if (!this->write_pending_)
+    return;
+  this->write_pending_ = false;
+  this->cancel_timeout(WRITEABLE_TIMEOUT_ID);
+  if (writeable) {
+    this->perform_write_(this->pending_value_, this->pending_read_back_);
+    return;
+  }
+  ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " takes no write, by the device's own word; not written",
+           this->param_, this->device_->get_address());
+}
+
+void MasterbusEntity::writeable_unanswered_() {
+  if (!this->write_pending_)
+    return;
+  this->write_pending_ = false;
+  ESP_LOGD(TAG, "Field %u did not say whether it takes a write; writing it anyway", this->param_);
+  this->perform_write_(this->pending_value_, this->pending_read_back_);
+}
+
+bool MasterbusEntity::perform_write_(float value, bool read_back) {
+  if (!this->device_->get_hub()->write_value(*this, value))
+    return false;
+  if (read_back)
+    this->set_timeout(READ_BACK_TIMEOUT_ID, READ_BACK_DELAY_MS, [this]() { this->read_back_(); });
+  return true;
+}
+
+void MasterbusEntity::read_back_() {
+  // Our own request, so the answer to it does not stand in for the next poll.
+  this->poll_outstanding_ = this->device_->get_hub()->request_field(*this);
+}
+
 bool MasterbusHub::write_boolean(const MasterbusEntity &entity, bool state) {
   return this->write_value(entity, state ? 1.0f : 0.0f);
 }
@@ -394,8 +478,8 @@ bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
   const uint16_t source_param = static_cast<uint16_t>(param + 1);
   if (!this->send_(type, address,
                    {static_cast<uint8_t>(source_param & 0xFF), static_cast<uint8_t>(source_param >> 8),
-                    static_cast<uint8_t>(HUB_ADDRESS & 0xFF), static_cast<uint8_t>(HUB_ADDRESS >> 8),
-                    static_cast<uint8_t>(HUB_ADDRESS >> 16), static_cast<uint8_t>(HUB_ADDRESS >> 24)})) {
+                    static_cast<uint8_t>(this->address_ & 0xFF), static_cast<uint8_t>(this->address_ >> 8),
+                    static_cast<uint8_t>(this->address_ >> 16), static_cast<uint8_t>(this->address_ >> 24)})) {
     ESP_LOGW(TAG, "Wrote field %u but could not send the frame that follows it", param);
     return false;
   }
