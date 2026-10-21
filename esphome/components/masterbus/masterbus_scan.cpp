@@ -730,15 +730,16 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
         return false;
       this->option_string_ = value16(PROPERTY_VALUE_OFFSET);
       break;
+    // A device's address arrives packed the way an announcement packs it.
     case Phase::PHASE_LIST_DEVICE:
       if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, this->entry_, 8))
         return false;
-      this->report_entry_(raw32(PROPERTY_VALUE_OFFSET));
+      this->report_entry_(decode_announced_address(data.data() + PROPERTY_VALUE_OFFSET));
       break;
     case Phase::PHASE_EVENT_SOURCE:
       if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, 0, 8))
         return false;
-      this->event_source_ = raw32(PROPERTY_VALUE_OFFSET);
+      this->event_source_ = decode_announced_address(data.data() + PROPERTY_VALUE_OFFSET);
       this->event_source_known_ = true;
       break;
     case Phase::PHASE_EVENT_FIELD:
@@ -930,7 +931,7 @@ void MasterbusScanner::report_field_() {
 }
 
 /// One entry of the list field just reported: an option and its name, a device on a device list,
-/// or a field an event can watch.
+/// or one of the eventables of the device an event commands.
 void MasterbusScanner::report_entry_(uint32_t value) {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
   char what[sizeof(this->option_text_) * 4 + 32] = "";
@@ -940,10 +941,10 @@ void MasterbusScanner::report_entry_(uint32_t value) {
       break;
     case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_EVENT:
       if (this->event_source_known_) {
-        snprintf(what, sizeof(what), " source=0x%06" PRIX32 " field=%u", this->event_source_,
+        snprintf(what, sizeof(what), " source=0x%06" PRIX32 " eventable=%u", this->event_source_,
                  static_cast<unsigned>(value));
       } else {
-        snprintf(what, sizeof(what), " field=%u", static_cast<unsigned>(value));
+        snprintf(what, sizeof(what), " eventable=%u", static_cast<unsigned>(value));
       }
       break;
     default:
