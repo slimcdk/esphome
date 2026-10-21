@@ -77,6 +77,7 @@ VALUE_TYPES = {
 _request_device_slot = cg.slot_counter("MASTERBUS_DEVICE_COUNT")
 _request_entity_slot = cg.slot_counter("MASTERBUS_ENTITY_COUNT")
 _request_unknown_frame_slot = cg.slot_counter("MASTERBUS_UNKNOWN_FRAME_COUNT")
+_request_info_slot = cg.slot_counter("MASTERBUS_INFO_COUNT")
 
 
 def _device_address(value: Any) -> int:
@@ -241,6 +242,12 @@ async def new_entity(
     # one id the user writes; the device knows which hub it belongs to and the hub does not.
     cg.add(device.register_entity(var))
     return var
+
+
+async def register_info_entity(device: MockObj, var: MockObj) -> None:
+    """Hand the hub an entity that shows what a device says about itself, read off the bus."""
+    _request_info_slot()
+    cg.add(device.register_info_entity(var))
 
 
 async def to_code(config: ConfigType) -> None:
