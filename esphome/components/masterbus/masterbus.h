@@ -240,6 +240,11 @@ class MasterbusHub : public Component {
                            MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
   bool request_property(uint32_t address, MasterbusProperty property, uint16_t param,
                         MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
+  /// One entry of a list property: an option's name, a device-list entry, an event's field.
+  bool request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
+                              MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
+  /// Ask one of a device's processors for its software version.
+  bool request_software_version(uint32_t address, uint8_t processor);
 
   /// Drive the field walk one step, at the given time. Called from a tick; public so a test can
   /// step it deliberately, and move the clock on to the question a device never answers.

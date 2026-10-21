@@ -143,6 +143,17 @@ bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property
       {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
+bool MasterbusHub::request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
+                                          MasterbusTab tab) {
+  return this->send_(
+      tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).request, address,
+      {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8), index});
+}
+
+bool MasterbusHub::request_software_version(uint32_t address, uint8_t processor) {
+  return this->send_(STRING_REQUEST_TYPE, address, {SOFTWARE_VERSION_SELECTOR, processor});
+}
+
 void MasterbusHub::report_scan() {
   if (this->discovered_.empty()) {
     ESP_LOGW(TAG, "Scan heard nothing. Check wiring, bit rate and termination - 60 ohm across "

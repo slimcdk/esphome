@@ -318,6 +318,34 @@ inline bool is_general_count_header(const uint8_t *data, size_t size, uint8_t qu
   return size >= GENERAL_COUNT_REQUEST_LENGTH && data[0] == GENERAL_COUNT_SELECTOR && data[1] == question;
 }
 
+/// LIBRARY: the counts the vendor library accepts an answer to, and no others. Its configuration
+/// tool names every one of them: the field and group counts of each tab (0x01-0x08), software and
+/// bootloader versions, the menu and string versions a client caches against (0x12, 0x13,
+/// 0x1B-0x1F), the alarm counts (0x20, 0x21), language, clock and calendar, eventables (0x3F) and
+/// one count per eventable (0x40-0x5F).
+constexpr bool is_general_count_question(uint8_t question) {
+  return (question >= 0x01 && question <= 0x08) || (question >= 0x0A && question <= 0x0E) ||
+         (question >= 0x11 && question <= 0x13) || (question >= 0x18 && question <= 0x27) || question == 0x2A ||
+         (question >= 0x3E && question <= 0x60);
+}
+static constexpr uint8_t GENERAL_COUNT_LAST_QUESTION = 0x60;
+
+/// LIBRARY, by the vendor's library and its configuration tool alike: a device runs one or more
+/// processors, and each answers for its software version under a question of the same family.
+///
+///     request   type 0x0E, 2 bytes: 0x82, which processor (0, 1, ...)
+///     answer    type 0x0C, 6 bytes: the two, the version little-endian, then two zero bytes
+///     refused   type 0x0D, 2 bytes: the two alone - one past the last processor
+///
+/// The version reads as its high byte, a dot and its low byte. The vendor library lists the
+/// processors by asking from 0 until a device refuses one.
+static constexpr uint8_t SOFTWARE_VERSION_SELECTOR = 0x82;
+static constexpr uint8_t SOFTWARE_VERSION_INFORMATION_LENGTH = 4;
+
+inline bool is_software_version_header(const uint8_t *data, size_t size, uint8_t processor) {
+  return size >= 2 && data[0] == SOFTWARE_VERSION_SELECTOR && data[1] == processor;
+}
+
 /// LIBRARY: a device's article number, serial number, product name and revision code are strings in
 /// its own table, and a question of the same family says which entry holds each one.
 ///
@@ -372,7 +400,29 @@ enum class MasterbusProperty : uint8_t {
   MASTERBUS_PROPERTY_FACTORY = 0x09,
   MASTERBUS_PROPERTY_WRITEABLE = 0x0B,
   MASTERBUS_PROPERTY_EVENTABLE = 0x0D,
+  MASTERBUS_PROPERTY_LONG_NAME_STRING = 0x29,
+  MASTERBUS_PROPERTY_VERY_LONG_NAME_STRING = 0x2A,
+  // The list properties, asked with an index: an option of a radio or dropdown field, an entry of
+  // a device list, and an entry of an event field.
+  MASTERBUS_PROPERTY_OPTION_STRING = 0x26,
+  MASTERBUS_PROPERTY_LIST_DEVICE = 0x20,
+  MASTERBUS_PROPERTY_EVENT_FIELD = 0x0F,
 };
+
+/// LIBRARY, and run against the vendor library: what the list properties hold.
+///
+///     0x26, index   the string id of that option of a radio or dropdown field (u16)
+///     0x20, index   that entry of a device list, a device address (32 bits)
+///     0x20, 0       for an event field, the device the event watches (32 bits)
+///     0x0F, index   that entry of an event field: a field number on the watched device (one byte,
+///                   then a byte the library ignores)
+///
+/// The field's maximum (0x07) is how many entries the library asks for. An event field is a
+/// pointer to a field on another device, and its options are named by that device's own fields.
+/// The vendor's configuration tool names 0x26 List_Text and 0x29 / 0x2A Text_Value_Long and
+/// Text_Value_Very_Long - longer forms of the name 0x28 carries - and leaves 0x0F and 0x20 unnamed.
+static constexpr uint8_t PROPERTY_INDEX_OFFSET = 3;
+static constexpr uint8_t PROPERTY_VALUE_OFFSET = 4;
 
 /// VERIFIED: the display type is what decides which ESPHome platform a field belongs to.
 /// Cross-checked against the vendor library's own value types over five fields: float fields
