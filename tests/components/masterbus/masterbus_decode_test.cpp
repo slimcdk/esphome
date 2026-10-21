@@ -929,6 +929,31 @@ TEST_F(MasterbusTest, RepeatedAnnouncementsCountRatherThanDuplicate) {
   EXPECT_EQ(found[0].announcements, 3u);
 }
 
+// A scan started on demand lists what answers it, not what announced itself before.
+TEST_F(MasterbusTest, AScanStartedOnDemandForgetsTheDevicesHeardBefore) {
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  this->hub_->start_scan();
+  EXPECT_TRUE(this->hub_->get_discovered_devices().empty());
+
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_6), true, false,
+                       {0x1B, 0xCB, 0x4E, 0x00, 0x95, 0x03, 0x00, 0x04});
+  const auto &found = this->hub_->get_discovered_devices();
+  ASSERT_EQ(found.size(), 1u);
+  EXPECT_EQ(found[0].address, BATTERY_6);
+}
+
+// The walk reads the device list as it goes, so a second start while it runs leaves it alone.
+TEST_F(MasterbusTest, AScanThatIsWalkingIsNotStartedAgain) {
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  this->hub_->report_scan();
+  this->hub_->start_scan();
+
+  ASSERT_EQ(this->hub_->get_discovered_devices().size(), 1u);
+  EXPECT_EQ(this->hub_->get_discovered_devices()[0].address, BATTERY_1);
+}
+
 TEST_F(MasterbusTest, ReportingTheScanTransmitsNothing) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
