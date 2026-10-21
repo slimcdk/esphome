@@ -409,18 +409,25 @@ enum class MasterbusProperty : uint8_t {
   MASTERBUS_PROPERTY_EVENT_FIELD = 0x0F,
 };
 
-/// LIBRARY, and run against the vendor library: what the list properties hold.
+/// VERIFIED on the reference bus, which answered all three for 153 list fields: what the list
+/// properties hold.
 ///
 ///     0x26, index   the string id of that option of a radio or dropdown field (u16)
-///     0x20, index   that entry of a device list, a device address (32 bits)
-///     0x20, 0       for an event field, the device the event watches (32 bits)
-///     0x0F, index   that entry of an event field: a field number on the watched device (one byte,
-///                   then a byte the library ignores)
+///     0x20, index   that entry of a device list: a device's address, packed in four bytes the way
+///                   an announcement packs it
+///     0x20, 0       for an event field, the device whose eventables it lists, packed the same way
+///     0x0F, index   that entry of an event field: an eventable number on that device (one byte,
+///                   then a byte the vendor library ignores)
 ///
-/// The field's maximum (0x07) is how many entries the library asks for. An event field is a
-/// pointer to a field on another device, and its options are named by that device's own fields.
-/// The vendor's configuration tool names 0x26 List_Text and 0x29 / 0x2A Text_Value_Long and
-/// Text_Value_Very_Long - longer forms of the name 0x28 carries - and leaves 0x0F and 0x20 unnamed.
+/// The field's maximum (0x07) is how many entries there are. The vendor's configuration tool names
+/// 0x26 List_Text and 0x29 / 0x2A Text_Value_Long and Text_Value_Very_Long - longer forms of the
+/// name 0x28 carries - and leaves 0x0F and 0x20 unnamed.
+///
+/// VERIFIED, and what names an eventable: a device's count 0x40 + n is the field number of its
+/// eventable n. Six battery blocks answer 0x40 with 117 and 0x41 with 119, their Close relay and
+/// Open relay buttons. Counts 0x22, 0x24, 0x25 and 0x60 point at fields the same way - the
+/// language setting, the clock, the calendar and the cluster master on a battery block - and 0x3E
+/// at the group that holds the events.
 static constexpr uint8_t PROPERTY_INDEX_OFFSET = 3;
 static constexpr uint8_t PROPERTY_VALUE_OFFSET = 4;
 
