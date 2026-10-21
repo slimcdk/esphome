@@ -13,8 +13,9 @@ namespace esphome::masterbus {
 // so that confirming one is a change to this file alone:
 //
 //   VERIFIED    Measured against captured traffic, or read out of the vendor SDK's data files.
-//   LIBRARY     What the vendor's library sends and accepts, read out of the library rather than
-//               seen on a wire. Strong, but no device has yet been watched doing it.
+//   LIBRARY     What the vendor's software sends, accepts or names - its MasterBus library, or its
+//               configuration tool - read out of that software rather than seen on a wire. Strong,
+//               but no device has yet been watched doing it.
 //   UNVERIFIED  Inferred and not yet contradicted. Treat as a guess.
 //
 // The data model further down is different in kind: it comes from the vendor's own documented
@@ -34,6 +35,14 @@ namespace esphome::masterbus {
 /// lengths, because a five bit read merges two neighbouring types into one.
 static constexpr uint32_t DEVICE_ADDRESS_MASK = 0x007FFFFF;
 static constexpr uint8_t MESSAGE_TYPE_SHIFT = 23;
+
+/// VERIFIED: the top five bits of an address say what kind of equipment the device is. The vendor's
+/// configuration tool names them, and every device on two installations - eleven of eleven - sits
+/// in the class its own name says: interfaces in 14, display panels in 20, battery monitors in 27.
+/// LIBRARY: the low 18 bits are worked out from the unit's serial and article numbers.
+static constexpr uint8_t DEVICE_CLASS_SHIFT = 18;
+
+constexpr uint8_t device_class(uint32_t address) { return (address & DEVICE_ADDRESS_MASK) >> DEVICE_CLASS_SHIFT; }
 
 /// VERIFIED: the address this hub speaks as, which is the vendor library's own. The library asks
 /// for announcements under it, and every device answers a node request except the one whose
@@ -178,8 +187,8 @@ inline bool decode_time(float value, MasterbusTime &out) {
 /// Measured over 1797 requests in a 10 minute capture: exactly eight distinct devices answered
 /// each one - minimum eight, maximum eight - with a median delay of 5.8 ms.
 static constexpr uint8_t NODE_REQUEST_TYPE = 0x0A;
-// LIBRARY: a node request has no refusal on the wire. The vendor library has a NodeNa beside NodeReq
-// and NodeInfo, but it refuses 0x09, the number the string family's pattern would give it.
+// LIBRARY: the vendor calls this pair BusReq and BusInfo, and it has no refusal. What the vendor
+// calls NodeReq, NodeInfo and NodeNa is the family of 0x0E, 0x0C and 0x0D below. 0x09 is nothing.
 /// The library repeats it, so a device that missed the first still answers.
 static constexpr uint8_t NODE_REQUEST_REPEATS = 3;
 
@@ -194,25 +203,21 @@ static constexpr uint8_t NODE_REQUEST_REPEATS = 3;
 /// bit clear, so what it means is unknown - it is masked off rather than shifted into an address
 /// no configured device could ever match.
 ///
-/// VERIFIED: the remaining four bytes are where a device's own state lives, and there is no
-/// message that carries it. The vendor library reports a device's status without putting a single
-/// frame on the bus - two calls, 48 ms each, nothing addressed to that device in either window -
-/// so it can only be reading the announcements its own polling keeps bringing in. Do not go
-/// looking for a status request; decode these bytes instead.
+/// LIBRARY: the remaining four bytes are, in the vendor's words, the device's component (byte 4),
+/// power type (byte 5, 0 to 3) and status version (byte 7, low five bits). Bit 5 of byte 6 asks to
+/// be read again: while it is set the vendor library rediscovers the device on every announcement.
+/// There is no device status in them. Run against a pretend bus the library reported "on" for every
+/// pattern tried, and for 150 seconds after the device fell silent, so silence is the only status
+/// there is to copy.
 ///
-/// VERIFIED, and it matters to anyone who wants those bytes: an announcement is an answer, never
-/// sent unprompted. A 10 minute capture held exactly as many announcements as the node requests in
-/// it called for - 1797 requests answered by eight devices and 120 by seven, 15216 in all, not one
-/// left over. "About three a second" was the vendor bridge's own polling rate. On a bus where this
-/// hub is the only node, nothing announces itself until the hub asks.
-///
-/// Which byte holds the state is still open. Six identical battery blocks, one article number,
-/// send three different patterns in bytes 5-7 (0x00 0x00 0x02, 0x00 0x00 0x04 and 0x03 0x00 0x04),
-/// so those bytes do not simply name the product either. The one block that answers the cluster
-/// fields is also the only one with 0x02 in byte 7. Byte 4 moves between captures with no state
-/// change. Settling it needs a device in a different state, not more traffic.
+/// VERIFIED: an announcement is an answer, never sent unprompted. A 10 minute capture held exactly
+/// as many announcements as the node requests in it called for - 1797 requests answered by eight
+/// devices and 120 by seven, 15216 in all, not one left over. On a bus where this hub is the only
+/// node, nothing announces itself until the hub asks.
 static constexpr uint8_t DEVICE_ANNOUNCEMENT_TYPE = 0x08;
 static constexpr uint8_t DEVICE_ANNOUNCEMENT_LENGTH = 8;
+static constexpr uint8_t ANNOUNCEMENT_STATUS_VERSION_MASK = 0x1F;
+static constexpr uint8_t ANNOUNCEMENT_READ_AGAIN_BIT = 0x20;
 
 inline uint32_t decode_announced_address(const uint8_t *data) {
   const uint32_t address = (static_cast<uint32_t>(data[0]) << 18) | (static_cast<uint32_t>(data[3] & 0x03) << 16) |
@@ -224,7 +229,9 @@ inline uint32_t decode_announced_address(const uint8_t *data) {
 // Strings
 // ---------------------------------------------------------------------------
 
-/// VERIFIED: a device holds its text in a numbered string table, read four bytes at a time.
+/// VERIFIED: a device holds its text in a numbered string table, read four bytes at a time. The
+/// vendor calls the question ProdString, one of the family of NodeReq (0x0E) told apart by its
+/// first byte.
 ///
 ///     request   type 0x0E, 4 bytes: 0x30, string id little-endian, chunk index
 ///     answer    type 0x0C, the 4 byte header then up to four bytes of ASCII
@@ -267,58 +274,48 @@ inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8
 }
 
 // ---------------------------------------------------------------------------
-// Product code
+// General counts
 // ---------------------------------------------------------------------------
 
-/// VERIFIED as to shape, UNVERIFIED as to meaning: a device answers a two byte question with a 16
-/// bit number that every unit of the same product answers alike. It shares the string family's
-/// message numbers and is told apart by its first byte, the way a write is told from a read by its
-/// length.
+/// VERIFIED as to shape, LIBRARY as to the names: a device answers a two byte question with a 16 bit
+/// number. The vendor calls the family GeneralCount. It shares the string table's message numbers
+/// and is told apart by its first byte, the way a write is told from a read by its length.
 ///
-///     request   type 0x0E, 2 bytes: 0x08, 0x3F
+///     request   type 0x0E, 2 bytes: 0x08, which count
 ///     answer    type 0x0C, 4 bytes: the two byte header, then the number little-endian
 ///     refused   type 0x0D, 2 bytes: the header alone
 ///
-/// Measured over 2080 exchanges in a 10 minute capture of a live bus: all six lithium battery
-/// blocks answered 2, the bus interface answered 16, and one device refused every one of its 240.
-/// A capture of an unrelated 2022 installation adds a MassCombi answering 8 and a MasterView panel
-/// answering 11, and a MasterShunt refusing all 25 of its own - so refusing the question is a
-/// property of some equipment rather than a fault. What the number indexes is not known, and it is
-/// not the article number, which is eight digits long. What is known is that six identical units
-/// agree on it and four different products do not, which is what a scan needs to tell a user which
-/// documented configuration is theirs.
-///
-/// VERIFIED: 0x3F is one question of a family, all carrying the same two byte request and 16 bit
-/// answer. Four of the others are the group counts of the four tabs, which is how many groups the
-/// walk below would otherwise have to discover by timing out on the group after the last:
+/// The vendor's configuration tool names every question the vendor library accepts. The ones this
+/// component asks:
 ///
 ///     08 02   monitoring groups      08 04   history groups
 ///     08 06   configuration groups   08 08   alarm groups
+///     08 3F   eventables
 ///
-/// Checked against the 2022 capture, where a display panel asked all four of a MassCombi and a
-/// MasterShunt and then walked what it was told: eight of eight group counts matched the number of
-/// groups each device went on to answer for, across four tabs and two products.
+/// VERIFIED: the group counts. In a 2022 capture a display panel asked all four of a MassCombi and a
+/// MasterShunt and then walked what it was told: eight of eight matched the number of groups each
+/// device went on to answer for. A device that refuses one is walked the older way, by asking for
+/// the group after the last one and taking its silence as the end of the list.
 ///
-/// The walk reads the product code and the four group counts. A device that refuses a group count
-/// is walked the older way, by asking for the group after the last one and taking its silence as
-/// the end of the list.
-static constexpr uint8_t DEVICE_PROPERTY_SELECTOR = 0x08;
-static constexpr uint8_t DEVICE_PROPERTY_REQUEST_LENGTH = 2;
-static constexpr uint8_t DEVICE_PROPERTY_INFORMATION_LENGTH = 4;
+/// VERIFIED as numbers: eventables, how many event slots a device has. All six lithium battery
+/// blocks answer 2, a display panel 16; the 2022 installation's MassCombi interface 8 and its
+/// MasterView 11, and a MasterShunt refuses it. It was once read here as a product code, because
+/// identical units agree on it; the device class in the address is what says what a device is.
+static constexpr uint8_t GENERAL_COUNT_SELECTOR = 0x08;
+static constexpr uint8_t GENERAL_COUNT_REQUEST_LENGTH = 2;
+static constexpr uint8_t GENERAL_COUNT_INFORMATION_LENGTH = 4;
 
-/// The questions of the family. The four group counts say how many groups a tab holds, which is
-/// what saves the walk asking for the group after the last one and waiting out its silence.
-static constexpr uint8_t DEVICE_PROPERTY_PRODUCT_CODE = 0x3F;
-static constexpr uint8_t DEVICE_PROPERTY_MONITORING_GROUPS = 0x02;
-static constexpr uint8_t DEVICE_PROPERTY_HISTORY_GROUPS = 0x04;
-static constexpr uint8_t DEVICE_PROPERTY_CONFIGURATION_GROUPS = 0x06;
-static constexpr uint8_t DEVICE_PROPERTY_ALARM_GROUPS = 0x08;
+static constexpr uint8_t GENERAL_COUNT_MONITORING_GROUPS = 0x02;
+static constexpr uint8_t GENERAL_COUNT_HISTORY_GROUPS = 0x04;
+static constexpr uint8_t GENERAL_COUNT_CONFIGURATION_GROUPS = 0x06;
+static constexpr uint8_t GENERAL_COUNT_ALARM_GROUPS = 0x08;
+static constexpr uint8_t GENERAL_COUNT_EVENTABLES = 0x3F;
 
 /// Whether a frame of the string family answers one of these questions rather than carrying a
 /// chunk of text. Both arrive under the same message number, and the first two bytes are what
 /// tell them apart.
-inline bool is_device_property_header(const uint8_t *data, size_t size, uint8_t question) {
-  return size >= DEVICE_PROPERTY_REQUEST_LENGTH && data[0] == DEVICE_PROPERTY_SELECTOR && data[1] == question;
+inline bool is_general_count_header(const uint8_t *data, size_t size, uint8_t question) {
+  return size >= GENERAL_COUNT_REQUEST_LENGTH && data[0] == GENERAL_COUNT_SELECTOR && data[1] == question;
 }
 
 /// LIBRARY: a device's article number, serial number, product name and revision code are strings in
@@ -351,11 +348,13 @@ inline bool is_general_string_header(const uint8_t *data, size_t size, uint8_t q
 /// VERIFIED: a field's metadata is read one property at a time.
 ///
 ///     request   type 0x31, 3 bytes: property id, field number little-endian
-///     answer    type 0x11, the 3 byte header, one tag byte, then the value
+///               type 0x31, 4 bytes: the same, then an index - for the properties that are lists
+///     answer    type 0x11, the 3 byte header, the index (0 where there is none), then the value
 ///
 /// The value is a float32 for the numeric properties and a little-endian 16 bit number for the
 /// rest. A property a field does not have simply goes unanswered - a boolean field returns nothing
-/// for minimum, maximum, step or unit.
+/// for minimum, maximum, step or unit. LIBRARY: the vendor library keeps the fourth byte for the
+/// list properties only, which is what makes it an index rather than the tag it was once read as.
 ///
 /// Confirmed against the vendor library's own answers for the same fields: state of charge came
 /// back 0 to 100 step 1, battery current -500 to 500, and the name and unit string ids resolved
@@ -388,7 +387,11 @@ enum class MasterbusProperty : uint8_t {
 /// VERIFIED: 0x0B is writeable and 0x0D is eventable. A button answers both. A display panel's
 /// event settings on its configuration tab - which source, target, command and data each of its
 /// events uses - answered 0x0B set and 0x0D clear, every one of them: settings, written but not
-/// events. 0x0C is the greyed-out flag by elimination.
+/// events. LIBRARY: the vendor's configuration tool names 0x0C the greyed-out flag.
+///
+/// The vendor's tool asks a float field for its minimum, maximum, step and unit and expects them;
+/// of every other field it takes silence for minimum 0, maximum 1, step 1 and no unit. It expects
+/// eventable only on the monitoring tab, of dropdowns, checkboxes, buttons and switches.
 
 // ---------------------------------------------------------------------------
 // Groups
@@ -398,7 +401,7 @@ enum class MasterbusProperty : uint8_t {
 ///
 ///     request   type 0x32, 3 bytes: selector, group number little-endian
 ///               type 0x32, 4 bytes: selector, group number, index - for the field list
-///     answer    type 0x12, the header, one tag byte, then the value
+///     answer    type 0x12, the header, the index, then the value
 ///
 /// Confirmed against what the vendor library reported for the same groups: a display panel's
 /// group 1 answered six fields numbered 32 to 37, and a battery's group 0 answered seven fields
@@ -417,22 +420,14 @@ enum class MasterbusGroupSelector : uint8_t {
 };
 
 // ---------------------------------------------------------------------------
-// Not decoded
-// ---------------------------------------------------------------------------
-//
-// UNKNOWN: which of properties 0x0B and 0x0D is the writeable flag (see the field properties
-// above). Until a device answers them differently on one field, a write the device ignores looks
-// exactly like one it acted on.
-
-// ---------------------------------------------------------------------------
 // Bounds the configuration validates against
 // ---------------------------------------------------------------------------
 //
 // Mirrored in __init__.py, which is where they are enforced.
 
 /// The identifier gives the address 23 bits, so the mask above is also the largest address there
-/// can be. Every device seen fits, and the vendor's own example data does not - its 28 bit BusID
-/// must be a different number from the one on the wire.
+/// can be. The BusID in the vendor's own example data is the same address held another way: the
+/// class moved up to bit 24, the low 18 bits where they were.
 static constexpr uint32_t MAX_DEVICE_ADDRESS = DEVICE_ADDRESS_MASK;
 
 /// A field number occupies two bytes of the monitoring payload.
@@ -568,17 +563,19 @@ static_assert(tab_message(MasterbusTab::MASTERBUS_TAB_MONITORING, MasterbusTabMe
                           .information == GROUP_INFORMATION_TYPE,
               "monitoring group must stay 0x32 / 0x12");
 
-/// LIBRARY: a number the vendor library accepts and then never looks inside. It names a BusReq and
-/// a BusInfo, and this is the one number left over for them, but nothing says which way it runs.
-static constexpr uint8_t BUS_MESSAGE_TYPE = 0x02;
-/// LIBRARY: accepted and never looked inside either - the bootloader's, the one triple left over.
+/// LIBRARY: what the vendor calls Parallel, presumably between devices that run in parallel. Its
+/// library accepts the number and never looks inside, and nothing says which way it runs.
+static constexpr uint8_t PARALLEL_MESSAGE_TYPE = 0x02;
+/// LIBRARY: accepted and never looked inside either - the bootloader's, by the vendor's own name.
 /// Firmware update over MasterBus is out of scope.
 static constexpr MasterbusMessageNumbers BOOTLOADER_MESSAGE{0x3D, 0x1D, 0x2D};
 
 /// LIBRARY: whether the vendor library would accept a message of this type. It refuses every other
-/// number, so a frame that fails this is not MasterBus as the vendor's own software speaks it.
+/// number, so a frame that fails this is not MasterBus as the vendor's library speaks it. The
+/// vendor's configuration tool knows three more, 0x1A / 0x2A / 0x3A as "connection config", which
+/// are left unknown here so that one turning up is reported.
 constexpr bool is_known_message_type(uint8_t type) {
-  if (type == BUS_MESSAGE_TYPE || type == DEVICE_ANNOUNCEMENT_TYPE || type == NODE_REQUEST_TYPE ||
+  if (type == PARALLEL_MESSAGE_TYPE || type == DEVICE_ANNOUNCEMENT_TYPE || type == NODE_REQUEST_TYPE ||
       type == STRING_INFORMATION_TYPE || type == STRING_NOT_AVAILABLE_TYPE || type == STRING_REQUEST_TYPE ||
       BOOTLOADER_MESSAGE.contains(type))
     return true;
@@ -593,8 +590,8 @@ constexpr bool is_known_message_type(uint8_t type) {
 
 /// Whether a frame of this type is one the device itself sent. A request carries the address of
 /// the device it is aimed at and nothing about its sender, so a frame addressed to a device says
-/// only that somebody asked it something - never that it is there to answer. The bus message is
-/// left out, because which way it runs is not known.
+/// only that somebody asked it something - never that it is there to answer. The Parallel message
+/// is left out, because which way it runs is not known.
 constexpr bool device_sent_message(uint8_t type) {
   if (type == DEVICE_ANNOUNCEMENT_TYPE || type == STRING_INFORMATION_TYPE || type == STRING_NOT_AVAILABLE_TYPE ||
       type == BOOTLOADER_MESSAGE.information || type == BOOTLOADER_MESSAGE.not_available)
@@ -614,13 +611,13 @@ constexpr bool device_sent_message(uint8_t type) {
 constexpr uint8_t group_count_question(MasterbusTab tab) {
   switch (tab) {
     case MasterbusTab::MASTERBUS_TAB_ALARM:
-      return DEVICE_PROPERTY_ALARM_GROUPS;
+      return GENERAL_COUNT_ALARM_GROUPS;
     case MasterbusTab::MASTERBUS_TAB_HISTORY:
-      return DEVICE_PROPERTY_HISTORY_GROUPS;
+      return GENERAL_COUNT_HISTORY_GROUPS;
     case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
-      return DEVICE_PROPERTY_CONFIGURATION_GROUPS;
+      return GENERAL_COUNT_CONFIGURATION_GROUPS;
     default:
-      return DEVICE_PROPERTY_MONITORING_GROUPS;
+      return GENERAL_COUNT_MONITORING_GROUPS;
   }
 }
 
@@ -649,14 +646,14 @@ constexpr bool data_request_tab(uint8_t type, MasterbusTab &out) {
 }
 
 /// Whether a frame is one this component reads past without understanding, and that a bus does
-/// not carry as a matter of course. That is a type the vendor library would refuse, the bus and
-/// bootloader messages nobody looks inside, and a value message whose length is neither a read
+/// not carry as a matter of course. That is a type the vendor library would refuse, the Parallel
+/// and bootloader messages nobody looks inside, and a value message whose length is neither a read
 /// (two bytes) nor an answer (six). On a read's number that means a write or the frame after one,
 /// sent by another node, because a controller never hears its own. Reads, answers, walks and
 /// refusals are what a display panel produces all day, and reporting them would bury the frame
 /// worth seeing.
 constexpr bool is_undecoded_frame(uint8_t type, size_t length) {
-  if (!is_known_message_type(type) || type == BUS_MESSAGE_TYPE || BOOTLOADER_MESSAGE.contains(type))
+  if (!is_known_message_type(type) || type == PARALLEL_MESSAGE_TYPE || BOOTLOADER_MESSAGE.contains(type))
     return true;
   MasterbusTab tab;
   if (data_information_tab(type, tab))
@@ -701,8 +698,8 @@ enum class MasterbusValueType : uint8_t {
 /// The status a device reports for itself. Sleeping, off-fault and off-error are defined by the
 /// vendor API but documented there as unused.
 ///
-/// Nothing reads a reported status yet: a device is treated as on for as long as frames arrive
-/// from it, because no message carrying the vendor's status field has been identified.
+/// A device is treated as on for as long as frames arrive from it. The vendor library never sets
+/// anything but "on" either (see the announcement above), so there is no status to read.
 enum class MasterbusDeviceStatus : uint8_t {
   MASTERBUS_DEVICE_STATUS_OFFLINE = 0,
   MASTERBUS_DEVICE_STATUS_SLEEPING = 1,
