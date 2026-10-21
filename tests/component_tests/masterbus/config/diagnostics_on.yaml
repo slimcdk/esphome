@@ -1,8 +1,11 @@
 packages:
   base: !include _base.yaml
 
+esphome:
+  on_boot:
+    - masterbus.scan:
+
 masterbus:
   - id: mb
     canbus_id: mb_can
-    scan: true
     log_all_frames: true
