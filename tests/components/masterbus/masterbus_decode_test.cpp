@@ -243,6 +243,22 @@ TEST_F(MasterbusTest, BooleanFieldReadsAsBoolean) {
   EXPECT_TRUE(relay->values[0].as_boolean);
 }
 
+// A device list and an event field answer the way a list option does: with the index of an entry
+// in a list the device holds. An index below zero is no entry at all, and must not wrap round to
+// the last one.
+TEST_F(MasterbusTest, ADeviceListAndAnEventFieldAnswerWithTheIndexOfAnEntry) {
+  auto *devices = this->add_sensor(9, MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID);
+  auto *event = this->add_sensor(10, MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE);
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(9, 2.0f));
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(10, -1.0f));
+
+  ASSERT_EQ(devices->values.size(), 1u);
+  EXPECT_EQ(devices->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID);
+  EXPECT_EQ(devices->values[0].as_raw, 2u);
+  ASSERT_EQ(event->values.size(), 1u);
+  EXPECT_EQ(event->values[0].as_raw, UINT32_MAX);
+}
+
 TEST_F(MasterbusTest, NotANumberReportsUnavailableRatherThanZero) {
   auto *voltage = this->add_sensor(1);
 

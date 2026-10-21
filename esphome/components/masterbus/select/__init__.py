@@ -18,7 +18,10 @@ MasterbusSelect = masterbus_ns.class_(
 CONFIG_SCHEMA = (
     select.select_schema(MasterbusSelect)
     .extend(
-        entity_schema(value_types=("list_option",), default_value_type="list_option")
+        entity_schema(
+            value_types=("list_option", "device_id", "eventable"),
+            default_value_type="list_option",
+        )
     )
     .extend({cv.Required(CONF_OPTIONS): cv.ensure_list(cv.string_strict)})
 )
