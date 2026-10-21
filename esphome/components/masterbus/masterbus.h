@@ -226,10 +226,9 @@ class MasterbusHub : public Component {
   /// Write the discovered devices out as configuration the user can paste.
   void report_scan();
 
-  /// Ask a device one of the questions it answers about itself: which product it is, or how many
-  /// groups a tab holds. Equipment that does not carry a question refuses it outright, which is
-  /// not an error - see masterbus_protocol.h.
-  bool request_device_property(uint32_t address, uint8_t question);
+  /// Ask a device one of the counts it answers about itself, such as how many groups a tab holds. Equipment that does
+  /// not carry a question refuses it outright, which is not an error - see masterbus_protocol.h.
+  bool request_general_count(uint32_t address, uint8_t question);
   /// Ask which string table entry holds one of the device's own strings (GENERAL_STRING_*).
   bool request_general_string(uint32_t address, uint8_t question);
 

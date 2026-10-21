@@ -55,28 +55,28 @@ class MasterbusTest : public ::testing::Test {
 
   /// Refuse one of the questions a device answers about itself, the way equipment that does not
   /// carry it does.
-  void refuse_device_property(uint8_t question) {
+  void refuse_general_count(uint8_t question) {
     this->hub_->scan_step(this->scan_now_);
     this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
-                         {DEVICE_PROPERTY_SELECTOR, question});
+                         {GENERAL_COUNT_SELECTOR, question});
   }
 
   /// Answer how many groups a tab holds.
   void answer_group_count(uint16_t groups, MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING) {
-    this->answer(STRING_INFORMATION_TYPE, {DEVICE_PROPERTY_SELECTOR, group_count_question(tab),
+    this->answer(STRING_INFORMATION_TYPE, {GENERAL_COUNT_SELECTOR, group_count_question(tab),
                                            static_cast<uint8_t>(groups & 0xFF), static_cast<uint8_t>(groups >> 8)});
   }
 
   /// Leave the walk to find the end of a group list by asking past it, which is what a device
   /// that does not carry the count forces.
   void refuse_group_count(MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING) {
-    this->refuse_device_property(group_count_question(tab));
+    this->refuse_general_count(group_count_question(tab));
   }
 
-  /// Take the walk past the questions it opens each device with: the product it is, answered, then
+  /// Take the walk past the questions it opens each device with: its eventables, answered, then
   /// its article number and product name, refused the way equipment that does not carry them does.
-  void answer_product_code(uint16_t code) {
-    this->answer(STRING_INFORMATION_TYPE, {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE,
+  void answer_eventables(uint16_t code) {
+    this->answer(STRING_INFORMATION_TYPE, {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES,
                                            static_cast<uint8_t>(code & 0xFF), static_cast<uint8_t>(code >> 8)});
     this->refuse_device_strings();
   }
@@ -421,9 +421,9 @@ TEST_F(MasterbusTest, OnlyTheHalfOfEachFamilyTheDeviceSendsCounts) {
   for (uint8_t type : {NODE_REQUEST_TYPE, STRING_REQUEST_TYPE, BOOTLOADER_MESSAGE.request})
     EXPECT_FALSE(device_sent_message(type)) << "type " << +type;
 
-  // Which way the bus message runs is not known, and a number that is no message at all may be
+  // Which way the Parallel message runs is not known, and a number that is no message at all may be
   // somebody's question, so neither proves anything.
-  EXPECT_FALSE(device_sent_message(BUS_MESSAGE_TYPE));
+  EXPECT_FALSE(device_sent_message(PARALLEL_MESSAGE_TYPE));
   EXPECT_FALSE(device_sent_message(0x3A));
 }
 
@@ -859,7 +859,7 @@ TEST_F(MasterbusTest, ScanAsksForAGroupsFieldCount) {
   this->canbus_.clear();
 
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
   this->hub_->scan_step(this->scan_now_);
 
@@ -875,7 +875,7 @@ TEST_F(MasterbusTest, ScanReadsAFieldsMetadataAndNames) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
 
   // Group 0 holds seven fields - the count arrives as a float, oddly enough.
@@ -909,7 +909,7 @@ TEST_F(MasterbusTest, ScanReassemblesAStringFromItsChunks) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
 
   // Answer every question in turn so the walk reaches the string reads without waiting on a clock.
@@ -941,7 +941,7 @@ TEST_F(MasterbusTest, ScanPlacesStringChunksByTheirOwnHeader) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
 
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
@@ -1041,7 +1041,7 @@ TEST_F(MasterbusTest, TheScanIgnoresAnAnswerFromAnotherTab) {
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
   this->hub_->scan_step(this->scan_now_);
   const size_t asked = this->canbus_.sent.size();
@@ -1117,16 +1117,16 @@ TEST_F(MasterbusTest, EveryMessageTheComponentCanNameIsLeftAlone) {
   EXPECT_EQ(fired, 2);
 }
 
-// The bus message and the bootloader's are numbers the vendor library accepts and then never looks
-// inside, and this component reads nothing in them either. Neither is everyday traffic, which is
+// The Parallel message and the bootloader's are numbers the vendor library accepts and then never
+// looks inside, and this component reads nothing in them either. Neither is everyday traffic, which is
 // what makes one worth seeing.
 TEST_F(MasterbusTest, TheMessagesNobodyParsesReachTheHubTrigger) {
   std::vector<uint8_t> seen;
   this->hub_->add_on_unknown_frame_callback(
       [&seen](const std::vector<uint8_t> &, uint8_t type, uint32_t) { seen.push_back(type); });
 
-  for (uint8_t type :
-       {BUS_MESSAGE_TYPE, BOOTLOADER_MESSAGE.request, BOOTLOADER_MESSAGE.information, BOOTLOADER_MESSAGE.not_available})
+  for (uint8_t type : {PARALLEL_MESSAGE_TYPE, BOOTLOADER_MESSAGE.request, BOOTLOADER_MESSAGE.information,
+                       BOOTLOADER_MESSAGE.not_available})
     this->hub_->on_frame(frame_id(type, UNDECLARED_DEVICE), true, false, {0x00});
 
   EXPECT_EQ(seen, (std::vector<uint8_t>{0x02, 0x3D, 0x1D, 0x2D}));
@@ -1186,7 +1186,7 @@ TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
 
   // One field in group 0, the count arriving as a float.
@@ -1212,7 +1212,7 @@ TEST_F(MasterbusTest, AScanReportsWhatTheDeviceAnsweredAsKeyAndValue) {
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x0A, 0x00, 0x00, 'V', 0x00});
 
   ASSERT_EQ(scan_lines().lines().size(), 3u);
-  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA product=2");
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA class=27 eventables=2");
   EXPECT_EQ(scan_lines().lines()[1], "group device=0x6D56EA tab=0 group=0 name=\"Bank\"");
   EXPECT_EQ(scan_lines().lines()[2],
             "field device=0x6D56EA tab=0 group=0 param=1 display=1 name=\"Battery\" unit=\"V\" min=0 max=60 "
@@ -1224,7 +1224,7 @@ TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
 
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
@@ -1250,7 +1250,7 @@ TEST_F(MasterbusTest, AFieldTheDeviceBarelyDescribesReportsOnlyWhatItAnswered) {
 TEST_F(MasterbusTest, AFieldWithNoUnitIsNotAskedForTheUnitString) {
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
 
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
@@ -1279,7 +1279,7 @@ TEST_F(MasterbusTest, AGroupThatDoesNotAnswerForItsNameReportsNoNameAtAll) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->refuse_group_count();
 
   // Group 0 holds one field and is called "Bank", through string 80.
@@ -1313,10 +1313,10 @@ TEST_F(MasterbusTest, AGroupThatDoesNotAnswerForItsNameReportsNoNameAtAll) {
   EXPECT_EQ(scan_lines().lines()[3], "group device=0x6D56EA tab=0 group=1");
 }
 
-// The question every device is asked first. Six identical battery blocks on the reference bus all
-// answered 2 and the bus interface answered 16, which is what makes the answer worth reporting: it
-// says which of the documented configurations a device is.
-TEST_F(MasterbusTest, ScanReportsTheProductADeviceSaysItIs) {
+// The question every device is asked first: how many event slots it has. Six identical battery
+// blocks on the reference bus all answered 2 and the display panel 16. What kind of device it is
+// needs no question at all - 0x6D56EA is class 27, a battery monitor, by its address alone.
+TEST_F(MasterbusTest, ScanReportsTheDevicesClassAndItsEventables) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->canbus_.clear();
@@ -1327,19 +1327,19 @@ TEST_F(MasterbusTest, ScanReportsTheProductADeviceSaysItIs) {
   const auto &asked = this->canbus_.sent.back();
   EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
   EXPECT_EQ(asked.can_id & DEVICE_ADDRESS_MASK, BATTERY_1);
-  ASSERT_EQ(asked.can_data_length_code, DEVICE_PROPERTY_REQUEST_LENGTH);
-  EXPECT_EQ(asked.data[0], DEVICE_PROPERTY_SELECTOR);
-  EXPECT_EQ(asked.data[1], DEVICE_PROPERTY_PRODUCT_CODE);
+  ASSERT_EQ(asked.can_data_length_code, GENERAL_COUNT_REQUEST_LENGTH);
+  EXPECT_EQ(asked.data[0], GENERAL_COUNT_SELECTOR);
+  EXPECT_EQ(asked.data[1], GENERAL_COUNT_EVENTABLES);
 
   // 08:3f:02:00 - the answer a lithium battery block gives, recorded off the bus.
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
-                       {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE, 0x02, 0x00});
+                       {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES, 0x02, 0x00});
   // The line waits for the article number and the product name, asked next.
   EXPECT_TRUE(scan_lines().lines().empty());
   this->refuse_device_strings();
 
   ASSERT_EQ(scan_lines().lines().size(), 1u);
-  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA product=2");
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA class=27 eventables=2");
 }
 
 // The article number is the one printed on the equipment's label, and the product name is what the
@@ -1350,7 +1350,7 @@ TEST_F(MasterbusTest, ScanReportsTheArticleNumberAndTheProductName) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
-  this->answer(STRING_INFORMATION_TYPE, {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE, 0x02, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES, 0x02, 0x00});
 
   // Article number: string 2.
   this->hub_->scan_step(this->scan_now_);
@@ -1371,33 +1371,33 @@ TEST_F(MasterbusTest, ScanReportsTheArticleNumberAndTheProductName) {
   this->answer(STRING_INFORMATION_TYPE, {0x30, 0x01, 0x00, 0x00, 'M', 'L', 'I', 0x00});
 
   ASSERT_EQ(scan_lines().lines().size(), 1u);
-  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA product=2 article=\"66025000\" name=\"MLI\"");
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA class=27 eventables=2 article=\"66025000\" name=\"MLI\"");
   for (const auto &frame : this->canbus_.sent) {
     if ((frame.can_id >> MESSAGE_TYPE_SHIFT) == STRING_REQUEST_TYPE && frame.data[0] == GENERAL_STRING_SELECTOR)
       EXPECT_NE(frame.data[1], GENERAL_STRING_SERIAL_NUMBER) << "the walk asked for the serial number";
   }
 }
 
-// Equipment that does not carry a product code refuses the question outright - one device on the
+// Equipment that does not carry eventables refuses the question outright - one device on the
 // reference bus refused all 240 of them. It is still listed, and its fields are still walked.
-TEST_F(MasterbusTest, ADeviceThatCarriesNoProductCodeIsStillListedAndWalked) {
+TEST_F(MasterbusTest, ADeviceThatRefusesEventablesIsStillListedAndWalked) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
   this->hub_->scan_step(this->scan_now_);
   this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false,
-                       {DEVICE_PROPERTY_SELECTOR, DEVICE_PROPERTY_PRODUCT_CODE});
+                       {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES});
   this->refuse_device_strings();
 
   ASSERT_EQ(scan_lines().lines().size(), 1u);
-  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA");
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6D56EA class=27");
 
   // And the walk carried on: first how many groups the tab holds, then the group itself.
   this->canbus_.clear();
   this->hub_->scan_step(this->scan_now_);
   ASSERT_EQ(this->canbus_.sent.size(), 1u);
   EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
-  EXPECT_EQ(this->canbus_.sent.back().data[1], DEVICE_PROPERTY_MONITORING_GROUPS);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], GENERAL_COUNT_MONITORING_GROUPS);
 
   this->refuse_group_count();
   this->canbus_.clear();
@@ -1406,9 +1406,9 @@ TEST_F(MasterbusTest, ADeviceThatCarriesNoProductCodeIsStillListedAndWalked) {
   EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, GROUP_REQUEST_TYPE);
 }
 
-// A string chunk and a product code arrive under the same message number, so the first byte is
+// A string chunk and a general count arrive under the same message number, so the first byte is
 // what tells them apart. Reading a chunk as a code would report a product nobody makes.
-TEST_F(MasterbusTest, AStringChunkIsNotReadAsAProductCode) {
+TEST_F(MasterbusTest, AStringChunkIsNotReadAsAGeneralCount) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
@@ -1416,7 +1416,7 @@ TEST_F(MasterbusTest, AStringChunkIsNotReadAsAProductCode) {
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
                        {STRING_REQUEST_MARKER, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
 
-  EXPECT_TRUE(scan_lines().lines().empty()) << "a string chunk was taken for a product code";
+  EXPECT_TRUE(scan_lines().lines().empty()) << "a string chunk was taken for a general count";
 }
 
 // The group counts are what save the walk a question per tab and per group. A tab the device says
@@ -1424,7 +1424,7 @@ TEST_F(MasterbusTest, AStringChunkIsNotReadAsAProductCode) {
 TEST_F(MasterbusTest, ATabTheDeviceSaysIsEmptyIsNotWalked) {
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
 
   this->canbus_.clear();
   this->answer_group_count(0);
@@ -1433,7 +1433,7 @@ TEST_F(MasterbusTest, ATabTheDeviceSaysIsEmptyIsNotWalked) {
   ASSERT_EQ(this->canbus_.sent.size(), 2u) << "the walk asked about a group on an empty tab";
   const auto &next = this->canbus_.sent.back();
   EXPECT_EQ(next.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
-  EXPECT_EQ(next.data[1], DEVICE_PROPERTY_ALARM_GROUPS);
+  EXPECT_EQ(next.data[1], GENERAL_COUNT_ALARM_GROUPS);
 }
 
 // And the walk stops at the last group the device counted, rather than finding the end by asking
@@ -1441,7 +1441,7 @@ TEST_F(MasterbusTest, ATabTheDeviceSaysIsEmptyIsNotWalked) {
 TEST_F(MasterbusTest, TheWalkStopsAtTheLastGroupAndFieldTheDeviceCounted) {
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->answer_group_count(1);
 
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});  // one field
@@ -1462,7 +1462,7 @@ TEST_F(MasterbusTest, TheWalkStopsAtTheLastGroupAndFieldTheDeviceCounted) {
   const auto &next = this->canbus_.sent.back();
   EXPECT_EQ(next.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE)
       << "the walk asked for a group or a field the device had already counted out";
-  EXPECT_EQ(next.data[1], DEVICE_PROPERTY_ALARM_GROUPS);
+  EXPECT_EQ(next.data[1], GENERAL_COUNT_ALARM_GROUPS);
 }
 
 // A name longer than the buffer is reported for what arrived rather than for what was sent, and
@@ -1471,7 +1471,7 @@ TEST_F(MasterbusTest, ANameLongerThanTheBufferIsReportedCutShort) {
   scan_lines().clear();
   this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
   this->hub_->report_scan();
-  this->answer_product_code(2);
+  this->answer_eventables(2);
   this->answer_group_count(1);
 
   this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});

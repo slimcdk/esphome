@@ -116,8 +116,8 @@ bool MasterbusHub::request_nodes() {
 #endif
 
 #ifdef USE_MASTERBUS_SCAN
-bool MasterbusHub::request_device_property(uint32_t address, uint8_t question) {
-  return this->send_(STRING_REQUEST_TYPE, address, {DEVICE_PROPERTY_SELECTOR, question});
+bool MasterbusHub::request_general_count(uint32_t address, uint8_t question) {
+  return this->send_(STRING_REQUEST_TYPE, address, {GENERAL_COUNT_SELECTOR, question});
 }
 
 bool MasterbusHub::request_general_string(uint32_t address, uint8_t question) {

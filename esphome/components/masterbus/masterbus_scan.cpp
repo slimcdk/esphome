@@ -56,11 +56,11 @@ void MasterbusScanner::start() {
   this->group_ = 0;
   this->field_index_ = 0;
   this->completed_ = 0;
-  this->product_code_known_ = false;
+  this->eventables_known_ = false;
   this->article_known_ = false;
   this->product_name_known_ = false;
   this->groups_known_ = false;
-  this->phase_ = Phase::PHASE_PRODUCT_CODE;
+  this->phase_ = Phase::PHASE_EVENTABLES;
   this->waiting_ = false;
   ESP_LOGI(TAG,
            "Walking %u devices across all four tabs for their fields. What follows is what each "
@@ -91,8 +91,8 @@ void MasterbusScanner::loop(uint32_t now) {
 void MasterbusScanner::send_current_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
   switch (this->phase_) {
-    case Phase::PHASE_PRODUCT_CODE:
-      this->hub_->request_device_property(address, DEVICE_PROPERTY_PRODUCT_CODE);
+    case Phase::PHASE_EVENTABLES:
+      this->hub_->request_general_count(address, GENERAL_COUNT_EVENTABLES);
       break;
     case Phase::PHASE_ARTICLE_ID:
       this->hub_->request_general_string(address, GENERAL_STRING_ARTICLE_NUMBER);
@@ -105,7 +105,7 @@ void MasterbusScanner::send_current_() {
       this->hub_->request_string(address, this->name_string_, this->chunk_);
       break;
     case Phase::PHASE_GROUP_COUNT:
-      this->hub_->request_device_property(address, group_count_question(this->tab_));
+      this->hub_->request_general_count(address, group_count_question(this->tab_));
       break;
     case Phase::PHASE_GROUP_FIELD_COUNT:
       this->hub_->request_group(address, MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, this->group_,
@@ -168,14 +168,14 @@ void MasterbusScanner::send_current_() {
 void MasterbusScanner::advance_(bool answered) {
   this->waiting_ = false;
   switch (this->phase_) {
-    case Phase::PHASE_PRODUCT_CODE:
+    case Phase::PHASE_EVENTABLES:
       this->article_[0] = '\0';
       this->product_name_[0] = '\0';
       this->phase_ = Phase::PHASE_ARTICLE_ID;
       return;
 
     // The device's own strings, each a question for which table entry holds it and then the entry.
-    // A device that carries neither is still listed and walked, the way one with no product code is.
+    // A device that carries neither is still listed and walked, the way one with no eventables is.
     case Phase::PHASE_ARTICLE_ID:
       this->chunk_ = 0;
       this->phase_ = answered ? Phase::PHASE_ARTICLE_TEXT : Phase::PHASE_PRODUCT_NAME_ID;
@@ -376,12 +376,12 @@ void MasterbusScanner::next_device_() {
   this->group_ = 0;
   this->group_reported_ = false;
   this->field_index_ = 0;
-  this->product_code_known_ = false;
+  this->eventables_known_ = false;
   this->article_known_ = false;
   this->product_name_known_ = false;
   this->groups_known_ = false;
   this->cap_reported_ = false;
-  this->phase_ = Phase::PHASE_PRODUCT_CODE;
+  this->phase_ = Phase::PHASE_EVENTABLES;
   this->waiting_ = false;
 }
 
@@ -403,22 +403,22 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
   };
 
   switch (this->phase_) {
-    case Phase::PHASE_PRODUCT_CODE:
+    case Phase::PHASE_EVENTABLES:
     case Phase::PHASE_GROUP_COUNT: {
       const uint8_t question =
-          this->phase_ == Phase::PHASE_PRODUCT_CODE ? DEVICE_PROPERTY_PRODUCT_CODE : group_count_question(this->tab_);
-      if (!is_device_property_header(data.data(), data.size(), question))
+          this->phase_ == Phase::PHASE_EVENTABLES ? GENERAL_COUNT_EVENTABLES : group_count_question(this->tab_);
+      if (!is_general_count_header(data.data(), data.size(), question))
         return false;
       if (type == STRING_NOT_AVAILABLE_TYPE) {
         // Equipment that does not carry the question says so, and the walk carries on without it.
         this->advance_(false);
         return true;
       }
-      if (type != STRING_INFORMATION_TYPE || data.size() < DEVICE_PROPERTY_INFORMATION_LENGTH)
+      if (type != STRING_INFORMATION_TYPE || data.size() < GENERAL_COUNT_INFORMATION_LENGTH)
         return false;
-      if (this->phase_ == Phase::PHASE_PRODUCT_CODE) {
-        this->product_code_ = value16(2);
-        this->product_code_known_ = true;
+      if (this->phase_ == Phase::PHASE_EVENTABLES) {
+        this->eventables_ = value16(2);
+        this->eventables_known_ = true;
       } else {
         this->groups_in_tab_ = value16(2);
         this->groups_known_ = true;
@@ -589,16 +589,19 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
   return true;
 }
 
-/// Name one device and, where it answered for it, the product it says it is. The product code is
-/// what tells a user which of the documented configurations is theirs, and the line is written for
-/// every device - including one that describes no fields at all, which would otherwise be missing
-/// from the configuration the converter builds.
+/// Name one device: its class, which its address carries, and what else it answered for. The line
+/// is written for every device - including one that describes no fields at all, which would
+/// otherwise be missing from the configuration the converter builds.
 void MasterbusScanner::report_device_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
   char quoted[SCAN_NAME_LENGTH * 4 + 3];
-  char product[16] = "";
-  if (this->product_code_known_)
-    snprintf(product, sizeof(product), " product=%u", static_cast<unsigned>(this->product_code_));
+  char product[32];
+  if (this->eventables_known_) {
+    snprintf(product, sizeof(product), " class=%u eventables=%u", static_cast<unsigned>(device_class(address)),
+             static_cast<unsigned>(this->eventables_));
+  } else {
+    snprintf(product, sizeof(product), " class=%u", static_cast<unsigned>(device_class(address)));
+  }
   char article[sizeof(quoted) + 10] = "";
   if (this->article_known_) {
     quote_string(this->article_, quoted, sizeof(quoted));
