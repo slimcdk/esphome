@@ -81,7 +81,7 @@ class MasterbusScanner {
  protected:
   enum class Phase : uint8_t {
     PHASE_IDLE,
-    PHASE_PRODUCT_CODE,
+    PHASE_EVENTABLES,
     PHASE_ARTICLE_ID,
     PHASE_ARTICLE_TEXT,
     PHASE_PRODUCT_NAME_ID,
@@ -128,10 +128,10 @@ class MasterbusScanner {
   uint32_t sent_at_{0};
 
   uint8_t device_index_{0};
-  /// The product this device says it is, and whether it answered the question at all. Equipment
+  /// How many event slots this device has, and whether it answered the question at all. Equipment
   /// that does not carry it refuses outright, which is not an error.
-  uint16_t product_code_{0};
-  bool product_code_known_{false};
+  uint16_t eventables_{0};
+  bool eventables_known_{false};
   /// The device's article number and product name, and whether it handed either over. The serial
   /// number is deliberately never asked for: it identifies one unit, and scans get pasted in public.
   char article_[SCAN_NAME_LENGTH]{};
