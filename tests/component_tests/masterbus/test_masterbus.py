@@ -112,6 +112,27 @@ def test_diagnostics_default_to_off() -> None:
     assert config[CONF_LOG_ALL_FRAMES] is False
 
 
+def test_hub_speaks_as_the_vendor_library_unless_given_an_address() -> None:
+    assert CONFIG_SCHEMA(_hub())["address"] == 0x500001
+
+
+def test_hub_address_needs_a_device_class() -> None:
+    """The top five bits say what kind of node an address belongs to; none is class 0."""
+    with pytest.raises(cv.Invalid, match="class"):
+        CONFIG_SCHEMA(_hub(address=0x012345))
+
+
+def test_hub_address_may_not_be_a_declared_device() -> None:
+    """A device does not answer a node request carrying its own address."""
+    with pytest.raises(cv.Invalid, match="declared device"):
+        CONFIG_SCHEMA(
+            _hub(
+                address=0x6D56EA,
+                **{CONF_DEVICES: [{CONF_ID: "bat", CONF_DEVICE: 0x6D56EA}]},
+            )
+        )
+
+
 def test_node_requests_are_off_unless_asked_for() -> None:
     """Another node usually asks already; a hub only takes it on when the user says so."""
     assert CONF_NODE_REQUEST_INTERVAL not in CONFIG_SCHEMA(_hub())
