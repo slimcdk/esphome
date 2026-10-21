@@ -15,6 +15,36 @@ namespace esphome::masterbus {
 class MasterbusDevice;
 class MasterbusHub;
 
+#ifdef MASTERBUS_INFO_COUNT
+/// What a device says about itself, numbered as the vendor's GeneralString question numbers the
+/// four strings, then the two that come from elsewhere.
+enum class MasterbusDeviceInfo : uint8_t {
+  MASTERBUS_DEVICE_INFO_ARTICLE_NUMBER = GENERAL_STRING_ARTICLE_NUMBER,
+  MASTERBUS_DEVICE_INFO_SERIAL_NUMBER = GENERAL_STRING_SERIAL_NUMBER,
+  MASTERBUS_DEVICE_INFO_PRODUCT_NAME = GENERAL_STRING_PRODUCT_NAME,
+  MASTERBUS_DEVICE_INFO_REVISION_CODE = GENERAL_STRING_REVISION_CODE,
+  MASTERBUS_DEVICE_INFO_FIRMWARE = 5,
+  MASTERBUS_DEVICE_INFO_CLASS = 6,
+};
+
+/// An entity that shows one thing a device says about itself rather than one of its fields.
+class MasterbusInfoEntity {
+ public:
+  MasterbusInfoEntity(MasterbusDevice *device, MasterbusDeviceInfo info) : device_(device), info_(info) {}
+
+  /// The text is only borrowed for the duration of the call.
+  virtual void publish_info(const char *text) = 0;
+  virtual void publish_info_unavailable() = 0;
+
+  MasterbusDevice *get_masterbus_device() const { return this->device_; }
+  MasterbusDeviceInfo get_info() const { return this->info_; }
+
+ protected:
+  MasterbusDevice *device_;
+  MasterbusDeviceInfo info_;
+};
+#endif
+
 /// The longest text a field value renders to. What a text field holds on this equipment is a label
 /// or a serial number, so this is generous; anything longer is truncated rather than dropped.
 static constexpr uint8_t MASTERBUS_TEXT_LENGTH = 32;
@@ -122,6 +152,16 @@ class MasterbusDevice {
 #ifdef MASTERBUS_ENTITY_COUNT
   void register_entity(MasterbusEntity *entity);
 #endif
+#ifdef MASTERBUS_INFO_COUNT
+  void register_info_entity(MasterbusInfoEntity *entity);
+  /// Note the status bytes of an announcement. Returns whether what the device says about itself
+  /// should be read again: the device asks for it with bit 5 of byte 6, and a change of the status
+  /// version in byte 7 is how the vendor's own tool notices that something changed.
+  bool note_announcement(uint8_t flags, uint8_t status_version);
+  bool has_info() const { return this->has_info_; }
+  bool is_info_pending() const { return this->info_pending_; }
+  void set_info_pending(bool pending) { this->info_pending_ = pending; }
+#endif
 
   uint32_t get_address() const { return this->address_; }
   MasterbusHub *get_hub() const { return this->hub_; }
@@ -155,6 +195,12 @@ class MasterbusDevice {
   uint32_t timeout_ms_{0};
   uint32_t last_seen_{0};
   MasterbusDeviceStatus status_{MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE};
+#ifdef MASTERBUS_INFO_COUNT
+  bool has_info_{false};
+  bool info_pending_{false};
+  // The status version last announced, or -1 before the first announcement.
+  int8_t status_version_{-1};
+#endif
 };
 
 #ifdef USE_MASTERBUS_SCAN
@@ -177,9 +223,9 @@ class MasterbusHub : public Component {
 
   void setup() override;
   void dump_config() override;
-#ifdef USE_MASTERBUS_SCAN
-  /// Drives the field walk. Only a scan needs a loop, and only while it is walking - the hub
-  /// disables its own once there is nothing left to ask.
+#if defined(USE_MASTERBUS_SCAN) || defined(MASTERBUS_INFO_COUNT)
+  /// Drives the field walk and the reading of what devices say about themselves. Only those need a
+  /// loop, and only while they have something to ask - the hub disables its own once they do not.
   void loop() override;
 #endif
 
@@ -264,6 +310,14 @@ class MasterbusHub : public Component {
 #ifdef MASTERBUS_DEVICE_COUNT
   void register_device(MasterbusDevice *device) { this->devices_.push_back(device); }
 #endif
+#ifdef MASTERBUS_INFO_COUNT
+  void register_info_entity(MasterbusInfoEntity *entity) { this->info_entities_.push_back(entity); }
+  /// Read what a device says about itself, as soon as it is online and nothing else is being read.
+  void request_device_info(MasterbusDevice *device);
+  /// Drive the reading one step, at the given time. Returns whether there is more to do. Public so
+  /// a test can step it.
+  bool info_step(uint32_t now);
+#endif
 #ifdef MASTERBUS_ENTITY_COUNT
   void register_entity(MasterbusEntity *entity) { this->entities_.push_back(entity); }
   /// Report every entity of one device as unavailable, in one go.
@@ -292,6 +346,14 @@ class MasterbusHub : public Component {
   bool take_text_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data);
   /// End the read in flight, publishing what it assembled or reporting it unavailable.
   void finish_text_read_(bool found);
+#endif
+#ifdef MASTERBUS_INFO_COUNT
+  /// Take an answer if it belongs to the device information being read. Returns whether it did.
+  bool take_info_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data);
+  /// Hand what was read to every entity that shows it, or nullptr where the device has none.
+  void publish_info_(const char *text);
+  /// Move on to the next thing the device being read is asked about.
+  void next_info_();
 #endif
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
   void log_frame_(uint32_t can_id, bool extended_id, bool rtr, const std::vector<uint8_t> &data);
@@ -330,6 +392,20 @@ class MasterbusHub : public Component {
   StaticVector<MasterbusEntity *, MASTERBUS_ENTITY_COUNT> entities_;
   /// One bit per tab: whether an answer too short to hold a value has been reported for it.
   uint8_t short_answer_said_{0};
+#endif
+#ifdef MASTERBUS_INFO_COUNT
+  StaticVector<MasterbusInfoEntity *, MASTERBUS_INFO_COUNT> info_entities_;
+  /// The device whose information is being read, or nullptr; which of its facts; and where the
+  /// question stands. One device and one question at a time, like everything else on this bus.
+  MasterbusDevice *info_device_{nullptr};
+  uint8_t info_item_{0};
+  uint8_t info_processor_{0};
+  uint8_t info_chunk_{0};
+  uint16_t info_string_{0};
+  bool info_have_string_{false};
+  bool info_waiting_{false};
+  uint32_t info_sent_at_{0};
+  char info_text_[MASTERBUS_TEXT_LENGTH]{};
 #endif
 #ifdef USE_MASTERBUS_TEXT
   /// Where the string being read is assembled. It belongs to the hub rather than to a publish

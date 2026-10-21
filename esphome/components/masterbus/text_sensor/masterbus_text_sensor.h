@@ -26,4 +26,19 @@ class MasterbusTextSensor : public text_sensor::TextSensor, public MasterbusEnti
   size_t option_count_{0};
 };
 
+#ifdef MASTERBUS_INFO_COUNT
+/// One thing a device says about itself: its article or serial number, its name, its revision, its
+/// firmware - read off the bus by the hub - or its class, which its address already carries.
+class MasterbusInfoTextSensor : public text_sensor::TextSensor, public Component, public MasterbusInfoEntity {
+ public:
+  using MasterbusInfoEntity::MasterbusInfoEntity;
+
+  void setup() override;
+  void dump_config() override;
+
+  void publish_info(const char *text) override { this->publish_state(text); }
+  void publish_info_unavailable() override { this->set_has_state(false); }
+};
+#endif
+
 }  // namespace esphome::masterbus

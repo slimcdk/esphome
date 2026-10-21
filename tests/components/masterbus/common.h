@@ -76,6 +76,18 @@ class RecordingEntity : public MasterbusEntity {
   std::deque<std::string> texts_;
 };
 
+/// An entity that records what the hub read about its device.
+class RecordingInfo : public MasterbusInfoEntity {
+ public:
+  using MasterbusInfoEntity::MasterbusInfoEntity;
+
+  std::vector<std::string> texts;
+  int unavailable_count{0};
+
+  void publish_info(const char *text) override { this->texts.emplace_back(text); }
+  void publish_info_unavailable() override { this->unavailable_count++; }
+};
+
 /// Build the payload of a monitoring answer the way a device does: field number little-endian,
 /// then the four value bytes little-endian. The message type belongs to the identifier, which
 /// frame_id() below builds.

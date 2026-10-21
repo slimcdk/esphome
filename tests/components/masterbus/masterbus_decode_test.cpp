@@ -41,6 +41,26 @@ class MasterbusTest : public ::testing::Test {
     return raw;
   }
 
+  RecordingInfo *add_info(MasterbusDeviceInfo info) {
+    auto entity = std::make_unique<RecordingInfo>(this->battery_.get(), info);
+    auto *raw = entity.get();
+    this->battery_->register_info_entity(raw);
+    this->infos_.push_back(std::move(entity));
+    return raw;
+  }
+
+  /// BAT 1's announcement, recorded off the bus, with byte 6 and the status version as given.
+  void announce(uint8_t flags = 0x00, uint8_t status_version = 0x02) {
+    this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                         {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, flags, status_version});
+  }
+
+  /// Let the information reader send its next question, then hand it the answer.
+  void info_answer(uint8_t type, const std::vector<uint8_t> &data) {
+    this->hub_->info_step(this->info_now_);
+    this->hub_->on_frame(frame_id(type, BATTERY_1), true, false, data);
+  }
+
   /// Feed a frame exactly as log_all_frames printed it.
   void feed(const char *logged) {
     const LoggedFrame frame = logged_frame(logged);
@@ -181,6 +201,8 @@ class MasterbusTest : public ::testing::Test {
   std::unique_ptr<MasterbusDevice> battery_;
   std::vector<std::unique_ptr<MasterbusDevice>> devices_;
   std::vector<std::unique_ptr<RecordingEntity>> entities_;
+  std::vector<std::unique_ptr<RecordingInfo>> infos_;
+  uint32_t info_now_{0};
 };
 
 TEST_F(MasterbusTest, MonitoringAnswerUpdatesTheMatchingSensor) {
@@ -1767,6 +1789,84 @@ TEST_F(MasterbusTest, ScanReportsALongNameAndStopsAskingADeviceThatHasNone) {
   EXPECT_EQ(scan_lines().lines()[2],
             "field device=0x6D56EA tab=0 group=0 param=1 display=1 name=\"Bat\" long_name=\"Battery\"");
   EXPECT_EQ(scan_lines().lines()[3], "field device=0x6D56EA tab=0 group=0 param=2 display=1 name=\"Bat\"");
+}
+
+// What a device says about itself is read once it is online: a GeneralString question for which
+// entry holds the string, then the string. The serial number here is the vendor's own made-up one.
+TEST_F(MasterbusTest, ADevicesSerialNumberIsReadOnceItIsOnline) {
+  auto *serial = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_SERIAL_NUMBER);
+  EXPECT_FALSE(this->hub_->info_step(this->info_now_)) << "a device nobody has heard from was asked";
+
+  this->announce();
+  this->hub_->info_step(this->info_now_);
+  ASSERT_FALSE(this->canbus_.sent.empty());
+  const auto &asked = this->canbus_.sent.back();
+  EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
+  ASSERT_EQ(asked.can_data_length_code, 2);
+  EXPECT_EQ(asked.data[0], GENERAL_STRING_SELECTOR);
+  EXPECT_EQ(asked.data[1], GENERAL_STRING_SERIAL_NUMBER);
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {GENERAL_STRING_SELECTOR, GENERAL_STRING_SERIAL_NUMBER, 0x00, 0x00});
+  this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x00, 0x00, 0x00, 'A', 'B', '0', '0'});
+  this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x00, 0x00, 0x01, 'A', '0', '0', '0'});
+  this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x00, 0x00, 0x02, '1'});
+
+  ASSERT_EQ(serial->texts.size(), 1u);
+  EXPECT_EQ(serial->texts[0], "AB00A0001");
+  EXPECT_FALSE(this->hub_->info_step(this->info_now_)) << "the reader kept asking after it was done";
+}
+
+// The firmware is each processor's software version, asked from 0 until the device refuses one.
+TEST_F(MasterbusTest, ADevicesFirmwareListsEveryProcessor) {
+  auto *firmware = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE);
+  this->announce();
+  this->info_answer(STRING_INFORMATION_TYPE, {SOFTWARE_VERSION_SELECTOR, 0x00, 0x01, 0x3D, 0x00, 0x00});
+  this->info_answer(STRING_INFORMATION_TYPE, {SOFTWARE_VERSION_SELECTOR, 0x01, 0x02, 0x07, 0x00, 0x00});
+  this->info_answer(STRING_NOT_AVAILABLE_TYPE, {SOFTWARE_VERSION_SELECTOR, 0x02});
+
+  ASSERT_EQ(firmware->texts.size(), 1u);
+  EXPECT_EQ(firmware->texts[0], "61.1 7.2");
+}
+
+// A device that does not carry a string refuses the question, and one that ignores it is given up
+// on after a second. Either way the entity is unavailable rather than showing something stale.
+TEST_F(MasterbusTest, AStringTheDeviceDoesNotCarryIsUnavailable) {
+  auto *revision = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_REVISION_CODE);
+  auto *name = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_PRODUCT_NAME);
+  this->announce();
+  // The product name is asked first, in the vendor's numbering, and goes unanswered.
+  this->hub_->info_step(this->info_now_);
+  EXPECT_EQ(this->canbus_.sent.back().data[1], GENERAL_STRING_PRODUCT_NAME);
+  this->info_now_ += 1000;
+  this->info_answer(STRING_NOT_AVAILABLE_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_REVISION_CODE});
+
+  EXPECT_EQ(name->unavailable_count, 1);
+  EXPECT_EQ(revision->unavailable_count, 1);
+  EXPECT_TRUE(revision->texts.empty());
+}
+
+// The vendor's own tool reads a device again when its status version moves; the device asks for
+// it with bit 5 of byte 6. The same announcement again asks for nothing.
+TEST_F(MasterbusTest, ADeviceIsReadAgainWhenItsStatusVersionChangesOrItAsksToBe) {
+  auto *article = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_ARTICLE_NUMBER);
+  const auto read_article = [this]() {
+    this->info_answer(STRING_INFORMATION_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_ARTICLE_NUMBER, 0x02, 0x00});
+    this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x00, '6', '6', '0', 0x00});
+  };
+  this->announce(0x00, 0x02);
+  read_article();
+  ASSERT_EQ(article->texts.size(), 1u);
+
+  this->announce(0x00, 0x02);
+  EXPECT_FALSE(this->hub_->info_step(this->info_now_)) << "an unchanged announcement asked for a read";
+
+  this->announce(0x00, 0x04);
+  read_article();
+  EXPECT_EQ(article->texts.size(), 2u);
+
+  this->announce(ANNOUNCEMENT_READ_AGAIN_BIT, 0x04);
+  read_article();
+  EXPECT_EQ(article->texts.size(), 3u);
 }
 
 }  // namespace esphome::masterbus::testing
