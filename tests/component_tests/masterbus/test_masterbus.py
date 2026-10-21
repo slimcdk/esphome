@@ -284,6 +284,38 @@ def test_select_takes_every_kind_of_list(value_type: str) -> None:
     SELECT_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type, CONF_OPTIONS: ["A", "B"]}))
 
 
+@pytest.mark.parametrize(
+    "info",
+    [
+        "article_number",
+        "serial_number",
+        "product_name",
+        "revision_code",
+        "firmware",
+        "class",
+    ],
+)
+def test_text_sensor_shows_what_a_device_says_about_itself(info: str) -> None:
+    """No field number: the device answers these for itself, and its address gives its class."""
+    config = TEXT_SENSOR_SCHEMA(
+        {CONF_NAME: "Battery", CONF_MASTERBUS_DEVICE_ID: "mb_battery", "info": info}
+    )
+    assert config["info"] == info
+    assert CONF_PARAM not in config
+
+
+def test_text_sensor_info_takes_no_field_number() -> None:
+    with pytest.raises(cv.Invalid):
+        TEXT_SENSOR_SCHEMA(_sensor(info="serial_number"))
+
+
+def test_text_sensor_info_must_be_one_the_device_answers() -> None:
+    with pytest.raises(cv.Invalid, match="info"):
+        TEXT_SENSOR_SCHEMA(
+            {CONF_NAME: "x", CONF_MASTERBUS_DEVICE_ID: "mb_battery", "info": "colour"}
+        )
+
+
 # Cross references, over the whole configuration
 
 

@@ -67,6 +67,19 @@ text_sensor:
     param: 0x0018
     name: Charger battery name
     timeout: 30min
+  # What the device says about itself, read off the bus, and its class, which its address carries.
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    info: serial_number
+    name: Battery serial number
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    info: firmware
+    name: Battery firmware
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    info: class
+    name: Battery class
   # A list field shown by the names of its entries, which a scan reports.
   - platform: masterbus
     masterbus_device_id: mb_charger

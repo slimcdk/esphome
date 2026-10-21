@@ -31,6 +31,13 @@ static constexpr uint32_t AVAILABILITY_INTERVAL_MS = 1000;
 static constexpr uint32_t TEXT_READ_TIMEOUT_MS = 1000;
 #endif
 
+#ifdef MASTERBUS_INFO_COUNT
+/// How long one question about a device may go unanswered before it is taken as not carried.
+static constexpr uint32_t INFO_TIMEOUT_MS = 1000;
+/// How many processors' versions are read. The vendor's example device has one.
+static constexpr uint8_t INFO_MAX_PROCESSORS = 8;
+#endif
+
 const char *masterbus_tab_to_string(MasterbusTab tab) {
   switch (tab) {
     case MasterbusTab::MASTERBUS_TAB_MONITORING:
@@ -49,12 +56,31 @@ const char *masterbus_tab_to_string(MasterbusTab tab) {
 void MasterbusDevice::register_entity(MasterbusEntity *entity) { this->hub_->register_entity(entity); }
 #endif
 
+#ifdef MASTERBUS_INFO_COUNT
+void MasterbusDevice::register_info_entity(MasterbusInfoEntity *entity) {
+  this->has_info_ = true;
+  this->hub_->register_info_entity(entity);
+}
+
+bool MasterbusDevice::note_announcement(uint8_t flags, uint8_t status_version) {
+  const int8_t version = static_cast<int8_t>(status_version & ANNOUNCEMENT_STATUS_VERSION_MASK);
+  const bool changed = this->status_version_ >= 0 && version != this->status_version_;
+  this->status_version_ = version;
+  return this->has_info_ && ((flags & ANNOUNCEMENT_READ_AGAIN_BIT) != 0 || changed);
+}
+#endif
+
 void MasterbusDevice::mark_seen(uint32_t now) {
   this->last_seen_ = now;
   if (this->is_online())
     return;
   this->status_ = MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON;
   ESP_LOGD(TAG, "Device 0x%06" PRIX32 " is online", this->address_);
+#ifdef MASTERBUS_INFO_COUNT
+  // A device that comes back may have been changed or replaced while it was away.
+  if (this->has_info_)
+    this->hub_->request_device_info(this);
+#endif
   this->online_callback_.call();
 }
 
@@ -171,11 +197,22 @@ void MasterbusHub::report_scan() {
   this->enable_loop();
 }
 
+#endif
+
+#if defined(USE_MASTERBUS_SCAN) || defined(MASTERBUS_INFO_COUNT)
 void MasterbusHub::loop() {
-  this->scanner_.loop(App.get_loop_component_start_time());
-  // The walk sends one question and waits for its answer, so it wants the loop for as long as it
-  // runs and not a moment longer. Before it starts and after it finishes there is nothing to do.
-  if (!this->scanner_.is_running())
+  const uint32_t now = App.get_loop_component_start_time();
+  bool busy = false;
+#ifdef USE_MASTERBUS_SCAN
+  this->scanner_.loop(now);
+  busy = this->scanner_.is_running();
+#endif
+#ifdef MASTERBUS_INFO_COUNT
+  busy |= this->info_step(now);
+#endif
+  // Each sends one question and waits for its answer, so they want the loop for as long as they
+  // have something to ask and not a moment longer.
+  if (!busy)
     this->disable_loop();
 }
 #endif
@@ -236,6 +273,13 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   // at, so another node asking a dead device for something would otherwise keep it alive.
   if (device_sent_message(type))
     device->mark_seen(App.get_loop_component_start_time());
+#ifdef MASTERBUS_INFO_COUNT
+  if (type == DEVICE_ANNOUNCEMENT_TYPE && data.size() >= DEVICE_ANNOUNCEMENT_LENGTH &&
+      device->note_announcement(data[6], data[7]))
+    this->request_device_info(device);
+  if (this->take_info_frame_(type, address, data))
+    return;
+#endif
 
 #ifdef MASTERBUS_ENTITY_COUNT
 #ifdef USE_MASTERBUS_TEXT
@@ -542,6 +586,151 @@ void MasterbusHub::finish_text_read_(bool found) {
   decoded.type = MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT;
   decoded.as_text = this->value_text_;
   entity->publish_masterbus_value(decoded);
+}
+#endif
+
+#ifdef MASTERBUS_INFO_COUNT
+void MasterbusHub::request_device_info(MasterbusDevice *device) {
+  device->set_info_pending(true);
+  this->enable_loop();
+}
+
+bool MasterbusHub::info_step(uint32_t now) {
+  if (this->info_device_ == nullptr) {
+    for (auto *device : this->devices_) {
+      if (device->is_info_pending() && device->is_online()) {
+        this->info_device_ = device;
+        this->info_item_ = 0;
+        this->next_info_();
+        break;
+      }
+    }
+    if (this->info_device_ == nullptr)
+      return false;
+  }
+  if (this->info_waiting_) {
+    if (now - this->info_sent_at_ < INFO_TIMEOUT_MS)
+      return true;
+    // Silence: the device does not carry this one. A firmware read keeps the processors it heard.
+    if (this->info_item_ == static_cast<uint8_t>(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE)) {
+      this->publish_info_(this->info_processor_ > 0 ? this->info_text_ : nullptr);
+    } else {
+      this->publish_info_(nullptr);
+    }
+    this->next_info_();
+    if (this->info_device_ == nullptr)
+      return true;
+  }
+
+  const uint32_t address = this->info_device_->get_address();
+  bool sent;
+  if (this->info_item_ == static_cast<uint8_t>(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE)) {
+    sent = this->send_(STRING_REQUEST_TYPE, address, {SOFTWARE_VERSION_SELECTOR, this->info_processor_});
+  } else if (this->info_have_string_) {
+    sent = this->request_string(address, this->info_string_, this->info_chunk_);
+  } else {
+    sent = this->send_(STRING_REQUEST_TYPE, address, {GENERAL_STRING_SELECTOR, this->info_item_});
+  }
+  if (!sent) {
+    // The bus would not take it. Leave the device pending and try again on a later pass.
+    this->info_device_ = nullptr;
+    return true;
+  }
+  this->info_waiting_ = true;
+  this->info_sent_at_ = now;
+  return true;
+}
+
+void MasterbusHub::next_info_() {
+  this->info_waiting_ = false;
+  this->info_have_string_ = false;
+  this->info_chunk_ = 0;
+  this->info_processor_ = 0;
+  this->info_text_[0] = '\0';
+  // The next fact some entity shows for this device. The class needs no question at all.
+  for (this->info_item_++;
+       this->info_item_ <= static_cast<uint8_t>(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE);
+       this->info_item_++) {
+    for (auto *entity : this->info_entities_) {
+      if (entity->get_masterbus_device() == this->info_device_ &&
+          static_cast<uint8_t>(entity->get_info()) == this->info_item_)
+        return;
+    }
+  }
+  this->info_device_->set_info_pending(false);
+  this->info_device_ = nullptr;
+}
+
+bool MasterbusHub::take_info_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data) {
+  if (this->info_device_ == nullptr || !this->info_waiting_ || address != this->info_device_->get_address())
+    return false;
+  if (type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE)
+    return false;
+  const bool refused = type == STRING_NOT_AVAILABLE_TYPE;
+
+  if (this->info_item_ == static_cast<uint8_t>(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE)) {
+    if (!is_software_version_header(data.data(), data.size(), this->info_processor_))
+      return false;
+    if (!refused && data.size() >= SOFTWARE_VERSION_INFORMATION_LENGTH && this->info_processor_ < INFO_MAX_PROCESSORS) {
+      // One version per processor, as the device numbers them: high byte, a dot, low byte.
+      const size_t at = strlen(this->info_text_);
+      snprintf(this->info_text_ + at, sizeof(this->info_text_) - at, "%s%u.%u", at == 0 ? "" : " ",
+               static_cast<unsigned>(data[3]), static_cast<unsigned>(data[2]));
+      this->info_processor_++;
+      this->info_waiting_ = false;
+      if (this->info_processor_ < INFO_MAX_PROCESSORS)
+        return true;
+    }
+    // Refused, or as many as are kept: the list of processors is done.
+    this->publish_info_(this->info_processor_ > 0 ? this->info_text_ : nullptr);
+    this->next_info_();
+    return true;
+  }
+
+  if (!this->info_have_string_) {
+    if (!is_general_string_header(data.data(), data.size(), this->info_item_))
+      return false;
+    if (refused || data.size() < GENERAL_STRING_INFORMATION_LENGTH) {
+      this->publish_info_(nullptr);
+      this->next_info_();
+      return true;
+    }
+    this->info_string_ = encode_uint16(data[3], data[2]);
+    this->info_have_string_ = true;
+    this->info_waiting_ = false;
+    return true;
+  }
+
+  // The answer echoes the request header, so it says which string and which chunk it carries.
+  if (data.size() < STRING_CHUNK_LENGTH || data[0] != STRING_REQUEST_MARKER ||
+      encode_uint16(data[2], data[1]) != this->info_string_)
+    return false;
+  if (refused) {
+    this->publish_info_(nullptr);
+    this->next_info_();
+    return true;
+  }
+  if (take_string_chunk(data.data(), data.size(), this->info_text_, MASTERBUS_TEXT_LENGTH)) {
+    this->publish_info_(this->info_text_[0] != '\0' ? this->info_text_ : nullptr);
+    this->next_info_();
+    return true;
+  }
+  this->info_chunk_ = data[3] + 1;
+  this->info_waiting_ = false;
+  return true;
+}
+
+void MasterbusHub::publish_info_(const char *text) {
+  for (auto *entity : this->info_entities_) {
+    if (entity->get_masterbus_device() != this->info_device_ ||
+        static_cast<uint8_t>(entity->get_info()) != this->info_item_)
+      continue;
+    if (text == nullptr) {
+      entity->publish_info_unavailable();
+    } else {
+      entity->publish_info(text);
+    }
+  }
 }
 #endif
 
