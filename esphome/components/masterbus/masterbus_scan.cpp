@@ -184,7 +184,7 @@ void MasterbusScanner::send_current_() {
       this->hub_->request_property_entry(address, MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, param,
                                          this->entry_, this->tab_);
       break;
-    case Phase::PHASE_EVENT_SOURCE:
+    case Phase::PHASE_EVENT_TARGET:
       this->hub_->request_property_entry(address, MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, param, 0,
                                          this->tab_);
       break;
@@ -385,8 +385,8 @@ void MasterbusScanner::advance_(bool answered) {
       }
       this->next_entry_();
       return;
-    case Phase::PHASE_EVENT_SOURCE:
-      // Without its source an event's fields still say something, so they are asked either way.
+    case Phase::PHASE_EVENT_TARGET:
+      // Without its target an event's entries still say something, so they are asked either way.
       this->entry_ = 0;
       this->phase_ = Phase::PHASE_EVENT_FIELD;
       return;
@@ -453,8 +453,8 @@ void MasterbusScanner::complete_field_() {
       this->phase_ = Phase::PHASE_LIST_DEVICE;
       return;
     case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_EVENT:
-      this->event_source_known_ = false;
-      this->phase_ = Phase::PHASE_EVENT_SOURCE;
+      this->event_target_known_ = false;
+      this->phase_ = Phase::PHASE_EVENT_TARGET;
       return;
     default:
       this->next_field_();
@@ -742,11 +742,11 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
         return false;
       this->report_entry_(decode_announced_address(data.data() + PROPERTY_VALUE_OFFSET));
       break;
-    case Phase::PHASE_EVENT_SOURCE:
+    case Phase::PHASE_EVENT_TARGET:
       if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, 0, 8))
         return false;
-      this->event_source_ = decode_announced_address(data.data() + PROPERTY_VALUE_OFFSET);
-      this->event_source_known_ = true;
+      this->event_target_ = decode_announced_address(data.data() + PROPERTY_VALUE_OFFSET);
+      this->event_target_known_ = true;
       break;
     case Phase::PHASE_EVENT_FIELD:
       if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_EVENT_FIELD, this->entry_, 5))
@@ -946,8 +946,8 @@ void MasterbusScanner::report_entry_(uint32_t value) {
       snprintf(what, sizeof(what), " entry=0x%06" PRIX32, value);
       break;
     case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_EVENT:
-      if (this->event_source_known_) {
-        snprintf(what, sizeof(what), " source=0x%06" PRIX32 " eventable=%u", this->event_source_,
+      if (this->event_target_known_) {
+        snprintf(what, sizeof(what), " target=0x%06" PRIX32 " eventable=%u", this->event_target_,
                  static_cast<unsigned>(value));
       } else {
         snprintf(what, sizeof(what), " eventable=%u", static_cast<unsigned>(value));
