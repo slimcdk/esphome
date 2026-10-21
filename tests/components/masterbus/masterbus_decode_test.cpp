@@ -1727,7 +1727,7 @@ TEST_F(MasterbusTest, ScanReadsTheEntriesOfADeviceList) {
 // An event field lists what another device can be told to do: selector 0x20 with index 0 names the
 // device, packed as in an announcement, and 0x0F with each index one of its eventables by number.
 // That device's count 0x40 + n says which of its fields eventable n is.
-TEST_F(MasterbusTest, ScanReadsWhatAnEventFieldWatches) {
+TEST_F(MasterbusTest, ScanReadsWhatAnEventFieldCommands) {
   scan_lines().clear();
   this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_EVENT, 2.0f);
   this->answer(PROPERTY_INFORMATION_TYPE, {0x20, 12, 0x00, 0x00, 0x14, 0x30, 0x5E, 0x03});
@@ -1738,8 +1738,8 @@ TEST_F(MasterbusTest, ScanReadsWhatAnEventFieldWatches) {
   this->answer(PROPERTY_INFORMATION_TYPE, {0x0F, 12, 0x00, 0x01, 0x01, 0x00});
 
   ASSERT_EQ(scan_lines().lines().size(), 5u);
-  EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 source=0x535E30 eventable=0");
-  EXPECT_EQ(scan_lines().lines()[4], "option device=0x6D56EA tab=0 param=12 index=1 source=0x535E30 eventable=1");
+  EXPECT_EQ(scan_lines().lines()[3], "option device=0x6D56EA tab=0 param=12 index=0 target=0x535E30 eventable=0");
+  EXPECT_EQ(scan_lines().lines()[4], "option device=0x6D56EA tab=0 param=12 index=1 target=0x535E30 eventable=1");
 }
 
 // Some equipment carries a longer form of a field's name. It is reported where it says more than

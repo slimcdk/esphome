@@ -114,7 +114,7 @@ class MasterbusScanner {
     PHASE_OPTION_ID,
     PHASE_OPTION_TEXT,
     PHASE_LIST_DEVICE,
-    PHASE_EVENT_SOURCE,
+    PHASE_EVENT_TARGET,
     PHASE_EVENT_FIELD,
   };
 
@@ -196,12 +196,12 @@ class MasterbusScanner {
   uint8_t chunk_{0};
   uint16_t completed_{0};
   /// The entry of a list field being asked for, and what it is known by so far: an option's
-  /// string and text, and the device an event watches.
+  /// string and text, and the device an event commands.
   uint8_t entry_{0};
   uint16_t option_string_{0};
   char option_text_[SCAN_NAME_LENGTH]{};
-  uint32_t event_source_{0};
-  bool event_source_known_{false};
+  uint32_t event_target_{0};
+  bool event_target_known_{false};
   MasterbusScannedField field_{};
 };
 
