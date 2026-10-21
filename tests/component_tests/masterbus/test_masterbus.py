@@ -25,13 +25,16 @@ from esphome.components.masterbus import (
 from esphome.components.masterbus.binary_sensor import (
     CONFIG_SCHEMA as BINARY_SENSOR_SCHEMA,
 )
+from esphome.components.masterbus.select import CONFIG_SCHEMA as SELECT_SCHEMA
 from esphome.components.masterbus.sensor import CONFIG_SCHEMA as SENSOR_SCHEMA
+from esphome.components.masterbus.text_sensor import CONFIG_SCHEMA as TEXT_SENSOR_SCHEMA
 from esphome.config import Config, validate_config
 from esphome.const import (
     CONF_DEVICE,
     CONF_DEVICES,
     CONF_ID,
     CONF_NAME,
+    CONF_OPTIONS,
     CONF_SCAN,
     CONF_TIMEOUT,
     CONF_UPDATE_INTERVAL,
@@ -248,6 +251,37 @@ def test_sensor_rejects_types_it_cannot_render(value_type: str) -> None:
     """A text field read as a sensor would be a misreading, not a conversion."""
     with pytest.raises(cv.Invalid):
         SENSOR_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type}))
+
+
+@pytest.mark.parametrize("value_type", ["list_option", "device_id", "eventable"])
+def test_text_sensor_shows_a_list_entry_by_the_names_it_is_given(
+    value_type: str,
+) -> None:
+    """A list field answers with an index; the names come from a scan, in the device's order."""
+    config = TEXT_SENSOR_SCHEMA(
+        _sensor(**{CONF_VALUE_TYPE: value_type, CONF_OPTIONS: ["Off", "On"]})
+    )
+    assert config[CONF_OPTIONS] == ["Off", "On"]
+
+
+@pytest.mark.parametrize("value_type", ["list_option", "device_id", "eventable"])
+def test_text_sensor_on_a_list_field_needs_its_options(value_type: str) -> None:
+    with pytest.raises(cv.Invalid, match=CONF_OPTIONS):
+        TEXT_SENSOR_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type}))
+
+
+@pytest.mark.parametrize("value_type", ["text", "time", "date"])
+def test_text_sensor_with_its_own_text_takes_no_options(value_type: str) -> None:
+    with pytest.raises(cv.Invalid, match=CONF_OPTIONS):
+        TEXT_SENSOR_SCHEMA(
+            _sensor(**{CONF_VALUE_TYPE: value_type, CONF_OPTIONS: ["A"]})
+        )
+
+
+@pytest.mark.parametrize("value_type", ["list_option", "device_id", "eventable"])
+def test_select_takes_every_kind_of_list(value_type: str) -> None:
+    """A device list and an event field write the index of an entry, as a list option does."""
+    SELECT_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type, CONF_OPTIONS: ["A", "B"]}))
 
 
 # Cross references, over the whole configuration
