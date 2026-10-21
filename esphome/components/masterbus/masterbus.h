@@ -123,18 +123,27 @@ class MasterbusEntity : public PollingComponent {
   uint32_t get_stale_timeout() const { return this->stale_timeout_ms_; }
 
   /// Write the field. The first write asks the device whether the field takes one at all (property
-  /// 0x0B) and goes out once it says yes; a field that says no is not written. With read_back the
-  /// field is read again shortly afterwards, so the entity shows what the device kept rather than
-  /// what was asked for. Returns whether the write, or the question before it, reached the bus.
+  /// 0x0B) and whether it is an event (0x0D), and goes out once it has answered; a field that says
+  /// no is not written. With read_back the field is read again shortly afterwards, so the entity
+  /// shows what the device kept rather than what was asked for. Returns whether the write, or the
+  /// questions before it, reached the bus.
   bool write(float value, bool read_back = true);
-  /// The device's word on whether this field takes a write, whoever asked for it.
+  /// The device's word on whether this field takes a write, and on whether it is an event, whoever
+  /// asked for it.
   void on_writeable_answer(bool writeable);
+  void on_eventable_answer(bool eventable);
+  /// Only an event is followed by the frame that names who wrote it: on any other field the next
+  /// field number is a field of its own.
+  bool is_eventable() const { return this->eventable_ == 1; }
 
  protected:
   bool perform_write_(float value, bool read_back);
-  /// The device did not say whether the field takes a write. It is written anyway: a write a device
-  /// declines does nothing, and the question is asked again before the next one.
-  void writeable_unanswered_();
+  /// Send the write that is waiting, once the device has said enough to send it or to refuse it.
+  void write_if_answered_();
+  /// The device did not answer in time. A field it did not say no to is written anyway, as no
+  /// event unless it said so: a write a device declines does nothing, and what went unanswered is
+  /// asked again before the next one.
+  void questions_unanswered_();
   void read_back_();
 
   MasterbusDevice *device_;
@@ -147,9 +156,10 @@ class MasterbusEntity : public PollingComponent {
   bool value_was_ours_{false};
   // Already reported unavailable for its own timeout, so it is not reported again every second.
   bool stale_{false};
-  // Whether the device says the field takes a write: -1 not yet known, then 0 or 1. And a write
-  // waiting for that answer, with what it is to write.
+  // Whether the device says the field takes a write, and whether it is an event: -1 not yet known,
+  // then 0 or 1. And a write waiting for those answers, with what it is to write.
   int8_t writeable_{-1};
+  int8_t eventable_{-1};
   bool write_pending_{false};
   bool pending_read_back_{false};
   float pending_value_{0.0f};
@@ -326,12 +336,9 @@ class MasterbusHub : public Component {
   void set_address(uint32_t address) { this->address_ = address; }
   uint32_t get_address() const { return this->address_; }
 
-  /// Ask a device to set one of its boolean fields. Returns whether the request reached the bus.
-  /// Set a boolean field. True is what the vendor library sends to fire an event field such as
-  /// "Close relay"; false is the same frame with a zero and has not been seen on the wire.
-  bool write_boolean(const MasterbusEntity &entity, bool state);
-  /// Set a monitoring field to a value. A device may still decline to act on it - see the note on
-  /// the lockout in masterbus_protocol.h - so a caller that needs the result must read it back.
+  /// Set a field to a value, followed by this hub's address on the next field if the entity's field
+  /// is an event. A device may still decline to act on it - see the note on the lockout in
+  /// masterbus_protocol.h - so a caller that needs the result must read it back.
   bool write_value(const MasterbusEntity &entity, float value);
 
 #ifdef MASTERBUS_DEVICE_COUNT
