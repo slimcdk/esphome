@@ -1,0 +1,12 @@
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+
+button:
+  - platform: template
+    name: Scan the bus
+    on_press:
+      - masterbus.scan:

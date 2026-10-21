@@ -392,6 +392,26 @@ def test_diagnostics_emit_defines_when_enabled(
     assert get_define_value("MASTERBUS_SCAN_MAX_DEVICES") == "32"
 
 
+def test_scan_at_boot_is_asked_for(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    main_cpp = generate_main(component_config_path("diagnostics_on.yaml"))
+    assert "mb->set_scan_at_boot(true);" in main_cpp
+
+
+def test_a_scan_action_compiles_the_scan_in_without_scanning_at_boot(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    """A button that starts a scan needs the walk, not a walk at every boot."""
+    main_cpp = generate_main(component_config_path("scan_on_demand.yaml"))
+    assert get_define_value("USE_MASTERBUS_SCAN") is not None
+    assert get_define_value("MASTERBUS_SCAN_MAX_DEVICES") == "32"
+    assert "set_scan_at_boot" not in main_cpp
+    assert "->start_scan();" in main_cpp
+
+
 def test_node_requests_emit_no_define_when_off(
     generate_main: Callable[[str | Path], str],
     component_config_path: Callable[[str], Path],

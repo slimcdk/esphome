@@ -17,6 +17,9 @@ ESPHOME_LOG_TAG(TAG, "masterbus");
 /// milliseconds, so this is many times longer than it needs to be.
 static constexpr uint32_t SCAN_REQUEST_MS = 2000;
 static constexpr uint32_t SCAN_SETTLE_MS = 10000;
+/// The hub's timers. A scan started again before it has reported replaces its own.
+static constexpr uint32_t SCAN_REQUEST_TIMEOUT_ID = 0;
+static constexpr uint32_t SCAN_REPORT_TIMEOUT_ID = 1;
 #endif
 
 #ifdef MASTERBUS_DEVICE_COUNT
@@ -131,7 +134,9 @@ void MasterbusHub::record_announcement_(uint32_t address) {
              MASTERBUS_SCAN_MAX_DEVICES, address);
     return;
   }
-  ESP_LOGI(TAG, "Scan found device 0x%06" PRIX32, address);
+  if (this->scan_listening_) {
+    ESP_LOGI(TAG, "Scan found device 0x%06" PRIX32, address);
+  }
   this->discovered_.push_back({address, 1});
 }
 #endif
@@ -183,7 +188,22 @@ bool MasterbusHub::request_software_version(uint32_t address, uint8_t processor)
   return this->send_(STRING_REQUEST_TYPE, address, {SOFTWARE_VERSION_SELECTOR, processor});
 }
 
+void MasterbusHub::start_scan() {
+  // The walk reads the list as it goes, so it is not emptied under it.
+  if (this->scanner_.is_running()) {
+    ESP_LOGW(TAG, "A scan is still walking the devices; not started again");
+    return;
+  }
+  // Ask once the bus has settled, then report what answered. A device another node asks about is
+  // picked up either way, but asking ourselves is what makes the list complete.
+  this->discovered_.clear();
+  this->scan_listening_ = true;
+  this->set_timeout(SCAN_REQUEST_TIMEOUT_ID, SCAN_REQUEST_MS, [this]() { this->request_nodes(); });
+  this->set_timeout(SCAN_REPORT_TIMEOUT_ID, SCAN_SETTLE_MS, [this]() { this->report_scan(); });
+}
+
 void MasterbusHub::report_scan() {
+  this->scan_listening_ = false;
   if (this->discovered_.empty()) {
     ESP_LOGW(TAG, "Scan heard nothing. Check wiring, bit rate and termination - 60 ohm across "
                   "CAN_H and CAN_L with everything powered down.");
@@ -231,10 +251,8 @@ void MasterbusHub::setup() {
                      [this]() { this->check_availability(App.get_loop_component_start_time()); });
 #endif
 #ifdef USE_MASTERBUS_SCAN
-  // Ask once the bus has settled after boot, then report what answered. A device another node asks
-  // about is picked up either way, but asking ourselves is what makes the list complete.
-  this->set_timeout(SCAN_REQUEST_MS, [this]() { this->request_nodes(); });
-  this->set_timeout(SCAN_SETTLE_MS, [this]() { this->report_scan(); });
+  if (this->scan_at_boot_)
+    this->start_scan();
 #endif
 #ifdef USE_MASTERBUS_NODE_REQUEST
   // An announcement is what keeps a device nobody polls online. Where no other node asks for them,
@@ -342,7 +360,7 @@ void MasterbusHub::dump_config() {
                 "  Address: 0x%06" PRIX32,
                 this->address_);
 #ifdef USE_MASTERBUS_SCAN
-  ESP_LOGCONFIG(TAG, "  Scan: enabled");
+  ESP_LOGCONFIG(TAG, "  Scan at boot: %s", YESNO(this->scan_at_boot_));
 #endif
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
   ESP_LOGCONFIG(TAG, "  Raw frame logging: enabled");

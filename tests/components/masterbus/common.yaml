@@ -100,6 +100,11 @@ switch:
     name: Charger state control
 
 button:
+  # A scan on demand rather than at boot, which compiles the scan in without scan: true.
+  - platform: template
+    name: Scan the bus
+    on_press:
+      - masterbus.scan:
   # Field 117 is an event: writing it closes the relay, and reading it always answers false. The
   # block's own current is the only evidence the command took effect.
   - platform: masterbus
