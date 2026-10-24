@@ -3,6 +3,7 @@ from esphome.components import text_sensor
 from esphome.components.const import CONF_VALUE_TYPE
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_OPTIONS
+from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
 from esphome.types import ConfigType
 
 from .. import (
@@ -58,7 +59,7 @@ def _validate_options(config: ConfigType) -> ConfigType:
     return config
 
 
-FIELD_SCHEMA = cv.All(
+_FIELD_KEYS = (
     text_sensor.text_sensor_schema(MasterbusTextSensor)
     .extend(
         entity_schema(
@@ -72,9 +73,9 @@ FIELD_SCHEMA = cv.All(
                 cv.ensure_list(cv.string_strict), cv.Length(min=1)
             )
         }
-    ),
-    _validate_options,
+    )
 )
+FIELD_SCHEMA = cv.All(_FIELD_KEYS, _validate_options)
 
 INFO_SCHEMA = (
     text_sensor.text_sensor_schema(MasterbusInfoTextSensor)
@@ -88,10 +89,18 @@ INFO_SCHEMA = (
 )
 
 
+# What schema extraction shows: one schema holding the keys of both forms, since an editor sees
+# no `info` to choose between them by.
+_EXTRACT_SCHEMA = _FIELD_KEYS.extend(
+    {cv.Optional(CONF_INFO): cv.enum(INFO, lower=True)}
+)
+
+
+@schema_extractor("schema")
 def CONFIG_SCHEMA(config: ConfigType) -> ConfigType:
     """A field of a device, by its number, or what the device says about itself, by `info`."""
-    if config is cv.SCHEMA_EXTRACT:
-        return FIELD_SCHEMA
+    if config is SCHEMA_EXTRACT:
+        return _EXTRACT_SCHEMA
     if isinstance(config, dict) and CONF_INFO in config:
         return INFO_SCHEMA(config)
     return FIELD_SCHEMA(config)
