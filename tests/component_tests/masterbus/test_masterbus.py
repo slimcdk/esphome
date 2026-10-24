@@ -25,9 +25,11 @@ from esphome.components.masterbus import (
 from esphome.components.masterbus.binary_sensor import (
     CONFIG_SCHEMA as BINARY_SENSOR_SCHEMA,
 )
+from esphome.components.masterbus.button import CONFIG_SCHEMA as BUTTON_SCHEMA
 from esphome.components.masterbus.number import CONFIG_SCHEMA as NUMBER_SCHEMA
 from esphome.components.masterbus.select import CONFIG_SCHEMA as SELECT_SCHEMA
 from esphome.components.masterbus.sensor import CONFIG_SCHEMA as SENSOR_SCHEMA
+from esphome.components.masterbus.switch import CONFIG_SCHEMA as SWITCH_SCHEMA
 from esphome.components.masterbus.text_sensor import CONFIG_SCHEMA as TEXT_SENSOR_SCHEMA
 from esphome.config import Config, validate_config
 from esphome.const import (
@@ -310,6 +312,25 @@ def test_select_takes_every_kind_of_list(value_type: str) -> None:
     SELECT_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type, CONF_OPTIONS: ["A", "B"]}))
 
 
+def test_button_takes_no_update_interval() -> None:
+    """A push button carries no state, so there is nothing to poll for."""
+    with pytest.raises(cv.Invalid, match="no value to poll"):
+        BUTTON_SCHEMA(_sensor(**{CONF_UPDATE_INTERVAL: "10s"}))
+
+
+@pytest.mark.parametrize("value_type", ["float", "list_option", "text"])
+def test_switch_takes_only_a_boolean(value_type: str) -> None:
+    with pytest.raises(cv.Invalid, match=CONF_VALUE_TYPE):
+        SWITCH_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type}))
+
+
+def test_text_sensor_options_may_not_be_empty() -> None:
+    with pytest.raises(cv.Invalid, match="at least 1"):
+        TEXT_SENSOR_SCHEMA(
+            _sensor(**{CONF_VALUE_TYPE: "list_option", CONF_OPTIONS: []})
+        )
+
+
 def test_select_needs_an_option() -> None:
     with pytest.raises(cv.Invalid, match="at least 1"):
         SELECT_SCHEMA(_sensor(**{CONF_OPTIONS: []}))
@@ -407,6 +428,34 @@ def test_polling_slower_than_the_device_timeout_warns(
     result = _validated(component_config_path("slow_poll.yaml"))
     assert not result.errors
     assert "go offline between answers" in caplog.text
+
+
+def test_polling_exactly_as_slow_as_the_timeout_warns(
+    component_config_path: Callable[[str], Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The answer and the timeout arrive together, so the device can drop between them."""
+    result = _validated(component_config_path("poll_as_slow_as_the_timeout.yaml"))
+    assert not result.errors
+    assert "go offline between answers" in caplog.text
+
+
+def test_the_fastest_poller_decides_whether_to_warn(
+    component_config_path: Callable[[str], Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    result = _validated(component_config_path("poll_fastest.yaml"))
+    assert not result.errors
+    assert "go offline between answers" not in caplog.text
+
+
+def test_a_poller_that_never_runs_is_no_reason_to_warn(
+    component_config_path: Callable[[str], Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    result = _validated(component_config_path("poll_never.yaml"))
+    assert not result.errors
+    assert "go offline between answers" not in caplog.text
 
 
 def test_node_requests_faster_than_the_timeout_keep_the_warning_quiet(
@@ -515,3 +564,130 @@ def test_each_hub_sizes_its_lists_for_its_own_devices(
     assert get_define_value("MASTERBUS_ENTITY_COUNT") == "2"
     assert get_define_value("MASTERBUS_INFO_COUNT") == "1"
     assert get_define_value("MASTERBUS_UNKNOWN_FRAME_COUNT") == "1"
+
+
+# Every schema branch, checked in the code it generates. A missing registration still compiles and
+# silently does nothing, so it is the generated call that is asserted.
+
+FIELD_ENTITIES = (
+    ("mb_battery", "battery_voltage"),
+    ("mb_battery", "battery_low"),
+    ("mb_battery", "battery_label"),
+    ("mb_display", "display_language"),
+    ("mb_display", "display_backlight"),
+    ("mb_display", "display_page"),
+    ("mb_display", "display_relay"),
+    ("mb_battery", "battery_close_relay"),
+)
+
+
+def test_the_hub_and_its_devices_are_generated_as_configured(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    main_cpp = generate_main(component_config_path("codegen.yaml"))
+    assert "mb->set_address(0x381001);" in main_cpp
+    assert (
+        "mb->add_on_unknown_frame_callback("
+        "TriggerForwarder<std::vector<uint8_t>, uint8_t, uint32_t>" in main_cpp
+    )
+    assert get_define_value("MASTERBUS_UNKNOWN_FRAME_COUNT") == "1"
+    assert "new(mb_battery) masterbus::MasterbusDevice(mb, 0x6C1001);" in main_cpp
+    # A device's timeout defaults to a minute.
+    assert "mb_battery->set_timeout(60000);" in main_cpp
+    assert "mb_display->set_timeout(300000);" in main_cpp
+    assert "mb->register_device(mb_battery);" in main_cpp
+    assert "mb->register_device(mb_display);" in main_cpp
+    assert "mb_battery->add_on_online_callback(TriggerForwarder<>" in main_cpp
+    assert "mb_battery->add_on_offline_callback(TriggerForwarder<>" in main_cpp
+
+
+def test_a_hub_speaking_as_the_vendor_library_sets_no_address(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    """The class already starts with the vendor library's address."""
+    main_cpp = generate_main(component_config_path("full.yaml"))
+    assert "set_address(" not in main_cpp
+
+
+@pytest.mark.parametrize(("device", "entity"), FIELD_ENTITIES)
+def test_every_field_entity_is_registered_with_its_device(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+    device: str,
+    entity: str,
+) -> None:
+    main_cpp = generate_main(component_config_path("codegen.yaml"))
+    assert f"{device}->register_entity({entity});" in main_cpp
+    assert f"App.register_component_({entity}," in main_cpp
+
+
+def test_field_entities_carry_their_address_tab_and_type(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    main_cpp = generate_main(component_config_path("codegen.yaml"))
+    assert get_define_value("MASTERBUS_ENTITY_COUNT") == str(len(FIELD_ENTITIES))
+    assert (
+        "masterbus::MasterbusBinarySensor(mb_battery, 0x02, "
+        "masterbus::MasterbusTab::MASTERBUS_TAB_ALARM, "
+        "masterbus::MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);" in main_cpp
+    )
+    assert (
+        "masterbus::MasterbusSelect(mb_display, 0x2C, "
+        "masterbus::MasterbusTab::MASTERBUS_TAB_CONFIGURATION, "
+        "masterbus::MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION);" in main_cpp
+    )
+    # Only the entity given a timeout of its own gets one.
+    assert "battery_voltage->set_stale_timeout(30000);" in main_cpp
+    assert main_cpp.count("set_stale_timeout(") == 1
+    assert "battery_voltage->set_update_interval(10000);" in main_cpp
+
+
+def test_list_entities_carry_their_options_and_numbers_their_range(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    main_cpp = generate_main(component_config_path("codegen.yaml"))
+    assert "display_language->set_options(masterbus_text_options, 2);" in main_cpp
+    assert '"Nederlands"' in main_cpp
+    assert "display_page->traits.set_options_static(select_options, 2);" in main_cpp
+    assert "display_backlight->traits.set_min_value(5.0f);" in main_cpp
+    assert "display_backlight->traits.set_max_value(95.0f);" in main_cpp
+    assert "display_backlight->traits.set_step(5.0f);" in main_cpp
+
+
+def test_a_text_field_compiles_the_string_read_in(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    generate_main(component_config_path("codegen.yaml"))
+    assert get_define_value("USE_MASTERBUS_TEXT") is not None
+
+
+def test_no_text_field_leaves_the_string_read_out(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    generate_main(component_config_path("full.yaml"))
+    assert get_define_value("USE_MASTERBUS_TEXT") is None
+    assert get_define_value("USE_MASTERBUS_INFO") is None
+
+
+def test_information_read_off_the_bus_is_registered_and_the_class_is_not(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    main_cpp = generate_main(component_config_path("codegen.yaml"))
+    assert get_define_value("USE_MASTERBUS_INFO") is not None
+    assert get_define_value("MASTERBUS_INFO_COUNT") == "1"
+    assert "mb_battery->register_info_entity(battery_serial);" in main_cpp
+    assert "register_info_entity(battery_class)" not in main_cpp
+    for entity in ("battery_serial", "battery_class"):
+        assert f"App.register_component_({entity}," in main_cpp
+        assert f"App.register_text_sensor({entity}," in main_cpp
+    assert (
+        "masterbus::MasterbusInfoTextSensor(mb_battery, "
+        "masterbus::MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_CLASS);" in main_cpp
+    )
