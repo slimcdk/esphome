@@ -425,15 +425,11 @@ class MasterbusHub : public Component {
   void record_announcement_(uint32_t address);
 #endif
 
-  /// Put one MasterBus message on the bus. Returns whether it was accepted for transmission.
-  ///
-  /// The payload goes into a buffer the hub keeps rather than a fresh vector each time. The canbus
-  /// API takes a vector and copies it into a frame, so a poll would otherwise allocate and free
-  /// once per field - every few seconds, for months, on a heap shared with Wi-Fi and lwIP.
+  /// Put one MasterBus message on the bus. Returns whether it was accepted for transmission. The
+  /// payload goes straight into the frame, so nothing is allocated per message.
   bool send_(uint8_t type, uint32_t address, std::initializer_list<uint8_t> payload);
 
   canbus::Canbus *canbus_;
-  std::vector<uint8_t> tx_;
   uint32_t address_{HUB_ADDRESS};
 #ifdef USE_MASTERBUS_NODE_REQUEST
   uint32_t node_request_interval_ms_{0};
