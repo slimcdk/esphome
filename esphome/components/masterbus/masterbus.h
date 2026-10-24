@@ -141,6 +141,8 @@ class MasterbusEntity : public PollingComponent {
   bool is_eventable() const { return this->eventable_ == 1; }
 
  protected:
+  /// The lines every entity adds to its config dump: which field of which device it is.
+  void dump_masterbus_config_();
   bool perform_write_(float value, bool read_back);
   /// Send the write that is waiting, once the device has said enough to send it or to refuse it.
   void write_if_answered_();

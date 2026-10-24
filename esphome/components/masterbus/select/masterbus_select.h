@@ -9,6 +9,8 @@ class MasterbusSelect : public select::Select, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 
+  void dump_config() override;
+
   void publish_masterbus_value(const MasterbusValue &value) override;
   // A select has no way to clear a published option, so the state flag is all that can be dropped.
   void publish_masterbus_unavailable() override { this->set_has_state(false); }
