@@ -371,6 +371,16 @@ def test_polling_slower_than_the_device_timeout_warns(
     assert "go offline between answers" in caplog.text
 
 
+def test_node_requests_faster_than_the_timeout_keep_the_warning_quiet(
+    component_config_path: Callable[[str], Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Each announcement answering the hub's own node request keeps the device online too."""
+    result = _validated(component_config_path("slow_poll_node_requests.yaml"))
+    assert not result.errors
+    assert "go offline between answers" not in caplog.text
+
+
 # What the configuration compiles into
 
 
