@@ -2141,6 +2141,41 @@ TEST_F(MasterbusTest, ADeviceIsReadAgainWhenItsStatusVersionChangesOrItAsksToBe)
   EXPECT_EQ(article->texts.size(), 3u);
 }
 
+// Some equipment flips its status version on nearly every announcement - an interface in a 2022
+// capture sent 08 and 00 by turns. Read again on each flip, a device whose announcements a hub asks
+// for every few seconds would be read in full every few seconds. A flip within the device's timeout
+// of the last read waits, and is read on the first announcement after it.
+TEST_F(MasterbusTest, AStatusVersionThatFlipsBackAndForthIsReadOncePerTimeout) {
+  this->battery_->set_timeout(60000);
+  auto *article = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_ARTICLE_NUMBER);
+  const auto read_article = [this]() {
+    this->info_answer(STRING_INFORMATION_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_ARTICLE_NUMBER, 0x02, 0x00});
+    this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x00, '6', '6', '0', 0x00});
+  };
+  uint32_t now = 1000;
+  {
+    LoopBlockingGuard clock{nullptr, nullptr, now};
+    this->announce(0x00, 0x08);
+  }
+  read_article();
+  for (int i = 0; i < 6; i++) {
+    now += 9000;
+    LoopBlockingGuard clock{nullptr, nullptr, now};
+    this->announce(0x00, (i % 2) == 0 ? 0x00 : 0x08);
+    read_article();
+  }
+  EXPECT_EQ(article->texts.size(), 1u);
+
+  // Past the timeout, the flip that was owed is read, whatever this announcement says.
+  now += 10000;
+  {
+    LoopBlockingGuard clock{nullptr, nullptr, now};
+    this->announce(0x00, 0x08);
+  }
+  read_article();
+  EXPECT_EQ(article->texts.size(), 2u);
+}
+
 // Lets a test stand in for the scheduler, which a host test does not run.
 class SchedulingEntity : public RecordingEntity {
  public:
