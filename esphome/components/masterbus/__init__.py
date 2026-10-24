@@ -225,7 +225,32 @@ def _validate_poll_cadence(config: ConfigType) -> ConfigType:
     return config
 
 
-FINAL_VALIDATE_SCHEMA = _validate_poll_cadence
+def _validate_unique_hub_address(config: ConfigType) -> ConfigType:
+    """Refuse a second hub on the same bus under the same address.
+
+    Both would transmit under one identity, and each would take the other's answers as its own.
+    """
+    for other in fv.full_config.get().get(DOMAIN, []):
+        if (
+            str(other[CONF_ID]) != str(config[CONF_ID])
+            and str(other[CONF_CANBUS_ID]) == str(config[CONF_CANBUS_ID])
+            and other[CONF_ADDRESS] == config[CONF_ADDRESS]
+        ):
+            raise cv.Invalid(
+                f"hubs '{config[CONF_ID]}' and '{other[CONF_ID]}' both speak as "
+                f"0x{config[CONF_ADDRESS]:06X} on '{config[CONF_CANBUS_ID]}'. Give one of them an "
+                f"'{CONF_ADDRESS}' of its own: two nodes under one address take each other's "
+                f"answers as their own."
+            )
+    return config
+
+
+def _final_validate(config: ConfigType) -> ConfigType:
+    _validate_unique_hub_address(config)
+    return _validate_poll_cadence(config)
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 def entity_schema(
