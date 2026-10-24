@@ -39,7 +39,9 @@ static constexpr uint8_t MESSAGE_TYPE_SHIFT = 23;
 /// VERIFIED: the top five bits of an address say what kind of equipment the device is. The vendor's
 /// configuration tool names them, and every device on two installations - eleven of eleven - sits
 /// in the class its own name says: interfaces in 14, display panels in 20, battery monitors in 27.
-/// LIBRARY: the low 18 bits are worked out from the unit's serial and article numbers.
+/// VERIFIED: the low 18 bits are worked out from the unit's serial and article numbers. The vendor's
+/// configuration tool holds the formula, and it gives the address of every device on the reference
+/// bus from the numbers on its label.
 static constexpr uint8_t DEVICE_CLASS_SHIFT = 18;
 
 constexpr uint8_t device_class(uint32_t address) { return (address & DEVICE_ADDRESS_MASK) >> DEVICE_CLASS_SHIFT; }
@@ -68,13 +70,12 @@ static constexpr uint8_t MONITORING_REQUEST_TYPE = 0x30;
 static constexpr uint8_t MONITORING_INFORMATION_TYPE = 0x10;
 static constexpr uint8_t MONITORING_REQUEST_LENGTH = 2;
 static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
-// VERIFIED for the configuration tab, LIBRARY for alarm and history: every tab reads a value with
-// message numbers of its own (see tab_message() below) and the two lengths above. Configuration
-// reads were answered in exactly this shape on a live bus, by a battery block and a display panel,
-// for floats, list options and text. The vendor library builds and parses the other two tabs'
-// values the same way, but no device has been watched answering one. An answer of a different
-// length is dropped rather than misread, so a wrong assumption shows up as silence, not as a wrong
-// value.
+// VERIFIED on every tab: each reads a value with message numbers of its own (see tab_message()
+// below) and the two lengths above. Configuration reads were answered in exactly this shape on a
+// live bus, by a battery block and a display panel, for floats, list options and text; alarm and
+// history reads by a battery block, its alarm flags and its running days and charge cycles. An
+// answer of a different length is dropped rather than misread, so equipment that answers otherwise
+// shows up as silence, not as a wrong value.
 
 /// VERIFIED: a monitoring field is written with the same message type that reads it. What tells
 /// the two apart is the payload length: two bytes asks, six bytes writes. LIBRARY: every other tab
@@ -569,10 +570,10 @@ static constexpr MasterbusTabMessage MASTERBUS_TAB_MESSAGES[] = {
 /// per tab for monitoring, alarm and history - and configuration is the exception. Values follow no
 /// rule: the library looks them up, and the alarm tab's sit down among the node messages.
 ///
-/// VERIFIED on a wire: monitoring's three, the configuration value, and the requests and answers of
-/// the other three group walks, sent in one burst by a display panel opening a device's menu. The
-/// library is what says which walk belongs to which tab. No refusal of a tab message has been
-/// captured: a device that will not answer stays silent.
+/// VERIFIED on a wire: monitoring's three, the requests and answers of the other three tabs' values,
+/// and those of the other three group walks, which a display panel sends in one burst when it opens
+/// a device's menu. The library is what says which walk belongs to which tab. No refusal of a tab
+/// message has been captured: a device that will not answer stays silent.
 ///
 /// An earlier reading took the order the library stores its message names in for their numbering,
 /// and put history values at 0x3A. The library refuses 0x3A.
