@@ -912,7 +912,7 @@ TEST_F(MasterbusTest, AFieldOnAnyTabIsWrittenOnThatTabsOwnRequestNumber) {
     ASSERT_EQ(this->canbus_.sent.size(), 1u);
     EXPECT_EQ(this->canbus_.sent[0].can_id >> MESSAGE_TYPE_SHIFT,
               tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request)
-        << masterbus_tab_to_string(tab);
+        << LOG_STR_ARG(masterbus_tab_to_string(tab));
   }
 }
 

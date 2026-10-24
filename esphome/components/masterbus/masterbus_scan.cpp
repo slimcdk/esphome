@@ -7,6 +7,7 @@
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#include "esphome/core/progmem.h"
 
 #include <cmath>
 #include <cstdio>
@@ -850,8 +851,11 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
 /// Name one device: its class, which its address carries, and what else it answered for. The line
 /// is written for every device - including one that describes no fields at all, which would
 /// otherwise be missing from the configuration the converter builds.
+// The key each of the device's own strings is reported under, in the vendor's numbering from 1.
+PROGMEM_STRING_TABLE(MasterbusScanStringKeys, "article", "serial", "name", "revision");
+static_assert(MasterbusScanStringKeys::COUNT == DEVICE_STRING_COUNT, "one key per device string");
+
 void MasterbusScanner::report_device_() {
-  static constexpr const char *STRING_KEYS[DEVICE_STRING_COUNT] = {"article", "serial", "name", "revision"};
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
   char quoted[SCAN_NAME_LENGTH * 4 + 3];
   // Class, eventables, four quoted strings with their keys, and the versions.
@@ -863,7 +867,8 @@ void MasterbusScanner::report_device_() {
     if ((this->device_strings_known_ & (1 << i)) == 0)
       continue;
     quote_string(this->device_strings_[i], quoted, sizeof(quoted));
-    at += snprintf(line + at, sizeof(line) - at, " %s=%s", STRING_KEYS[i], quoted);
+    at += snprintf(line + at, sizeof(line) - at, " %s=%s",
+                   LOG_STR_ARG(MasterbusScanStringKeys::get_log_str(i, MasterbusScanStringKeys::LAST_INDEX)), quoted);
   }
   if (this->processor_ > 0) {
     // One version per processor, as the device numbers them: high byte, a dot, low byte.

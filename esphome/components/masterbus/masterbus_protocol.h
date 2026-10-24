@@ -792,6 +792,4 @@ enum class MasterbusDeviceStatus : uint8_t {
   MASTERBUS_DEVICE_STATUS_UPDATING = 6,
 };
 
-const char *masterbus_tab_to_string(MasterbusTab tab);
-
 }  // namespace esphome::masterbus

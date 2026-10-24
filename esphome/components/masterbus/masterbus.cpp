@@ -47,18 +47,18 @@ static constexpr uint32_t INFO_TIMEOUT_MS = 1000;
 static constexpr uint8_t INFO_MAX_PROCESSORS = 8;
 #endif
 
-const char *masterbus_tab_to_string(MasterbusTab tab) {
+const LogString *masterbus_tab_to_string(MasterbusTab tab) {
   switch (tab) {
     case MasterbusTab::MASTERBUS_TAB_MONITORING:
-      return "monitoring";
+      return LOG_STR("monitoring");
     case MasterbusTab::MASTERBUS_TAB_ALARM:
-      return "alarm";
+      return LOG_STR("alarm");
     case MasterbusTab::MASTERBUS_TAB_HISTORY:
-      return "history";
+      return LOG_STR("history");
     case MasterbusTab::MASTERBUS_TAB_CONFIGURATION:
-      return "configuration";
+      return LOG_STR("configuration");
   }
-  return "unknown";
+  return LOG_STR("unknown");
 }
 
 #ifdef MASTERBUS_ENTITY_COUNT
@@ -346,7 +346,7 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
     if ((this->short_answer_said_ & already_said) == 0) {
       this->short_answer_said_ |= already_said;
       ESP_LOGW(TAG, "Device 0x%06" PRIX32 " answered with %u bytes on the %s tab, fewer than a value needs", address,
-               static_cast<unsigned>(data.size()), masterbus_tab_to_string(tab));
+               static_cast<unsigned>(data.size()), LOG_STR_ARG(masterbus_tab_to_string(tab)));
     }
     return;
   }
@@ -409,7 +409,7 @@ void MasterbusEntity::check_stale(uint32_t now) {
 bool MasterbusHub::request_field(const MasterbusEntity &entity) {
   const uint16_t param = entity.get_param();
   ESP_LOGV(TAG, "Asking device 0x%06" PRIX32 " for field %u on the %s tab",
-           entity.get_masterbus_device()->get_address(), param, masterbus_tab_to_string(entity.get_tab()));
+           entity.get_masterbus_device()->get_address(), param, LOG_STR_ARG(masterbus_tab_to_string(entity.get_tab())));
   return this->send_(tab_message(entity.get_tab(), MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request,
                      entity.get_masterbus_device()->get_address(),
                      {static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
@@ -516,7 +516,7 @@ bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
   const uint16_t param = entity.get_param();
   const uint32_t address = entity.get_masterbus_device()->get_address();
   ESP_LOGD(TAG, "Writing %.4g to field %u on the %s tab of device 0x%06" PRIX32, value, param,
-           masterbus_tab_to_string(entity.get_tab()), address);
+           LOG_STR_ARG(masterbus_tab_to_string(entity.get_tab())), address);
 
   uint32_t bits;
   memcpy(&bits, &value, sizeof(bits));
