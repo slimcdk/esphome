@@ -45,7 +45,7 @@ void MasterbusInfoTextSensor::setup() {
   if (this->info_ != MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_CLASS)
     return;
   // Nothing to ask: the class is part of the address the configuration already gives.
-  const uint8_t device_kind = device_class(this->device_->get_address());
+  const uint8_t device_kind = device_class(this->get_masterbus_device()->get_address());
   char name[MasterbusDeviceClasses::MAX_LENGTH + 1];
   ESPHOME_strncpy_P(name, reinterpret_cast<ESPHOME_PGM_P>(MasterbusDeviceClasses::get_progmem_str(device_kind, 0)),
                     sizeof(name) - 1);
@@ -57,7 +57,7 @@ void MasterbusInfoTextSensor::setup() {
 
 void MasterbusInfoTextSensor::dump_config() {
   LOG_TEXT_SENSOR("", "MasterBus device information", this);
-  ESP_LOGCONFIG(TAG, "  Device: 0x%06" PRIX32, this->device_->get_address());
+  ESP_LOGCONFIG(TAG, "  Device: 0x%06" PRIX32, this->get_masterbus_device()->get_address());
 }
 #endif
 

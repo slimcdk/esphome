@@ -30,17 +30,17 @@ enum class MasterbusDeviceInfo : uint8_t {
 /// An entity that shows one thing a device says about itself rather than one of its fields.
 class MasterbusInfoEntity {
  public:
-  MasterbusInfoEntity(MasterbusDevice *device, MasterbusDeviceInfo info) : device_(device), info_(info) {}
+  MasterbusInfoEntity(MasterbusDevice *device, MasterbusDeviceInfo info) : masterbus_device_(device), info_(info) {}
 
   /// The text is only borrowed for the duration of the call.
   virtual void publish_info(const char *text) = 0;
   virtual void publish_info_unavailable() = 0;
 
-  MasterbusDevice *get_masterbus_device() const { return this->device_; }
+  MasterbusDevice *get_masterbus_device() const { return this->masterbus_device_; }
   MasterbusDeviceInfo get_info() const { return this->info_; }
 
  protected:
-  MasterbusDevice *device_;
+  MasterbusDevice *masterbus_device_;
   MasterbusDeviceInfo info_;
 };
 #endif
@@ -74,7 +74,7 @@ struct MasterbusValue {
 class MasterbusEntity : public PollingComponent {
  public:
   MasterbusEntity(MasterbusDevice *device, uint16_t param, MasterbusTab tab, MasterbusValueType value_type)
-      : device_(device), param_(param), tab_(tab), value_type_(value_type) {}
+      : masterbus_device_(device), param_(param), tab_(tab), value_type_(value_type) {}
 
   /// Ask this entity's device for the field's current value. A MasterBus device answers only when
   /// asked, so this is what makes an entity update on its own rather than on someone else's
@@ -111,7 +111,7 @@ class MasterbusEntity : public PollingComponent {
   /// field is unset.
   virtual void publish_masterbus_unavailable() = 0;
 
-  MasterbusDevice *get_masterbus_device() const { return this->device_; }
+  MasterbusDevice *get_masterbus_device() const { return this->masterbus_device_; }
   uint16_t get_param() const { return this->param_; }
   MasterbusTab get_tab() const { return this->tab_; }
   MasterbusValueType get_value_type() const { return this->value_type_; }
@@ -146,7 +146,7 @@ class MasterbusEntity : public PollingComponent {
   void questions_unanswered_();
   void read_back_();
 
-  MasterbusDevice *device_;
+  MasterbusDevice *masterbus_device_;
   uint32_t stale_timeout_ms_{0};
   uint32_t last_value_at_{0};
   // A separate flag rather than a zero timestamp: the clock legitimately reads zero.
