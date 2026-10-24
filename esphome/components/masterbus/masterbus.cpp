@@ -630,6 +630,11 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
         break;
       }
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE: {
+        // Zero is a date the device leaves unset, which is ordinary and not worth a warning.
+        if (value == 0.0f) {
+          entity->publish_masterbus_unavailable();
+          continue;
+        }
         MasterbusDate date{};
         if (!decode_date(value, date)) {
           ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " answered %.6g, which is not a date", param,

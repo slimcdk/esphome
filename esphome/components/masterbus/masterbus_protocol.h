@@ -154,7 +154,8 @@ struct MasterbusTime {
 };
 
 /// Unpack a date field. Returns false, and leaves `out` alone, for a number that cannot be one -
-/// which also catches the NaN a device that has no answer reports.
+/// which also catches the NaN a device that has no answer reports, and a month or day of zero,
+/// which is what a date the device leaves unset unpacks to.
 inline bool decode_date(float value, MasterbusDate &out) {
   // The year has to survive the cast as well as the packing, so the bound is the largest year the
   // struct can hold rather than the largest float.
@@ -162,9 +163,13 @@ inline bool decode_date(float value, MasterbusDate &out) {
     return false;
   const uint32_t packed = static_cast<uint32_t>(value);
   const uint32_t months = packed / DATE_DAYS_PER_MONTH;
+  const auto month = static_cast<uint8_t>(months % DATE_MONTHS_PER_YEAR);
+  const auto day = static_cast<uint8_t>(packed % DATE_DAYS_PER_MONTH);
+  if (month == 0 || day == 0)
+    return false;
   out.year = static_cast<uint16_t>(months / DATE_MONTHS_PER_YEAR);
-  out.month = static_cast<uint8_t>(months % DATE_MONTHS_PER_YEAR);
-  out.day = static_cast<uint8_t>(packed % DATE_DAYS_PER_MONTH);
+  out.month = month;
+  out.day = day;
   return true;
 }
 
