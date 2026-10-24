@@ -51,7 +51,7 @@ class MasterbusTest : public ::testing::Test {
     return raw;
   }
 
-  /// BAT 1's announcement, recorded off the bus, with byte 6 and the status version as given.
+  /// Battery 1's announcement, recorded off the bus, with byte 6 and the status version as given.
   void announce(uint8_t flags = 0x00, uint8_t status_version = 0x02) {
     this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                          {0x1B, 0x01, 0x10, 0x00, 0x51, 0x00, flags, status_version});
@@ -212,7 +212,7 @@ TEST_F(MasterbusTest, MonitoringAnswerUpdatesTheMatchingSensor) {
   auto *current = this->add_sensor(2);
 
   // Recorded: can_mb 086C1001#0100 92EDD141 -> 26.241 V on field 1. 0x086C1001 is the identifier
-  // as it appears on the wire for a monitoring answer from BAT 1.
+  // as it appears on the wire for a monitoring answer from Battery 1.
   ASSERT_EQ(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), 0x086C1001u);
   this->feed("ext 0x086C1001 [6] 01:00:92:ED:D1:41");
 
@@ -977,7 +977,7 @@ TEST_F(MasterbusTest, AnAnswerOfTheWrongLengthOnADerivedTabIsDropped) {
 // Announcement payloads captured from the live bus, one per device. The first four bytes carry
 // the sender's own address, which is what makes discovery possible without transmitting.
 TEST_F(MasterbusTest, ScanDiscoversDevicesFromTheirAnnouncements) {
-  // 0x046C1001 is the identifier BAT 1 announces itself under.
+  // 0x046C1001 is the identifier Battery 1 announces itself under.
   ASSERT_EQ(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), 0x046C1001u);
   this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
                        {0x1B, 0x01, 0x10, 0x00, 0x51, 0x00, 0x00, 0x02});
@@ -1989,7 +1989,7 @@ TEST_F(MasterbusTest, AnOptionAnswerForAnotherIndexIsNotTaken) {
 
 // A device list holds device addresses under selector 0x20, packed the way an announcement packs
 // one; the maximum says how many. The entries below are the ones the battery blocks' event settings
-// answered on the reference bus: BAT 1 and the display panel.
+// answered on the reference bus: Battery 1 and the display panel.
 TEST_F(MasterbusTest, ScanReadsTheEntriesOfADeviceList) {
   scan_lines().clear();
   this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DEVICE_LIST, 2.0f);
