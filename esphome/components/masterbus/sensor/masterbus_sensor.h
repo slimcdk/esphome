@@ -9,6 +9,8 @@ class MasterbusSensor : public sensor::Sensor, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 
+  void dump_config() override;
+
   void publish_masterbus_value(const MasterbusValue &value) override;
   void publish_masterbus_unavailable() override { this->publish_state(NAN); }
 };

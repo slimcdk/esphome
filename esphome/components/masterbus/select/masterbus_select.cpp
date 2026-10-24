@@ -35,4 +35,9 @@ void MasterbusSelect::control(const std::string &value) {
   this->write(static_cast<float>(index.value()));
 }
 
+void MasterbusSelect::dump_config() {
+  LOG_SELECT("", "MasterBus select", this);
+  this->dump_masterbus_config_();
+}
+
 }  // namespace esphome::masterbus
