@@ -1,0 +1,19 @@
+# The device is polled less often than its timeout, but the hub asks for announcements more often.
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+    node_request_interval: 10s
+    devices:
+      - id: mb_battery
+        device: 0x6C1001
+        timeout: 60s
+
+sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0001
+    name: Battery voltage
+    update_interval: 5min

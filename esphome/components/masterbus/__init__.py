@@ -183,10 +183,12 @@ def _validate_poll_cadence(config: ConfigType) -> ConfigType:
     """Warn about a device given less silence than its own fastest poller leaves it.
 
     A device says nothing unless it is asked. Where this hub holds the only node asking, the
-    frames that keep a device online are the answers to its own entities' polls, so a device
-    whose timeout is no longer than the interval between them goes offline between answers.
-    Another node on the bus may well be asking too, which is why this is a warning.
+    frames that keep a device online are the answers to its own entities' polls and to its own
+    node requests, so a device whose timeout is no longer than the interval between them goes
+    offline between answers. Another node on the bus may well be asking too, which is why this
+    is a warning.
     """
+    node_requests = config.get(CONF_NODE_REQUEST_INTERVAL)
     fastest: dict[str, int] = {}
     for entries in fv.full_config.get().values():
         if not isinstance(entries, list):
@@ -207,6 +209,9 @@ def _validate_poll_cadence(config: ConfigType) -> ConfigType:
         interval = fastest.get(str(device[CONF_ID]))
         timeout = device[CONF_TIMEOUT].total_milliseconds
         if interval is None or interval < timeout:
+            continue
+        # The device announces itself in answer to every node request this hub sends.
+        if node_requests is not None and node_requests.total_milliseconds < timeout:
             continue
         _LOGGER.warning(
             "Device 0x%06X is reported offline after %d ms without a frame, but the fields "
