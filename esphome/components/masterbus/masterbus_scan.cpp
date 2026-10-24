@@ -571,11 +571,22 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     memcpy(&out, &bits, sizeof(out));
     return out;
   };
-  // An answer to a list property echoes the selector and the index it was asked for, so a late
-  // answer to the previous entry is not taken for this one.
+  // A group or property answer echoes the selector and the group or field number it was asked
+  // for. A display panel walking the same device is answered in the same shape on the same bus, so
+  // an answer that does not match the question is somebody else's.
+  const auto is_answer = [&](uint8_t answer_type, uint8_t selector, uint16_t number, size_t length) {
+    return type == answer_type && data.size() >= length && data[0] == selector && value16(1) == number;
+  };
+  const auto is_group = [&](MasterbusGroupSelector selector, size_t length) {
+    return is_answer(this->group_answer_type_(), static_cast<uint8_t>(selector), this->group_, length);
+  };
+  const auto is_property = [&](MasterbusProperty property, size_t length) {
+    return is_answer(this->property_answer_type_(), static_cast<uint8_t>(property), this->field_.param, length);
+  };
+  // A list property echoes the index as well, so a late answer to the previous entry is not taken
+  // for this one.
   const auto is_entry = [&](MasterbusProperty property, uint8_t index, size_t length) {
-    return type == this->property_answer_type_() && data.size() >= length &&
-           data[0] == static_cast<uint8_t>(property) && data[PROPERTY_INDEX_OFFSET] == index;
+    return is_property(property, length) && data[PROPERTY_INDEX_OFFSET] == index;
   };
 
   switch (this->phase_) {
@@ -634,21 +645,22 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       break;
 
     case Phase::PHASE_GROUP_FIELD_COUNT:
-      if (type != this->group_answer_type_() || data.size() < 8)
+      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, 8))
         return false;
       // The count arrives as a float, which is odd for a count but consistent on every group seen.
       this->fields_in_group_ = static_cast<uint16_t>(value32(4));
       break;
 
     case Phase::PHASE_GROUP_NAME_ID:
-      if (type != this->group_answer_type_() || data.size() < 6)
+      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING, 6))
         return false;
       this->name_string_ = value16(4);
       this->group_named_ = this->name_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_NUMBER:
-      if (type != this->group_answer_type_() || data.size() < 6)
+      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX, 6) ||
+          data[3] != static_cast<uint8_t>(this->field_index_))
         return false;
       this->field_ = {};
       this->field_.minimum = NAN;
@@ -663,20 +675,20 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       break;
 
     case Phase::PHASE_FIELD_DISPLAY_TYPE:
-      if (type != this->property_answer_type_() || data.size() < 6)
+      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, 6))
         return false;
       this->field_.display_type = static_cast<MasterbusDisplayType>(value16(4));
       break;
 
     case Phase::PHASE_FIELD_NAME_ID:
-      if (type != this->property_answer_type_() || data.size() < 6)
+      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_NAME_STRING, 6))
         return false;
       this->name_string_ = value16(4);
       this->field_.has_name = this->name_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_UNIT_ID:
-      if (type != this->property_answer_type_() || data.size() < 6)
+      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_UNIT_STRING, 6))
         return false;
       this->unit_string_ = value16(4);
       this->field_.has_unit = this->unit_string_ != 0;
@@ -685,7 +697,11 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     case Phase::PHASE_FIELD_MINIMUM:
     case Phase::PHASE_FIELD_MAXIMUM:
     case Phase::PHASE_FIELD_STEP: {
-      if (type != this->property_answer_type_() || data.size() < 8)
+      const MasterbusProperty property =
+          this->phase_ == Phase::PHASE_FIELD_MINIMUM   ? MasterbusProperty::MASTERBUS_PROPERTY_MINIMUM
+          : this->phase_ == Phase::PHASE_FIELD_MAXIMUM ? MasterbusProperty::MASTERBUS_PROPERTY_MAXIMUM
+                                                       : MasterbusProperty::MASTERBUS_PROPERTY_STEP;
+      if (!is_property(property, 8))
         return false;
       const float value = value32(4);
       if (this->phase_ == Phase::PHASE_FIELD_MINIMUM) {
@@ -698,20 +714,17 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       break;
     }
 
-    // The selector is checked as well as the length: these follow each other, and a late answer to
-    // one must not be taken for the next.
     case Phase::PHASE_FIELD_FACTORY:
-      if (type != this->property_answer_type_() || data.size() < 8 ||
-          data[0] != static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_FACTORY))
+      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_FACTORY, 8))
         return false;
       this->field_.factory = value32(4);
       break;
     case Phase::PHASE_FIELD_WRITEABLE:
     case Phase::PHASE_FIELD_EVENTABLE: {
       const bool first = this->phase_ == Phase::PHASE_FIELD_WRITEABLE;
-      const auto selector = static_cast<uint8_t>(first ? MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE
-                                                       : MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE);
-      if (type != this->property_answer_type_() || data.size() < 6 || data[0] != selector)
+      if (!is_property(
+              first ? MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE : MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE,
+              6))
         return false;
       (first ? this->field_.writable : this->field_.eventable) = value16(4) != 0 ? 1 : 0;
       break;
@@ -719,9 +732,9 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     case Phase::PHASE_FIELD_LONG_NAME_ID:
     case Phase::PHASE_FIELD_VERY_LONG_NAME_ID: {
       const bool first = this->phase_ == Phase::PHASE_FIELD_LONG_NAME_ID;
-      const auto selector = static_cast<uint8_t>(first ? MasterbusProperty::MASTERBUS_PROPERTY_LONG_NAME_STRING
-                                                       : MasterbusProperty::MASTERBUS_PROPERTY_VERY_LONG_NAME_STRING);
-      if (type != this->property_answer_type_() || data.size() < 6 || data[0] != selector)
+      if (!is_property(first ? MasterbusProperty::MASTERBUS_PROPERTY_LONG_NAME_STRING
+                             : MasterbusProperty::MASTERBUS_PROPERTY_VERY_LONG_NAME_STRING,
+                       6))
         return false;
       uint16_t id = value16(4);
       // A long name that is the name itself has nothing new to read.

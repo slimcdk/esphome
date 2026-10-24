@@ -1192,6 +1192,77 @@ TEST_F(MasterbusTest, AnotherNodesLaterChunkDoesNotEndAStringTheScanReads) {
   EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
 }
 
+// A display panel walking the same device during a scan is answered on the same bus, in the same
+// shape. Each answer is taken only if it carries the selector, the group or field number and, where
+// there is one, the index the walk asked for; anything else is somebody else's.
+TEST_F(MasterbusTest, TheScanTakesOnlyTheAnswerToItsOwnQuestion) {
+  // Before the real answer, the same answer about another group or field, under another selector,
+  // and, where the question had an index, at another index. Each with a value of its own, so that
+  // taking it shows.
+  const auto answer_after_others = [this](uint8_t type, const std::vector<uint8_t> &data, bool indexed = false) {
+    this->hub_->scan_step(this->scan_now_);
+    std::vector<std::vector<uint8_t>> others(indexed ? 3 : 2, data);
+    others[0][1] ^= 0x04;
+    others[1][0] ^= 0x40;
+    if (indexed)
+      others[2][3] ^= 0x01;
+    for (auto &other : others) {
+      other[4] ^= 0x22;
+      this->hub_->on_frame(frame_id(type, BATTERY_1), true, false, other);
+    }
+    this->hub_->on_frame(frame_id(type, BATTERY_1), true, false, data);
+  };
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer_eventables(2);
+  this->refuse_group_count();
+
+  answer_after_others(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});  // one field
+  answer_after_others(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x50, 0x00});              // named by string 80
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x00, 'B', 'a', 'n', 'k'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x50, 0x00, 0x01, 0x00});
+  answer_after_others(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00}, true);           // field 1
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});              // a float
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});              // name 97
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x0A, 0x00});              // unit 10
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x06, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});  // 0
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x16, 0x44});  // 600
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x08, 0x01, 0x00, 0x00, 0x0A, 0xD7, 0x23, 0x3C});  // 0.01
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x09, 0x01, 0x00, 0x00, 0x00, 0x00, 0x48, 0x42});  // 50
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x0B, 0x01, 0x00, 0x00, 0x00, 0x00});              // read only
+  answer_after_others(PROPERTY_INFORMATION_TYPE, {0x0D, 0x01, 0x00, 0x00, 0x00, 0x00});              // no event
+  this->unanswered();                                                                                // no long name
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x0A, 0x00, 0x00, 'V', 0x00});
+
+  EXPECT_STREQ(this->hub_->get_scanned_group_name(), "Bank");
+  const auto &field = this->hub_->get_scanned_field();
+  EXPECT_EQ(field.group, 0);
+  EXPECT_EQ(field.param, 1);
+  EXPECT_EQ(field.display_type, MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_FLOAT);
+  EXPECT_STREQ(field.name, "Battery");
+  EXPECT_STREQ(field.unit, "V");
+  EXPECT_EQ(field.minimum, 0.0f);
+  EXPECT_EQ(field.maximum, 600.0f);
+  EXPECT_FLOAT_EQ(field.step, 0.01f);
+  EXPECT_EQ(field.factory, 50.0f);
+  EXPECT_EQ(field.writable, 0);
+  EXPECT_EQ(field.eventable, 0);
+}
+
+// The list walks echo their index already; the field number is checked as well.
+TEST_F(MasterbusTest, AnOptionAnswerForAnotherFieldIsNotTaken) {
+  this->walk_to_list_field(MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DROPDOWN, 2.0f);
+  this->hub_->scan_step(this->scan_now_);
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x26, 13, 0x00, 0x00, 0x70, 0x00});
+  this->hub_->on_frame(frame_id(PROPERTY_INFORMATION_TYPE, BATTERY_1), true, false, {0x26, 12, 0x00, 0x00, 0x71, 0x00});
+  this->hub_->scan_step(this->scan_now_);
+  const auto &asked = this->canbus_.sent.back();
+  EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, STRING_REQUEST_TYPE);
+  EXPECT_EQ(encode_uint16(asked.data[2], asked.data[1]), 0x71);
+}
+
 // The vendor's own message list, read out of its shared library. Six of the twelve entries are
 // pinned by traffic; the rest follow from the same ordering. These assert the pinned ones, because
 // if the ordering is ever edited it is those that must not move.
