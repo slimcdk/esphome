@@ -1071,6 +1071,28 @@ TEST_F(MasterbusTest, NodeRequestIsAnEmptyFrameUnderTheVendorsOwnAddress) {
   }
 }
 
+// A hub that can say which timers it has armed.
+class TimerHub : public MasterbusHub {
+ public:
+  using MasterbusHub::MasterbusHub;
+  using Component::cancel_interval;
+};
+
+// node_request_interval compiles node requests in for every hub. A second hub given no interval of
+// its own must not arm one at zero, which the scheduler runs every millisecond.
+TEST_F(MasterbusTest, OnlyAHubGivenAnIntervalAsksForAnnouncements) {
+  TimerHub quiet(&this->canbus_);
+  TimerHub asking(&this->canbus_);
+  asking.set_node_request_interval(10000);
+  quiet.setup();
+  asking.setup();
+
+  EXPECT_FALSE(quiet.cancel_interval(NODE_REQUEST_INTERVAL_ID));
+  EXPECT_TRUE(asking.cancel_interval(NODE_REQUEST_INTERVAL_ID));
+  quiet.cancel_interval(AVAILABILITY_INTERVAL_ID);
+  asking.cancel_interval(AVAILABILITY_INTERVAL_ID);
+}
+
 TEST_F(MasterbusTest, ScanCollectsWhatTheNodeRequestBringsBack) {
   this->hub_->request_nodes();
   // Every device answers within a few milliseconds; two of the eight recorded on the real bus.

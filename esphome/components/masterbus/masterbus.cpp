@@ -17,9 +17,6 @@ ESPHOME_LOG_TAG(TAG, "masterbus");
 /// milliseconds, so this is many times longer than it needs to be.
 static constexpr uint32_t SCAN_REQUEST_MS = 2000;
 static constexpr uint32_t SCAN_SETTLE_MS = 10000;
-/// The hub's timers. A scan started again before it has reported replaces its own.
-static constexpr uint32_t SCAN_REQUEST_TIMEOUT_ID = 0;
-static constexpr uint32_t SCAN_REPORT_TIMEOUT_ID = 1;
 #endif
 
 #ifdef MASTERBUS_DEVICE_COUNT
@@ -260,13 +257,14 @@ void MasterbusHub::setup() {
     this->on_frame(can_id, extended_id, rtr, data);
   });
 #ifdef MASTERBUS_DEVICE_COUNT
-  this->set_interval(AVAILABILITY_INTERVAL_MS,
+  this->set_interval(AVAILABILITY_INTERVAL_ID, AVAILABILITY_INTERVAL_MS,
                      [this]() { this->check_availability(App.get_loop_component_start_time()); });
 #endif
 #ifdef USE_MASTERBUS_NODE_REQUEST
   // An announcement is what keeps a device nobody polls online. Where no other node asks for them,
-  // this hub does.
-  this->set_interval(this->node_request_interval_ms_, [this]() { this->request_nodes(); });
+  // this hub does. The define is global, so a second hub given no interval still gets here.
+  if (this->node_request_interval_ms_ != 0)
+    this->set_interval(NODE_REQUEST_INTERVAL_ID, this->node_request_interval_ms_, [this]() { this->request_nodes(); });
 #endif
 }
 
@@ -372,7 +370,9 @@ void MasterbusHub::dump_config() {
   ESP_LOGCONFIG(TAG, "  Raw frame logging: enabled");
 #endif
 #ifdef USE_MASTERBUS_NODE_REQUEST
-  ESP_LOGCONFIG(TAG, "  Node requests: every %" PRIu32 " ms", this->node_request_interval_ms_);
+  if (this->node_request_interval_ms_ != 0) {
+    ESP_LOGCONFIG(TAG, "  Node requests: every %" PRIu32 " ms", this->node_request_interval_ms_);
+  }
 #endif
 #ifdef MASTERBUS_DEVICE_COUNT
   for (auto *device : this->devices_) {
