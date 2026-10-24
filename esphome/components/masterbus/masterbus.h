@@ -15,7 +15,7 @@ namespace esphome::masterbus {
 class MasterbusDevice;
 class MasterbusHub;
 
-#ifdef MASTERBUS_INFO_COUNT
+#ifdef USE_MASTERBUS_INFO
 /// What a device says about itself, numbered as the vendor's GeneralString question numbers the
 /// four strings, then the two that come from elsewhere.
 enum class MasterbusDeviceInfo : uint8_t {
