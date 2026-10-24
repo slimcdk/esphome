@@ -129,6 +129,20 @@ def test_hub_address_needs_a_device_class() -> None:
         CONFIG_SCHEMA(_hub(address=0x012345))
 
 
+def test_hub_address_beyond_the_identifier_names_the_address() -> None:
+    """The hub's own key is the one named, and the address reads the way a scan prints one."""
+    with pytest.raises(cv.Invalid) as error:
+        CONFIG_SCHEMA(_hub(address=0x900000))
+    assert "'address' must be" in str(error.value)
+    assert "0x900000" in str(error.value)
+    assert "0x7FFFFF" in str(error.value)
+
+
+def test_device_address_beyond_the_identifier_names_the_device() -> None:
+    with pytest.raises(cv.Invalid, match="'device' must be"):
+        DEVICE_SCHEMA({CONF_ID: "bat", CONF_DEVICE: 0x900000})
+
+
 def test_hub_address_may_not_be_a_declared_device() -> None:
     """A device does not answer a node request carrying its own address."""
     with pytest.raises(cv.Invalid, match="declared device"):
@@ -170,7 +184,7 @@ def test_device_identifier_within_the_extended_can_range_accepted(address: int) 
 @pytest.mark.parametrize("address", [0x800000, 0x6C10010])
 def test_device_identifier_beyond_the_extended_can_range_rejected(address: int) -> None:
     """23 bits is the hard ceiling, and the message says so with the value."""
-    with pytest.raises(cv.Invalid, match=f"{address:#X}"):
+    with pytest.raises(cv.Invalid, match=f"0x{address:06X}"):
         DEVICE_SCHEMA({CONF_ID: "mb_battery", CONF_DEVICE: address})
 
 
