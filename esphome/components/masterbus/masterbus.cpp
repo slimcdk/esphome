@@ -111,11 +111,10 @@ void MasterbusDevice::mark_offline() {
 bool MasterbusDevice::is_timed_out(uint32_t now) const { return now - this->last_seen_ >= this->timeout_ms_; }
 
 bool MasterbusHub::send_(uint8_t type, uint32_t address, std::initializer_list<uint8_t> payload) {
-  this->tx_.assign(payload);
   const uint32_t can_id = (static_cast<uint32_t>(type) << MESSAGE_TYPE_SHIFT) | address;
   // A bus that is off, or whose queue is full, refuses everything until it recovers. The warning
   // stays up for as long as that lasts and is logged once, when it is raised.
-  if (this->canbus_->send_data(can_id, true, false, this->tx_) != canbus::ERROR_OK) {
+  if (this->canbus_->send_data(can_id, true, false, payload.begin(), payload.size()) != canbus::ERROR_OK) {
     this->status_set_warning(LOG_STR("The CAN bus refused a frame"));
     return false;
   }
@@ -251,8 +250,6 @@ void MasterbusHub::loop() {
 #endif
 
 void MasterbusHub::setup() {
-  // The transmit buffer never grows after this: a MasterBus payload is at most a full CAN frame.
-  this->tx_.reserve(canbus::CAN_MAX_DATA_LENGTH);
   this->canbus_->add_callback([this](uint32_t can_id, bool extended_id, bool rtr, const std::vector<uint8_t> &data) {
     this->on_frame(can_id, extended_id, rtr, data);
   });
