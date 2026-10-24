@@ -107,7 +107,7 @@ async def to_code(config: ConfigType) -> None:
         # a slot in the hub's list, and the class is not one of them.
         cg.add_define("USE_MASTERBUS_INFO")
         if config[CONF_INFO] != INFO_CLASS:
-            await register_info_entity(device, var)
+            await register_info_entity(config[CONF_MASTERBUS_DEVICE_ID], device, var)
         return
     var = await new_entity(text_sensor.new_text_sensor, config)
     if options := config.get(CONF_OPTIONS):
