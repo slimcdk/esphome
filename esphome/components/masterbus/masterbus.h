@@ -254,6 +254,12 @@ struct MasterbusDiscoveredDevice {
 };
 #endif
 
+/// The hub's timers. A scan started again before it has reported replaces its own.
+static constexpr uint32_t SCAN_REQUEST_TIMEOUT_ID = 0;
+static constexpr uint32_t SCAN_REPORT_TIMEOUT_ID = 1;
+static constexpr uint32_t AVAILABILITY_INTERVAL_ID = 2;
+static constexpr uint32_t NODE_REQUEST_INTERVAL_ID = 3;
+
 /** A MasterBus protocol interpreter on top of an existing CAN bus.
  *
  * The hub does not own the CAN hardware. It binds to a `canbus` component, which keeps pin
