@@ -6,9 +6,9 @@ masterbus:
     canbus_id: mb_can
     devices:
       - id: mb_battery
-        device: 0x6D56EA
+        device: 0x6C1001
       - id: mb_charger
-        device: 0x535E30
+        device: 0x501001
 
 sensor:
   - platform: masterbus

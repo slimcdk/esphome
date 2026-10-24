@@ -7,7 +7,7 @@ masterbus:
     canbus_id: mb_can
     devices:
       - id: mb_battery
-        device: 0x6D56EA
+        device: 0x6C1001
         timeout: 60s
 
 sensor:

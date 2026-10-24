@@ -148,7 +148,7 @@ inline ScanLines &scan_lines() {
   return lines;
 }
 
-/// A frame as log_all_frames prints it: "ext 0x086D56EA [6] 01:00:92:ED:D1:41".
+/// A frame as log_all_frames prints it: "ext 0x086C1001 [6] 01:00:92:ED:D1:41".
 struct LoggedFrame {
   uint32_t can_id;
   bool extended_id;
