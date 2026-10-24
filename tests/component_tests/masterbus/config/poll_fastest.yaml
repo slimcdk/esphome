@@ -1,0 +1,23 @@
+# One slow poller and one fast one: the fast one keeps the device online.
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+    devices:
+      - id: mb_battery
+        device: 0x6C1001
+        timeout: 60s
+
+sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0001
+    name: Battery voltage
+    update_interval: 5min
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0002
+    name: Battery current
+    update_interval: 10s
