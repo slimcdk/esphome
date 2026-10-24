@@ -61,4 +61,9 @@ void MasterbusInfoTextSensor::dump_config() {
 }
 #endif
 
+void MasterbusTextSensor::dump_config() {
+  LOG_TEXT_SENSOR("", "MasterBus text sensor", this);
+  this->dump_masterbus_config_();
+}
+
 }  // namespace esphome::masterbus

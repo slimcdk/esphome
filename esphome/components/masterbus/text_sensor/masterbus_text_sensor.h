@@ -9,6 +9,8 @@ class MasterbusTextSensor : public text_sensor::TextSensor, public MasterbusEnti
  public:
   using MasterbusEntity::MasterbusEntity;
 
+  void dump_config() override;
+
   /// The names of a list field's entries, in the device's own order. Codegen only: the table is
   /// static and outlives the sensor.
   void set_options(const char *const *options, size_t count) {

@@ -378,6 +378,18 @@ void MasterbusHub::dump_config() {
 #endif
 }
 
+void MasterbusEntity::dump_masterbus_config_() {
+  ESP_LOGCONFIG(TAG,
+                "  Device: 0x%06" PRIX32 "\n"
+                "  Tab: %s\n"
+                "  Field: %u",
+                this->masterbus_device_->get_address(), LOG_STR_ARG(masterbus_tab_to_string(this->tab_)), this->param_);
+  if (this->stale_timeout_ms_ != 0) {
+    ESP_LOGCONFIG(TAG, "  Timeout: %" PRIu32 " ms", this->stale_timeout_ms_);
+  }
+  LOG_UPDATE_INTERVAL(this);
+}
+
 void MasterbusEntity::update() {
   const uint32_t now = App.get_loop_component_start_time();
   // Somebody else already asked recently and we heard the answer, so asking again would add

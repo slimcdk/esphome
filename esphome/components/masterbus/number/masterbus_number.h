@@ -9,6 +9,8 @@ class MasterbusNumber : public number::Number, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 
+  void dump_config() override;
+
   void publish_masterbus_value(const MasterbusValue &value) override {
     if (value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT) {
       this->publish_masterbus_unavailable();
