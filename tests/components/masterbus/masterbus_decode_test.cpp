@@ -504,6 +504,18 @@ TEST_F(MasterbusTest, DateFieldUnpacksTheCalendarTheDevicePacked) {
   EXPECT_STREQ(today->values[0].as_text, "2024-03-15");
 }
 
+// A date the device leaves unset reads zero, and month or day zero is no date at all. Either is
+// unavailable rather than 0000-00-00 or a date that does not exist.
+TEST_F(MasterbusTest, ADateWithNoMonthOrDayIsUnavailable) {
+  auto *today = this->add_sensor(95, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
+  // Zero, 2024 with month 0 and day 15, and 2024-03 with day 0.
+  for (const float value : {0.0f, 841999.0f, 842080.0f})
+    this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(95, value));
+
+  EXPECT_TRUE(today->values.empty());
+  EXPECT_EQ(today->unavailable_count, 3);
+}
+
 TEST_F(MasterbusTest, TimeKeepsItsLeadingZeroes) {
   auto *clock = this->add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
