@@ -279,6 +279,13 @@ inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8
   return ended;
 }
 
+/// Whether a string that has not ended by this chunk has filled a buffer of `capacity`, so that
+/// the next chunk could only be dropped. Nothing bounds a string but its terminator, so a reader
+/// stops here and reports the text as cut short rather than asking for ever.
+constexpr bool string_buffer_full(uint8_t chunk, uint8_t capacity) {
+  return (static_cast<size_t>(chunk) + 1) * 4 >= static_cast<size_t>(capacity) - 1;
+}
+
 // ---------------------------------------------------------------------------
 // General counts
 // ---------------------------------------------------------------------------

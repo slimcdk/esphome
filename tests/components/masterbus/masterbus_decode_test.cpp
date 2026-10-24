@@ -380,6 +380,25 @@ TEST_F(MasterbusTest, AnotherNodesLaterChunkDoesNotEndATextRead) {
   EXPECT_STREQ(label->values[0].as_text, "Battery");
 }
 
+// A table entry without a terminator would otherwise be asked for one chunk after another for as
+// long as the device answers. Once the buffer is full the text is published cut short, once.
+TEST_F(MasterbusTest, AStringThatNeverEndsIsPublishedCutShortOnce) {
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+  for (unsigned chunk = 0; chunk < 300; chunk++) {
+    this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                         {0x30, 0x61, 0x00, static_cast<uint8_t>(chunk), 'x', 'y', 'z', 'w'});
+  }
+
+  // Eight chunks fill thirty-one characters and the terminator.
+  EXPECT_EQ(this->canbus_.sent.size(), 8u);
+  EXPECT_EQ(label->unavailable_count, 0);
+  ASSERT_EQ(label->values.size(), 1u);
+  EXPECT_STREQ(label->values[0].as_text, "xyzwxyzwxyzwxyzwxyzwxyzwxyzwxyz");
+}
+
 TEST_F(MasterbusTest, TextFieldWithNoStringIsUnavailableAndAsksNothing) {
   auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
 
@@ -1771,6 +1790,38 @@ TEST_F(MasterbusTest, ANameLongerThanTheBufferIsReportedCutShort) {
   EXPECT_NE(line.find("name=\"abcdabcdabcdabcdabcdabcdabcdabc\""), std::string::npos) << line;
 }
 
+// The walk stops asking for a string once the buffer is full, rather than going on for as long as a
+// device answers.
+TEST_F(MasterbusTest, TheScanStopsReadingAStringThatNeverEnds) {
+  this->feed("ext 0x046D56EA [8] 1B:EA:56:01:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer_eventables(2);
+  this->answer_group_count(1);
+
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name is string 97
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x2C, 0x01, 0x00, 0x00, 0x00, 0x00});
+  this->unanswered();  // minimum
+  this->unanswered();  // maximum
+  this->unanswered();  // step
+  this->unanswered_factory_and_flags();
+
+  this->canbus_.clear();
+  for (unsigned chunk = 0; chunk < 300; chunk++)
+    this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, static_cast<uint8_t>(chunk), 'a', 'b', 'c', 'd'});
+
+  unsigned string_requests = 0;
+  for (const auto &frame : this->canbus_.sent) {
+    if ((frame.can_id >> MESSAGE_TYPE_SHIFT) == STRING_REQUEST_TYPE && frame.data[0] == STRING_REQUEST_MARKER)
+      string_requests++;
+  }
+  EXPECT_EQ(string_requests, 8u);
+  EXPECT_STREQ(this->hub_->get_scanned_field().name, "abcdabcdabcdabcdabcdabcdabcdabc");
+}
+
 // A dropdown answers with an index; what each option is called is a string the device holds, and
 // selector 0x26 with the option's index says which. There are as many as the field's maximum.
 TEST_F(MasterbusTest, ScanReadsTheNameOfEveryOptionOfAList) {
@@ -1935,6 +1986,19 @@ TEST_F(MasterbusTest, AnotherNodesLaterChunkDoesNotEndAnInformationRead) {
   EXPECT_EQ(serial->unavailable_count, 0);
   ASSERT_EQ(serial->texts.size(), 1u);
   EXPECT_EQ(serial->texts[0], "AB00A0001");
+}
+
+TEST_F(MasterbusTest, AnInformationStringThatNeverEndsIsPublishedCutShortOnce) {
+  auto *serial = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_SERIAL_NUMBER);
+  this->announce();
+  this->info_answer(STRING_INFORMATION_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_SERIAL_NUMBER, 0x05, 0x00});
+  for (unsigned chunk = 0; chunk < 300; chunk++)
+    this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x05, 0x00, static_cast<uint8_t>(chunk), '1', '2', '3', '4'});
+
+  // The question for the string's id, then eight chunks.
+  EXPECT_EQ(this->canbus_.sent.size(), 9u);
+  ASSERT_EQ(serial->texts.size(), 1u);
+  EXPECT_EQ(serial->texts[0], "1234123412341234123412341234123");
 }
 
 // The firmware is each processor's software version, asked from 0 until the device refuses one.

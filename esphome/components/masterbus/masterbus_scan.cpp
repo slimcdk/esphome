@@ -809,7 +809,11 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       }
       if (data[3] == 0)
         this->string_truncated_ = false;
-      const bool ended = take_string_chunk(data.data(), data.size(), out, capacity, &this->string_truncated_);
+      bool ended = take_string_chunk(data.data(), data.size(), out, capacity, &this->string_truncated_);
+      if (!ended && string_buffer_full(this->chunk_, capacity)) {
+        this->string_truncated_ = true;
+        ended = true;
+      }
       this->chunk_++;
       this->waiting_ = false;
       if (ended) {
