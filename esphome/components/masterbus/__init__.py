@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 import logging
 from typing import Any
 
@@ -17,7 +18,7 @@ from esphome.const import (
     CONF_UPDATE_INTERVAL,
     SCHEDULER_DONT_RUN,
 )
-from esphome.core import ID
+from esphome.core import CORE, ID
 from esphome.cpp_generator import MockObj
 import esphome.final_validate as fv
 from esphome.types import ConfigType, TemplateArgsType
@@ -78,10 +79,25 @@ VALUE_TYPES = {
     "eventable": MasterbusValueType.MASTERBUS_VALUE_TYPE_EVENTABLE,
 }
 
+# Every hub declares its lists at the same size, so each slot is requested under the hub that owns
+# it and the size is the largest hub's count rather than the total.
 _request_device_slot = cg.slot_counter("MASTERBUS_DEVICE_COUNT")
 _request_entity_slot = cg.slot_counter("MASTERBUS_ENTITY_COUNT")
 _request_unknown_frame_slot = cg.slot_counter("MASTERBUS_UNKNOWN_FRAME_COUNT")
 _request_info_slot = cg.slot_counter("MASTERBUS_INFO_COUNT")
+
+
+@dataclass
+class MasterbusData:
+    # The hub each declared device belongs to, by id, so that an entity, which names only its
+    # device, takes its slot in the right hub's list.
+    device_hubs: dict[str, str] = field(default_factory=dict)
+
+
+def _get_data() -> MasterbusData:
+    if DOMAIN not in CORE.data:
+        CORE.data[DOMAIN] = MasterbusData()
+    return CORE.data[DOMAIN]
 
 
 def _device_address(value: Any) -> int:
@@ -243,7 +259,8 @@ async def new_entity(
     `creator` is the platform's own `new_*` helper, which is handed the address every MasterBus
     entity carries; `kwargs` are whatever that platform needs on top.
     """
-    device = await cg.get_variable(config[CONF_MASTERBUS_DEVICE_ID])
+    device_id = config[CONF_MASTERBUS_DEVICE_ID]
+    device = await cg.get_variable(device_id)
     var = await creator(
         config,
         device,
@@ -252,7 +269,7 @@ async def new_entity(
         config[CONF_VALUE_TYPE],
         **kwargs,
     )
-    _request_entity_slot()
+    _request_entity_slot(_get_data().device_hubs[str(device_id)])
     await cg.register_component(var, config)
     if config[CONF_VALUE_TYPE] == VALUE_TYPE_TEXT:
         # A text field answers with a string table entry number, so the hub needs the second read
@@ -266,9 +283,9 @@ async def new_entity(
     return var
 
 
-async def register_info_entity(device: MockObj, var: MockObj) -> None:
+async def register_info_entity(device_id: ID, device: MockObj, var: MockObj) -> None:
     """Hand the hub an entity that shows what a device says about itself, read off the bus."""
-    _request_info_slot()
+    _request_info_slot(_get_data().device_hubs[str(device_id)])
     cg.add(device.register_info_entity(var))
 
 
@@ -309,7 +326,7 @@ async def to_code(config: ConfigType) -> None:
     for conf in config.get(CONF_ON_UNKNOWN_FRAME, []):
         # The frames this fires for are by definition ones nothing else reads, so the cost of
         # recognising them is only paid where somebody asked for it.
-        _request_unknown_frame_slot()
+        _request_unknown_frame_slot(str(config[CONF_ID]))
         await automation.build_callback_automation(
             var,
             "add_on_unknown_frame_callback",
@@ -322,7 +339,8 @@ async def to_code(config: ConfigType) -> None:
         )
 
     for device_config in config.get(CONF_DEVICES, []):
-        _request_device_slot()
+        _request_device_slot(str(config[CONF_ID]))
+        _get_data().device_hubs[str(device_config[CONF_ID])] = str(config[CONF_ID])
         device = cg.new_Pvariable(
             device_config[CONF_ID], var, device_config[CONF_DEVICE]
         )

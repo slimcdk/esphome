@@ -1,0 +1,48 @@
+# Two hubs, each sizing its lists for its own devices and entities.
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb_port
+    canbus_id: mb_can
+    on_unknown_frame:
+      - lambda: ""
+    devices:
+      - id: mb_port_battery
+        device: 0x6C1001
+      - id: mb_port_display
+        device: 0x501001
+      - id: mb_port_charger
+        device: 0x281001
+  - id: mb_starboard
+    canbus_id: mb_can
+    address: 0x500002
+    on_unknown_frame:
+      - lambda: ""
+    devices:
+      - id: mb_starboard_battery
+        device: 0x6C1002
+
+sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_port_battery
+    param: 0x0001
+    name: Port battery voltage
+  - platform: masterbus
+    masterbus_device_id: mb_port_charger
+    param: 0x0001
+    name: Port charger voltage
+  - platform: masterbus
+    masterbus_device_id: mb_starboard_battery
+    param: 0x0001
+    name: Starboard battery voltage
+
+text_sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_port_battery
+    info: serial_number
+    name: Port battery serial number
+  - platform: masterbus
+    masterbus_device_id: mb_starboard_battery
+    info: serial_number
+    name: Starboard battery serial number
