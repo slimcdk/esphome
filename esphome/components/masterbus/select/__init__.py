@@ -13,6 +13,20 @@ MasterbusSelect = masterbus_ns.class_(
     "MasterbusSelect", select.Select, cg.PollingComponent
 )
 
+
+def _unique_options(options: list[str]) -> list[str]:
+    """A select writes the index of the option chosen, so a second copy would write the first's."""
+    seen: set[str] = set()
+    for option in options:
+        if option in seen:
+            raise cv.Invalid(
+                f"'{option}' is listed twice. The select writes the index of the option chosen, "
+                f"so both would write the index of the first; give the second its own name"
+            )
+        seen.add(option)
+    return options
+
+
 # The option names come from the device's own string table, which a scan reports. They are listed
 # here in the order the device numbers them, so the reported index picks the right one.
 CONFIG_SCHEMA = (
@@ -23,7 +37,13 @@ CONFIG_SCHEMA = (
             default_value_type="list_option",
         )
     )
-    .extend({cv.Required(CONF_OPTIONS): cv.ensure_list(cv.string_strict)})
+    .extend(
+        {
+            cv.Required(CONF_OPTIONS): cv.All(
+                cv.ensure_list(cv.string_strict), cv.Length(min=1), _unique_options
+            )
+        }
+    )
 )
 
 

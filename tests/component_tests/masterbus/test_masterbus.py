@@ -25,6 +25,7 @@ from esphome.components.masterbus import (
 from esphome.components.masterbus.binary_sensor import (
     CONFIG_SCHEMA as BINARY_SENSOR_SCHEMA,
 )
+from esphome.components.masterbus.number import CONFIG_SCHEMA as NUMBER_SCHEMA
 from esphome.components.masterbus.select import CONFIG_SCHEMA as SELECT_SCHEMA
 from esphome.components.masterbus.sensor import CONFIG_SCHEMA as SENSOR_SCHEMA
 from esphome.components.masterbus.text_sensor import CONFIG_SCHEMA as TEXT_SENSOR_SCHEMA
@@ -307,6 +308,26 @@ def test_text_sensor_with_its_own_text_takes_no_options(value_type: str) -> None
 def test_select_takes_every_kind_of_list(value_type: str) -> None:
     """A device list and an event field write the index of an entry, as a list option does."""
     SELECT_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type, CONF_OPTIONS: ["A", "B"]}))
+
+
+def test_select_needs_an_option() -> None:
+    with pytest.raises(cv.Invalid, match="at least 1"):
+        SELECT_SCHEMA(_sensor(**{CONF_OPTIONS: []}))
+
+
+def test_select_options_must_differ() -> None:
+    """A select writes the index of the option chosen, so a second copy would write the first's."""
+    with pytest.raises(cv.Invalid, match="'Float' is listed twice"):
+        SELECT_SCHEMA(_sensor(**{CONF_OPTIONS: ["Bulk", "Float", "Float"]}))
+
+
+def test_number_range_may_not_be_inverted() -> None:
+    with pytest.raises(cv.Invalid, match="min_value"):
+        NUMBER_SCHEMA(_sensor(min_value=10, max_value=0, step=1))
+
+
+def test_number_range_accepted() -> None:
+    NUMBER_SCHEMA(_sensor(min_value=0, max_value=100, step=1))
 
 
 @pytest.mark.parametrize(
