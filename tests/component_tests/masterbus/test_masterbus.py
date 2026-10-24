@@ -382,6 +382,23 @@ def test_hub_without_a_canbus_id_names_the_missing_key(
     assert CONF_CANBUS_ID in _error_messages(result)
 
 
+def test_two_hubs_on_one_bus_may_not_share_an_address(
+    component_config_path: Callable[[str], Path],
+) -> None:
+    """Both would transmit under one identity and take each other's answers as their own."""
+    result = _validated(component_config_path("two_hubs_one_address.yaml"))
+    assert result.errors
+    assert "mb_port" in _error_messages(result)
+    assert "0x500001" in _error_messages(result)
+
+
+def test_two_hubs_on_one_bus_with_their_own_addresses_accepted(
+    component_config_path: Callable[[str], Path],
+) -> None:
+    result = _validated(component_config_path("two_hubs.yaml"))
+    assert not result.errors, _error_messages(result)
+
+
 def test_polling_slower_than_the_device_timeout_warns(
     component_config_path: Callable[[str], Path],
     caplog: pytest.LogCaptureFixture,
