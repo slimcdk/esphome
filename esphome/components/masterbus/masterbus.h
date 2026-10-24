@@ -142,7 +142,8 @@ class MasterbusEntity : public PollingComponent {
   void write_if_answered_();
   /// The device did not answer in time. A field it did not say no to is written anyway, as no
   /// event unless it said so: a write a device declines does nothing, and what went unanswered is
-  /// asked again before the next one.
+  /// asked again before the next one. On the configuration tab, where the settings are, a field
+  /// must have said yes.
   void questions_unanswered_();
   void read_back_();
 
