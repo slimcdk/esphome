@@ -1,0 +1,9 @@
+# Two hubs on one bus under one address.
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb_port
+    canbus_id: mb_can
+  - id: mb_starboard
+    canbus_id: mb_can
