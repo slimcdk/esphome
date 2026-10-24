@@ -281,6 +281,31 @@ TEST_F(MasterbusTest, ADeviceListAndAnEventFieldAnswerWithTheIndexOfAnEntry) {
   EXPECT_EQ(event->values[0].as_raw, UINT32_MAX);
 }
 
+// An index too large for any list, or infinite, is no entry either. Casting it would be undefined
+// and in practice wraps round to some entry that exists.
+TEST_F(MasterbusTest, AnIndexBeyondAnyListIsNoEntry) {
+  auto *option = this->add_sensor(30, MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION);
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(30, INFINITY));
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(30, 1e10f));
+
+  ASSERT_EQ(option->values.size(), 2u);
+  EXPECT_EQ(option->values[0].as_raw, UINT32_MAX);
+  EXPECT_EQ(option->values[1].as_raw, UINT32_MAX);
+}
+
+// A string id is two bytes. A text field answering anything outside that names no entry, and asking
+// the table for whatever the cast made of it would publish some other string.
+TEST_F(MasterbusTest, AStringIdNoStringTableCanHoldIsUnavailableAndAsksNothing) {
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
+  for (const float value : {-1.0f, 70000.0f, INFINITY})
+    this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, value));
+
+  EXPECT_TRUE(label->values.empty());
+  EXPECT_EQ(label->unavailable_count, 3);
+  EXPECT_TRUE(this->canbus_.sent.empty());
+}
+
 TEST_F(MasterbusTest, NotANumberReportsUnavailableRatherThanZero) {
   auto *voltage = this->add_sensor(1);
 
