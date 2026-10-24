@@ -4,6 +4,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
 
 #include "masterbus_protocol.h"
 #include "masterbus_scan.h"
@@ -14,6 +15,9 @@ namespace esphome::masterbus {
 
 class MasterbusDevice;
 class MasterbusHub;
+
+/// The tab's name, for a log line.
+const LogString *masterbus_tab_to_string(MasterbusTab tab);
 
 #ifdef USE_MASTERBUS_INFO
 /// What a device says about itself, numbered as the vendor's GeneralString question numbers the
