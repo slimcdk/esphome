@@ -116,7 +116,14 @@ bool MasterbusDevice::is_timed_out(uint32_t now) const { return now - this->last
 bool MasterbusHub::send_(uint8_t type, uint32_t address, std::initializer_list<uint8_t> payload) {
   this->tx_.assign(payload);
   const uint32_t can_id = (static_cast<uint32_t>(type) << MESSAGE_TYPE_SHIFT) | address;
-  return this->canbus_->send_data(can_id, true, false, this->tx_) == canbus::ERROR_OK;
+  // A bus that is off, or whose queue is full, refuses everything until it recovers. The warning
+  // stays up for as long as that lasts and is logged once, when it is raised.
+  if (this->canbus_->send_data(can_id, true, false, this->tx_) != canbus::ERROR_OK) {
+    this->status_set_warning(LOG_STR("The CAN bus refused a frame"));
+    return false;
+  }
+  this->status_clear_warning();
+  return true;
 }
 
 bool MasterbusHub::request_string(uint32_t address, uint16_t string_id, uint8_t chunk) {
@@ -147,11 +154,13 @@ void MasterbusHub::record_announcement_(uint32_t address) {
 
 #if defined(USE_MASTERBUS_SCAN) || defined(USE_MASTERBUS_NODE_REQUEST)
 bool MasterbusHub::request_nodes() {
+  // Said once for each time the bus stops taking frames, not at every interval while it does not.
+  const bool already_refused = this->status_has_warning();
   bool sent = false;
   // Repeated the way the vendor library repeats it, so a device that missed one still answers.
   for (uint8_t i = 0; i < NODE_REQUEST_REPEATS; i++)
     sent |= this->send_(NODE_REQUEST_TYPE, this->address_, {});
-  if (!sent) {
+  if (!sent && !already_refused) {
     ESP_LOGW(TAG, "Could not put the node request on the bus. Devices then announce themselves only when "
                   "another node asks, and where none does, nothing is heard from them until they are polled.");
   }

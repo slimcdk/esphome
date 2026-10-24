@@ -433,6 +433,20 @@ TEST_F(MasterbusTest, StringTheDeviceDoesNotHaveLeavesTheFieldUnavailable) {
   EXPECT_EQ(label->unavailable_count, 1);
 }
 
+// A bus that is off, or whose transmit queue is full, refuses every frame. The hub says so with its
+// warning for as long as that lasts, rather than leaving it to devices timing out one by one.
+TEST_F(MasterbusTest, TheHubWarnsWhileTheBusRefusesFrames) {
+  auto *voltage = this->add_sensor(1);
+  voltage->set_update_interval(5000);
+  this->canbus_.error = canbus::ERROR_FAILTX;
+  voltage->update();
+  EXPECT_TRUE(this->hub_->status_has_warning());
+
+  this->canbus_.error = canbus::ERROR_OK;
+  voltage->update();
+  EXPECT_FALSE(this->hub_->status_has_warning());
+}
+
 // Whose answer a value is decides whether this entity asks again: an answer to our own question
 // says nothing about whether anybody else is covering the field, and one from elsewhere does.
 TEST_F(MasterbusTest, APollTheBusRefusedDoesNotMakeSomebodyElsesAnswerOurs) {
