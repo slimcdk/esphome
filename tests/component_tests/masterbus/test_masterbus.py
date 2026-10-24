@@ -444,3 +444,14 @@ def test_hub_without_devices_emits_no_storage_counts(
     generate_main(component_config_path("diagnostics_off.yaml"))
     assert get_define_value("MASTERBUS_DEVICE_COUNT") is None
     assert get_define_value("MASTERBUS_ENTITY_COUNT") is None
+
+
+def test_a_class_sensor_alone_compiles_the_information_sensor_in(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    """The class needs no read, so it asks for no slot, but its sensor still has to exist."""
+    main_cpp = generate_main(component_config_path("info_class_only.yaml"))
+    assert get_define_value("USE_MASTERBUS_INFO") is not None
+    assert get_define_value("MASTERBUS_INFO_COUNT") is None
+    assert "MasterbusInfoTextSensor(" in main_cpp

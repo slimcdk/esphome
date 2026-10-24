@@ -33,7 +33,7 @@ void MasterbusTextSensor::publish_masterbus_value(const MasterbusValue &value) {
   }
 }
 
-#ifdef MASTERBUS_INFO_COUNT
+#ifdef USE_MASTERBUS_INFO
 // What the top five bits of an address say a device is, in the vendor's own words. The classes the
 // vendor names none for are empty.
 PROGMEM_STRING_TABLE(MasterbusDeviceClasses, "", "", "inverter", "", "", "", "inverter/charger", "", "", "", "charger",

@@ -103,6 +103,9 @@ async def to_code(config: ConfigType) -> None:
         var = cg.new_Pvariable(config[CONF_ID], device, config[CONF_INFO])
         await cg.register_component(var, config)
         await text_sensor.register_text_sensor(var, config)
+        # The sensor exists for every kind of information; only the ones read off the bus take
+        # a slot in the hub's list, and the class is not one of them.
+        cg.add_define("USE_MASTERBUS_INFO")
         if config[CONF_INFO] != INFO_CLASS:
             await register_info_entity(device, var)
         return

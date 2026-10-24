@@ -26,7 +26,7 @@ class MasterbusTextSensor : public text_sensor::TextSensor, public MasterbusEnti
   size_t option_count_{0};
 };
 
-#ifdef MASTERBUS_INFO_COUNT
+#ifdef USE_MASTERBUS_INFO
 /// One thing a device says about itself: its article or serial number, its name, its revision, its
 /// firmware - read off the bus by the hub - or its class, which its address already carries.
 class MasterbusInfoTextSensor : public text_sensor::TextSensor, public Component, public MasterbusInfoEntity {

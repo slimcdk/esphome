@@ -12,6 +12,7 @@ def override_manifest(manifest: ComponentManifestOverride) -> None:
         cg.add_define("MASTERBUS_DEVICE_COUNT", 4)
         cg.add_define("MASTERBUS_ENTITY_COUNT", 8)
         cg.add_define("MASTERBUS_INFO_COUNT", 4)
+        cg.add_define("USE_MASTERBUS_INFO")
         cg.add_define("USE_MASTERBUS_SCAN")
         cg.add_define("USE_MASTERBUS_TEXT")
         cg.add_define("MASTERBUS_UNKNOWN_FRAME_COUNT", 2)

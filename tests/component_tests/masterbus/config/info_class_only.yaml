@@ -1,0 +1,16 @@
+# What kind of device an address is needs no bus read, so no information slot is requested.
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+    devices:
+      - id: mb_battery
+        device: 0x6C1001
+
+text_sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    info: class
+    name: Battery class

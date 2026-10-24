@@ -1,0 +1,18 @@
+# A device shown only by its class. The class needs no bus read, so nothing asks for an
+# information slot, and the sensor that shows it has to compile without one.
+
+packages:
+  canbus: !include ../../test_build_components/common/canbus/esp32-idf.yaml
+
+masterbus:
+  id: mb
+  canbus_id: canbus_bus
+  devices:
+    - id: mb_battery
+      device: 0x6C1001
+
+text_sensor:
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    info: class
+    name: Battery class
