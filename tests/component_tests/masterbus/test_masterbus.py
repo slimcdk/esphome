@@ -42,6 +42,7 @@ from esphome.const import (
     CONF_UPDATE_INTERVAL,
 )
 from esphome.core import CORE
+from esphome.schema_extractors import SCHEMA_EXTRACT
 from esphome.types import ConfigType
 
 from ..helpers import get_define_value
@@ -383,6 +384,12 @@ def test_text_sensor_shows_what_a_device_says_about_itself(info: str) -> None:
     )
     assert config["info"] == info
     assert CONF_PARAM not in config
+
+
+def test_schema_extraction_sees_both_text_sensor_forms() -> None:
+    """An editor offers a field by its number and what a device says about itself alike."""
+    keys = {str(key) for key in TEXT_SENSOR_SCHEMA(SCHEMA_EXTRACT).schema}
+    assert {CONF_PARAM, CONF_OPTIONS, "info"} <= keys
 
 
 def test_text_sensor_info_takes_no_field_number() -> None:
