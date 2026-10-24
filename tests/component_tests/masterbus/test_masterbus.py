@@ -134,8 +134,8 @@ def test_hub_address_may_not_be_a_declared_device() -> None:
     with pytest.raises(cv.Invalid, match="declared device"):
         CONFIG_SCHEMA(
             _hub(
-                address=0x6D56EA,
-                **{CONF_DEVICES: [{CONF_ID: "bat", CONF_DEVICE: 0x6D56EA}]},
+                address=0x6C1001,
+                **{CONF_DEVICES: [{CONF_ID: "bat", CONF_DEVICE: 0x6C1001}]},
             )
         )
 
@@ -160,14 +160,14 @@ def test_node_request_interval_below_a_second_rejected(interval: str) -> None:
 # Device identifiers
 
 
-@pytest.mark.parametrize("address", [0x0, 0x6D56EA, 0x535E30, WIDEST_ADDRESS])
+@pytest.mark.parametrize("address", [0x0, 0x6C1001, 0x501001, WIDEST_ADDRESS])
 def test_device_identifier_within_the_extended_can_range_accepted(address: int) -> None:
     """Anything that fits the address field is a possible device."""
     config = DEVICE_SCHEMA({CONF_ID: "mb_battery", CONF_DEVICE: address})
     assert config[CONF_DEVICE] == address
 
 
-@pytest.mark.parametrize("address", [0x800000, 0x6D56EA0])
+@pytest.mark.parametrize("address", [0x800000, 0x6C10010])
 def test_device_identifier_beyond_the_extended_can_range_rejected(address: int) -> None:
     """23 bits is the hard ceiling, and the message says so with the value."""
     with pytest.raises(cv.Invalid, match=f"{address:#X}"):
@@ -178,7 +178,7 @@ def test_device_timeout_of_zero_rejected() -> None:
     """Zero would time the device out on the tick after its first frame, and every tick after."""
     with pytest.raises(cv.Invalid):
         DEVICE_SCHEMA(
-            {CONF_ID: "mb_battery", CONF_DEVICE: 0x6D56EA, CONF_TIMEOUT: "0s"}
+            {CONF_ID: "mb_battery", CONF_DEVICE: 0x6C1001, CONF_TIMEOUT: "0s"}
         )
 
 
@@ -195,8 +195,8 @@ def test_duplicate_device_identifiers_rejected() -> None:
             _hub(
                 **{
                     CONF_DEVICES: [
-                        {CONF_ID: "mb_battery", CONF_DEVICE: 0x6D56EA},
-                        {CONF_ID: "mb_spare", CONF_DEVICE: 0x6D56EA},
+                        {CONF_ID: "mb_battery", CONF_DEVICE: 0x6C1001},
+                        {CONF_ID: "mb_spare", CONF_DEVICE: 0x6C1001},
                     ]
                 }
             )
@@ -209,8 +209,8 @@ def test_distinct_device_identifiers_accepted() -> None:
         _hub(
             **{
                 CONF_DEVICES: [
-                    {CONF_ID: "mb_battery", CONF_DEVICE: 0x6D56EA},
-                    {CONF_ID: "mb_charger", CONF_DEVICE: 0x535E30},
+                    {CONF_ID: "mb_battery", CONF_DEVICE: 0x6C1001},
+                    {CONF_ID: "mb_charger", CONF_DEVICE: 0x501001},
                 ]
             }
         )

@@ -64,8 +64,8 @@ static constexpr uint32_t HUB_ADDRESS = 0x500001;
 ///     response  type 0x10, 6 bytes: field number little-endian, then float32 little-endian
 ///
 /// The type is the value *before* the shift, which is easy to confuse with the identifier that
-/// ends up on the wire. Asking device 0x6D56EA for field 117 is (0x30 << 23) | 0x6D56EA, which
-/// reads as 186D56EA#7500 in a candump log - not 306D56EA.
+/// ends up on the wire. Asking device 0x6C1001 for field 117 is (0x30 << 23) | 0x6C1001, which
+/// reads as 186C1001#7500 in a candump log - not 306C1001.
 static constexpr uint8_t MONITORING_REQUEST_TYPE = 0x30;
 static constexpr uint8_t MONITORING_INFORMATION_TYPE = 0x10;
 static constexpr uint8_t MONITORING_REQUEST_LENGTH = 2;

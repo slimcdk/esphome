@@ -9,13 +9,13 @@ masterbus:
           args: ["type", "device", "x.size()"]
     devices:
       - id: mb_battery
-        device: 0x6D56EA
+        device: 0x6C1001
         on_online:
           - logger.log: "Battery bank answered"
         on_offline:
           - logger.log: "Battery bank stopped answering"
       - id: mb_charger
-        device: 0x535E30
+        device: 0x501001
         timeout: 5min
 
 sensor:
