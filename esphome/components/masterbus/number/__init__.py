@@ -13,9 +13,19 @@ MasterbusNumber = masterbus_ns.class_(
     "MasterbusNumber", number.Number, cg.PollingComponent
 )
 
+
+def _validate_range(config: ConfigType) -> ConfigType:
+    if config[CONF_MIN_VALUE] > config[CONF_MAX_VALUE]:
+        raise cv.Invalid(
+            f"'{CONF_MIN_VALUE}' {config[CONF_MIN_VALUE]} is above '{CONF_MAX_VALUE}' "
+            f"{config[CONF_MAX_VALUE]}; a scan reports them as min and max"
+        )
+    return config
+
+
 # A scan reports the minimum, maximum and step size of every field, so these are a copy from the
 # log rather than something the user has to work out.
-CONFIG_SCHEMA = (
+CONFIG_SCHEMA = cv.All(
     number.number_schema(MasterbusNumber)
     .extend(entity_schema(value_types=("float",), default_value_type="float"))
     .extend(
@@ -24,7 +34,8 @@ CONFIG_SCHEMA = (
             cv.Required(CONF_MAX_VALUE): cv.float_,
             cv.Required(CONF_STEP): cv.positive_float,
         }
-    )
+    ),
+    _validate_range,
 )
 
 
