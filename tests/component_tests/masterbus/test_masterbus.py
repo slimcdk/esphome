@@ -455,3 +455,15 @@ def test_a_class_sensor_alone_compiles_the_information_sensor_in(
     assert get_define_value("USE_MASTERBUS_INFO") is not None
     assert get_define_value("MASTERBUS_INFO_COUNT") is None
     assert "MasterbusInfoTextSensor(" in main_cpp
+
+
+def test_each_hub_sizes_its_lists_for_its_own_devices(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    """Every hub's lists are declared at one size, so the size is the largest hub's, not the sum."""
+    generate_main(component_config_path("two_hubs.yaml"))
+    assert get_define_value("MASTERBUS_DEVICE_COUNT") == "3"
+    assert get_define_value("MASTERBUS_ENTITY_COUNT") == "2"
+    assert get_define_value("MASTERBUS_INFO_COUNT") == "1"
+    assert get_define_value("MASTERBUS_UNKNOWN_FRAME_COUNT") == "1"
