@@ -9,12 +9,12 @@ masterbus:
     canbus_id: canbus_bus
     devices:
       - id: mb_port_battery
-        device: 0x6D56EA
+        device: 0x6C1001
   - id: mb_starboard
     canbus_id: canbus_bus_2
     devices:
       - id: mb_starboard_battery
-        device: 0x6D56EA
+        device: 0x6C1001
 
 sensor:
   - platform: masterbus
