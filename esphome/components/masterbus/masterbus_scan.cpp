@@ -31,7 +31,7 @@ static constexpr uint8_t DEVICE_STRING_COUNT = 4;
 /// escaped, and every byte outside printable ASCII as \xNN. The bus is documented to send ASCII
 /// but nothing enforces it, and a raw byte would mangle a log viewer that carries JSON.
 static void quote_string(const char *value, char *out, size_t capacity) {
-  static const char HEX[] = "0123456789ABCDEF";
+  static constexpr char HEX_DIGITS[] = "0123456789ABCDEF";
   size_t at = 0;
   const auto put = [&](char character) {
     if (at + 1 < capacity)
@@ -46,8 +46,8 @@ static void quote_string(const char *value, char *out, size_t capacity) {
     } else if (byte < 0x20 || byte > 0x7E) {
       put('\\');
       put('x');
-      put(HEX[byte >> 4]);
-      put(HEX[byte & 0x0F]);
+      put(HEX_DIGITS[byte >> 4]);
+      put(HEX_DIGITS[byte & 0x0F]);
     } else {
       put(static_cast<char>(byte));
     }
