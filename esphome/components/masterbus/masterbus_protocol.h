@@ -130,10 +130,9 @@ static constexpr uint8_t MONITORING_WRITE_LENGTH = 6;
 /// a division rather than with a calendar. The spare slots - a 32nd day, a 13th month - are what
 /// make it reversible.
 ///
-/// Checked against a capture from an unrelated installation, a Mastervolt DC shunt in January
-/// 2022. Its date field read 841202, which unpacks to day 18, month 1, year 2022, and the capture
-/// was recorded on 2022-01-18. Its time field advanced 84 counts over 83.88 seconds of that same
-/// capture, so the unit is the second.
+/// Checked against a capture from an unrelated installation, a Mastervolt DC shunt. Its date field
+/// unpacked this way to the very day the capture was recorded, and its time field advanced 84
+/// counts over 83.88 seconds of that same capture, so the unit is the second.
 ///
 /// A time is not always a clock. The same display type serves the shunt's "Time", which is a time
 /// of day, and its "Remaining", which is a span of hours. So the hour is not folded into a day:
@@ -306,13 +305,14 @@ constexpr bool string_buffer_full(uint8_t chunk, uint8_t capacity) {
 ///     08 06   configuration groups   08 08   alarm groups
 ///     08 3F   eventables
 ///
-/// VERIFIED: the group counts. In a 2022 capture a display panel asked all four of a MassCombi and a
-/// MasterShunt and then walked what it was told: eight of eight matched the number of groups each
-/// device went on to answer for. A device that refuses one is walked the older way, by asking for
-/// the group after the last one and taking its silence as the end of the list.
+/// VERIFIED: the group counts. In a capture of a second installation a display panel asked all
+/// four of a MassCombi and a MasterShunt and then walked what it was told: eight of eight matched
+/// the number of groups each device went on to answer for. A device that refuses one is walked the
+/// older way, by asking for the group after the last one and taking its silence as the end of the
+/// list.
 ///
 /// VERIFIED as numbers: eventables, how many event slots a device has. All six lithium battery
-/// blocks answer 2, a display panel 16; the 2022 installation's MassCombi interface 8 and its
+/// blocks answer 2, a display panel 16; the second installation's MassCombi interface 8 and its
 /// MasterView 11, and a MasterShunt refuses it. It was once read here as a product code, because
 /// identical units agree on it; the device class in the address is what says what a device is.
 static constexpr uint8_t GENERAL_COUNT_SELECTOR = 0x08;
