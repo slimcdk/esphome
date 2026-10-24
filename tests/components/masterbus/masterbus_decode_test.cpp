@@ -1318,6 +1318,33 @@ TEST_F(MasterbusTest, AnOptionAnswerForAnotherFieldIsNotTaken) {
   EXPECT_EQ(encode_uint16(asked.data[2], asked.data[1]), 0x71);
 }
 
+// The field count arrives as a float. One that cannot be a count - negative, or not a number - is
+// an empty group, not a count cast round to whatever the cast makes of it.
+TEST_F(MasterbusTest, AnImpossibleFieldCountWalksAsAnEmptyGroup) {
+  for (const float count : {-5.0f, NAN}) {
+    this->canbus_.clear();
+    this->feed("ext 0x046C1001 [8] 1B:01:10:00:51:00:00:02");
+    this->hub_->report_scan();
+    this->answer_eventables(2);
+    this->refuse_group_count();
+    uint32_t bits;
+    memcpy(&bits, &count, sizeof(bits));
+    this->answer(GROUP_INFORMATION_TYPE,
+                 {0x07, 0x00, 0x00, 0x00, static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
+                  static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)});
+    this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // no name
+    this->hub_->scan_step(this->scan_now_);
+
+    // Straight on to the next group's count, without asking for a field of this one.
+    const auto &asked = this->canbus_.sent.back();
+    EXPECT_EQ(asked.can_id >> MESSAGE_TYPE_SHIFT, GROUP_REQUEST_TYPE);
+    EXPECT_EQ(asked.data[0], static_cast<uint8_t>(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT));
+    EXPECT_EQ(asked.data[1], 1);
+
+    this->hub_ = std::make_unique<MasterbusHub>(&this->canbus_);
+  }
+}
+
 // The vendor's own message list, read out of its shared library. Six of the twelve entries are
 // pinned by traffic; the rest follow from the same ordering. These assert the pinned ones, because
 // if the ordering is ever edited it is those that must not move.

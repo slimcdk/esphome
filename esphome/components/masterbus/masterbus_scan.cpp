@@ -268,8 +268,14 @@ void MasterbusScanner::advance_(bool answered) {
 
     case Phase::PHASE_GROUP_NAME_ID:
       this->chunk_ = 0;
-      // A group without a name is normal; its fields are still worth listing.
-      this->phase_ = this->name_string_ != 0 ? Phase::PHASE_GROUP_NAME_TEXT : Phase::PHASE_FIELD_NUMBER;
+      // A group without a name is normal; its fields are still worth listing, if it has any.
+      if (this->name_string_ != 0) {
+        this->phase_ = Phase::PHASE_GROUP_NAME_TEXT;
+      } else if (this->fields_in_group_ == 0) {
+        this->next_group_();
+      } else {
+        this->phase_ = Phase::PHASE_FIELD_NUMBER;
+      }
       return;
 
     case Phase::PHASE_GROUP_NAME_TEXT:
@@ -645,12 +651,15 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       this->software_versions_[this->processor_] = value16(2);
       break;
 
-    case Phase::PHASE_GROUP_FIELD_COUNT:
+    case Phase::PHASE_GROUP_FIELD_COUNT: {
       if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, 8))
         return false;
       // The count arrives as a float, which is odd for a count but consistent on every group seen.
-      this->fields_in_group_ = static_cast<uint16_t>(value32(4));
+      // One that cannot be a count is an empty group.
+      const float count = value32(4);
+      this->fields_in_group_ = count >= 0.0f && count < 65536.0f ? static_cast<uint16_t>(count) : 0;
       break;
+    }
 
     case Phase::PHASE_GROUP_NAME_ID:
       if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING, 6))
