@@ -576,15 +576,20 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION:
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID:
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE:
-        // Each answers with the index of an entry in a list the device holds. An index cannot be
-        // negative, so a negative one is out of range rather than wrapped round to a huge one.
-        decoded.as_raw = value < 0.0f ? UINT32_MAX : static_cast<uint32_t>(value);
+        // Each answers with the index of an entry in a list the device holds. One that is negative,
+        // infinite or too large to be an index is no entry, rather than cast round to some other.
+        decoded.as_raw = value >= 0.0f && value < 4294967296.0f ? static_cast<uint32_t>(value) : UINT32_MAX;
         break;
 #ifdef USE_MASTERBUS_TEXT
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT:
         // A text field answers with the number of an entry in the device's string table, not with
         // the text. Reading that entry is a second exchange, so the entity is published from
-        // finish_text_read_() rather than from here.
+        // finish_text_read_() rather than from here. A string id is two bytes, so anything else
+        // names no entry at all.
+        if (!(value >= 0.0f && value <= 65535.0f)) {
+          entity->publish_masterbus_unavailable();
+          continue;
+        }
         this->begin_text_read_(entity, static_cast<uint16_t>(value));
         continue;
 #endif
