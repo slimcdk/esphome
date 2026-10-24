@@ -1,0 +1,100 @@
+# One of every kind of entity, so that each schema branch's generated code can be checked.
+packages:
+  base: !include _base.yaml
+
+masterbus:
+  - id: mb
+    canbus_id: mb_can
+    address: 0x381001
+    on_unknown_frame:
+      - lambda: ""
+    devices:
+      - id: mb_battery
+        device: 0x6C1001
+        on_online:
+          - lambda: ""
+        on_offline:
+          - lambda: ""
+      - id: mb_display
+        device: 0x501001
+        timeout: 5min
+
+sensor:
+  - platform: masterbus
+    id: battery_voltage
+    masterbus_device_id: mb_battery
+    param: 0x0001
+    name: Battery voltage
+    update_interval: 10s
+    timeout: 30s
+
+binary_sensor:
+  - platform: masterbus
+    id: battery_low
+    masterbus_device_id: mb_battery
+    param: 0x0002
+    name: Battery low
+    tab: alarm
+
+text_sensor:
+  - platform: masterbus
+    id: battery_label
+    masterbus_device_id: mb_battery
+    param: 0x0018
+    name: Battery label
+    update_interval: 1h
+  - platform: masterbus
+    id: display_language
+    masterbus_device_id: mb_display
+    param: 0x0019
+    name: Display language
+    tab: configuration
+    value_type: list_option
+    options:
+      - English
+      - Nederlands
+  - platform: masterbus
+    id: battery_serial
+    masterbus_device_id: mb_battery
+    info: serial_number
+    name: Battery serial number
+  - platform: masterbus
+    id: battery_class
+    masterbus_device_id: mb_battery
+    info: class
+    name: Battery class
+
+number:
+  - platform: masterbus
+    id: display_backlight
+    masterbus_device_id: mb_display
+    param: 0x002A
+    name: Display backlight
+    min_value: 5
+    max_value: 95
+    step: 5
+
+select:
+  - platform: masterbus
+    id: display_page
+    masterbus_device_id: mb_display
+    param: 0x002C
+    name: Display page
+    tab: configuration
+    options:
+      - Battery
+      - Charger
+
+switch:
+  - platform: masterbus
+    id: display_relay
+    masterbus_device_id: mb_display
+    param: 0x0020
+    name: Display relay
+
+button:
+  - platform: masterbus
+    id: battery_close_relay
+    masterbus_device_id: mb_battery
+    param: 0x0075
+    name: Close battery relay
