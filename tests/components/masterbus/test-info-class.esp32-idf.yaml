@@ -1,8 +1,14 @@
 # A device shown only by its class. The class needs no bus read, so nothing asks for an
-# information slot, and the sensor that shows it has to compile without one.
+# information slot, and the sensor that shows it has to compile without one. It sits on an esphome
+# sub-device, whose own device member the masterbus entities must not hide.
 
 packages:
   canbus: !include ../../test_build_components/common/canbus/esp32-idf.yaml
+
+esphome:
+  devices:
+    - id: battery_bank
+      name: Battery bank
 
 masterbus:
   id: mb
@@ -16,3 +22,4 @@ text_sensor:
     masterbus_device_id: mb_battery
     info: class
     name: Battery class
+    device_id: battery_bank

@@ -378,18 +378,18 @@ void MasterbusEntity::update() {
     return;
   // A request that never reached the bus leaves nothing to wait for. Latching the flag anyway
   // would make the next answer from another node look like ours and suppress the poll after it.
-  this->poll_outstanding_ = this->device_->get_hub()->request_field(*this);
+  this->poll_outstanding_ = this->masterbus_device_->get_hub()->request_field(*this);
 }
 
 void MasterbusEntity::check_stale(uint32_t now) {
   // Nothing to report for a field that follows its device, has never had a value, or has already
   // been reported. A device that has gone quiet altogether reports through the device instead.
-  if (this->stale_timeout_ms_ == 0 || !this->had_value_ || this->stale_ || !this->device_->is_online())
+  if (this->stale_timeout_ms_ == 0 || !this->had_value_ || this->stale_ || !this->masterbus_device_->is_online())
     return;
   if (now - this->last_value_at_ < this->stale_timeout_ms_)
     return;
   ESP_LOGD(TAG, "Field %u of device 0x%06" PRIX32 " has not been answered for %" PRIu32 " ms", this->param_,
-           this->device_->get_address(), this->stale_timeout_ms_);
+           this->masterbus_device_->get_address(), this->stale_timeout_ms_);
   this->stale_ = true;
   this->publish_masterbus_unavailable();
 }
@@ -412,7 +412,7 @@ bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property
 bool MasterbusEntity::write(float value, bool read_back) {
   if (this->writeable_ == 0) {
     ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " takes no write, by the device's own word; not written",
-             this->param_, this->device_->get_address());
+             this->param_, this->masterbus_device_->get_address());
     return false;
   }
   if (this->writeable_ == 1 && this->eventable_ != -1)
@@ -425,8 +425,8 @@ bool MasterbusEntity::write(float value, bool read_back) {
   if (asked)
     return true;
   // Only what is not yet known is asked.
-  MasterbusHub *hub = this->device_->get_hub();
-  const uint32_t address = this->device_->get_address();
+  MasterbusHub *hub = this->masterbus_device_->get_hub();
+  const uint32_t address = this->masterbus_device_->get_address();
   bool sent = true;
   if (this->writeable_ == -1)
     sent = hub->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE, this->param_, this->tab_);
@@ -462,7 +462,7 @@ void MasterbusEntity::write_if_answered_() {
     return;
   }
   ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " takes no write, by the device's own word; not written",
-           this->param_, this->device_->get_address());
+           this->param_, this->masterbus_device_->get_address());
 }
 
 void MasterbusEntity::questions_unanswered_() {
@@ -476,7 +476,7 @@ void MasterbusEntity::questions_unanswered_() {
 }
 
 bool MasterbusEntity::perform_write_(float value, bool read_back) {
-  if (!this->device_->get_hub()->write_value(*this, value))
+  if (!this->masterbus_device_->get_hub()->write_value(*this, value))
     return false;
   if (read_back)
     this->set_timeout(READ_BACK_TIMEOUT_ID, READ_BACK_DELAY_MS, [this]() { this->read_back_(); });
@@ -485,7 +485,7 @@ bool MasterbusEntity::perform_write_(float value, bool read_back) {
 
 void MasterbusEntity::read_back_() {
   // Our own request, so the answer to it does not stand in for the next poll.
-  this->poll_outstanding_ = this->device_->get_hub()->request_field(*this);
+  this->poll_outstanding_ = this->masterbus_device_->get_hub()->request_field(*this);
 }
 
 bool MasterbusHub::write_value(const MasterbusEntity &entity, float value) {
