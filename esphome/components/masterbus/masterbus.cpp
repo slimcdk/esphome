@@ -339,10 +339,9 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
   if (!data_information_tab(type, tab))
     return;
   if (data.size() < MONITORING_INFORMATION_LENGTH) {
-    // History is assumed to carry a value the way monitoring and configuration were watched doing,
-    // and that is the one thing about it that has not been seen. A tab where it does not hold would
-    // drop every answer in silence, so it is said - once, because it is the assumption that is
-    // wrong and not the frame, and a poll repeats.
+    // Every tab has been watched answering with a field number and a value. Equipment that answers
+    // shorter on some tab would have every answer dropped in silence, so it is said - once, because
+    // it is the equipment and not the frame that differs, and a poll repeats.
     const uint8_t already_said = 1 << static_cast<uint8_t>(tab);
     if ((this->short_answer_said_ & already_said) == 0) {
       this->short_answer_said_ |= already_said;
