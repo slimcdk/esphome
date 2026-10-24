@@ -320,6 +320,7 @@ TEST_F(MasterbusTest, NotANumberReportsUnavailableRatherThanZero) {
 // them; string 97 is the "Battery" the scan tests read through the same table.
 TEST_F(MasterbusTest, TextFieldIsReadFromTheStringTable) {
   auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
 
@@ -348,6 +349,7 @@ TEST_F(MasterbusTest, TextReadIgnoresAChunkOfSomeOtherString) {
   // The same mistake the scan makes if it trusts a counter instead of the header: a chunk of
   // string 98 is not the next piece of string 97.
   auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
   this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
@@ -399,6 +401,17 @@ TEST_F(MasterbusTest, AStringThatNeverEndsIsPublishedCutShortOnce) {
   EXPECT_STREQ(label->values[0].as_text, "xyzwxyzwxyzwxyzwxyzwxyzwxyzwxyz");
 }
 
+// An entity given no update_interval never transmits, and a text field is no exception: reading
+// its string is a request like any other. Another node's answer for it is seen and left at that.
+TEST_F(MasterbusTest, ATextFieldThatNeverPollsDoesNotReadItsString) {
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+
+  EXPECT_TRUE(this->canbus_.sent.empty());
+  EXPECT_TRUE(label->values.empty());
+}
+
 TEST_F(MasterbusTest, TextFieldWithNoStringIsUnavailableAndAsksNothing) {
   auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
 
@@ -411,6 +424,7 @@ TEST_F(MasterbusTest, TextFieldWithNoStringIsUnavailableAndAsksNothing) {
 
 TEST_F(MasterbusTest, StringTheDeviceDoesNotHaveLeavesTheFieldUnavailable) {
   auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
   this->hub_->on_frame(frame_id(STRING_NOT_AVAILABLE_TYPE, BATTERY_1), true, false, {0x30, 0x61, 0x00, 0x00});
@@ -521,6 +535,7 @@ TEST_F(MasterbusTest, ANumberThatCannotBeATimeIsUnavailableRatherThanTruncated) 
 // several frames. Rendering one where the other is being assembled loses the string.
 TEST_F(MasterbusTest, ATimeAnswerDoesNotOverwriteAStringBeingRead) {
   auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
   auto *clock = this->add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
@@ -540,6 +555,7 @@ TEST_F(MasterbusTest, ATimeAnswerDoesNotOverwriteAStringBeingRead) {
 // number wrote, so the field publishes the number's leading digits as its text.
 TEST_F(MasterbusTest, ATimeAnswerDoesNotTruncateAStringThatEndsOnAnEmptyChunk) {
   auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
   this->add_sensor(94, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));

@@ -590,6 +590,12 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
           entity->publish_masterbus_unavailable();
           continue;
         }
+        // Reading the string is a request like any other, and an entity given no update_interval
+        // never transmits. Another node's answer for it is left at that.
+        if (value != 0.0f && entity->get_update_interval() == SCHEDULER_DONT_RUN) {
+          ESP_LOGV(TAG, "Field %u never polls, so its string %u is not read", param, static_cast<unsigned>(value));
+          continue;
+        }
         this->begin_text_read_(entity, static_cast<uint16_t>(value));
         continue;
 #endif
