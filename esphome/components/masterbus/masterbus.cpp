@@ -659,6 +659,7 @@ void MasterbusHub::begin_text_read_(MasterbusEntity *entity, uint16_t string_id)
   this->text_entity_ = entity;
   this->text_string_ = string_id;
   this->text_sent_at_ = now;
+  this->text_chunk_ = 0;
   this->value_text_[0] = '\0';
   this->text_truncated_ = false;
   if (!this->request_string(entity->get_masterbus_device()->get_address(), string_id, 0)) {
@@ -673,9 +674,10 @@ bool MasterbusHub::take_text_frame_(uint8_t type, uint32_t address, const std::v
   if (type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE)
     return false;
   // The answer echoes the request header, so it says which string and which chunk it carries.
-  // Without that check a chunk of somebody else's string lands in the middle of ours.
+  // Without that check a chunk of somebody else's string lands in the middle of ours, and another
+  // node's answer to a later chunk of the same string ends ours early.
   if (data.size() < STRING_CHUNK_LENGTH || data[0] != STRING_REQUEST_MARKER ||
-      encode_uint16(data[2], data[1]) != this->text_string_)
+      encode_uint16(data[2], data[1]) != this->text_string_ || data[3] != this->text_chunk_)
     return false;
 
   if (type == STRING_NOT_AVAILABLE_TYPE) {
@@ -686,9 +688,10 @@ bool MasterbusHub::take_text_frame_(uint8_t type, uint32_t address, const std::v
     this->finish_text_read_(true);
     return true;
   }
-  // More to come. The chunk number is the answer's, not a counter of our own.
+  // More to come.
   this->text_sent_at_ = App.get_loop_component_start_time();
-  if (!this->request_string(address, this->text_string_, data[3] + 1))
+  this->text_chunk_++;
+  if (!this->request_string(address, this->text_string_, this->text_chunk_))
     this->finish_text_read_(false);
   return true;
 }
@@ -828,7 +831,7 @@ bool MasterbusHub::take_info_frame_(uint8_t type, uint32_t address, const std::v
 
   // The answer echoes the request header, so it says which string and which chunk it carries.
   if (data.size() < STRING_CHUNK_LENGTH || data[0] != STRING_REQUEST_MARKER ||
-      encode_uint16(data[2], data[1]) != this->info_string_)
+      encode_uint16(data[2], data[1]) != this->info_string_ || data[3] != this->info_chunk_)
     return false;
   if (refused) {
     this->publish_info_(nullptr);
@@ -840,7 +843,7 @@ bool MasterbusHub::take_info_frame_(uint8_t type, uint32_t address, const std::v
     this->next_info_();
     return true;
   }
-  this->info_chunk_ = data[3] + 1;
+  this->info_chunk_++;
   this->info_waiting_ = false;
   return true;
 }

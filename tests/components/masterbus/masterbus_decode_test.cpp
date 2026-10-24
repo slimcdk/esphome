@@ -361,6 +361,25 @@ TEST_F(MasterbusTest, TextReadIgnoresAChunkOfSomeOtherString) {
   EXPECT_STREQ(label->values[0].as_text, "Battery");
 }
 
+// A display panel reading the same string sees its answers broadcast like ours. Its answer to the
+// last, short chunk arriving before ours to the first does not end our read with nothing in it.
+TEST_F(MasterbusTest, AnotherNodesLaterChunkDoesNotEndATextRead) {
+  auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  label->set_update_interval(10000);
+
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(24, 97.0f));
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+
+  EXPECT_EQ(label->unavailable_count, 0);
+  ASSERT_EQ(label->values.size(), 1u);
+  EXPECT_STREQ(label->values[0].as_text, "Battery");
+}
+
 TEST_F(MasterbusTest, TextFieldWithNoStringIsUnavailableAndAsksNothing) {
   auto *label = this->add_sensor(24, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
 
@@ -1127,6 +1146,33 @@ TEST_F(MasterbusTest, ScanPlacesStringChunksByTheirOwnHeader) {
   EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
 }
 
+// The same in the walk: another node's answer to a later chunk of the name being read is not the
+// end of it.
+TEST_F(MasterbusTest, AnotherNodesLaterChunkDoesNotEndAStringTheScanReads) {
+  this->hub_->on_frame(frame_id(DEVICE_ANNOUNCEMENT_TYPE, BATTERY_1), true, false,
+                       {0x1B, 0xEA, 0x56, 0x01, 0x51, 0x00, 0x00, 0x02});
+  this->hub_->report_scan();
+  this->answer_eventables(2);
+  this->refuse_group_count();
+
+  this->answer(GROUP_INFORMATION_TYPE, {0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x40});
+  this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // group has no name
+  this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 0x01, 0x00, 0x00, 0x01, 0x00});
+  this->answer(PROPERTY_INFORMATION_TYPE, {0x28, 0x01, 0x00, 0x00, 0x61, 0x00});  // name string 97
+  this->unanswered();                                                             // no unit
+  this->unanswered();                                                             // no minimum
+  this->unanswered();                                                             // no maximum
+  this->unanswered();                                                             // no step
+  this->unanswered_factory_and_flags();
+
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x00, 'B', 'a', 't', 't'});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
+
+  EXPECT_STREQ(this->hub_->get_scanned_field().name, "Battery");
+}
+
 // The vendor's own message list, read out of its shared library. Six of the twelve entries are
 // pinned by traffic; the rest follow from the same ordering. These assert the pinned ones, because
 // if the ordering is ever edited it is those that must not move.
@@ -1872,6 +1918,23 @@ TEST_F(MasterbusTest, ADevicesSerialNumberIsReadOnceItIsOnline) {
   ASSERT_EQ(serial->texts.size(), 1u);
   EXPECT_EQ(serial->texts[0], "AB00A0001");
   EXPECT_FALSE(this->hub_->info_step(this->info_now_)) << "the reader kept asking after it was done";
+}
+
+// And in the reading of what a device says about itself.
+TEST_F(MasterbusTest, AnotherNodesLaterChunkDoesNotEndAnInformationRead) {
+  auto *serial = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_SERIAL_NUMBER);
+  this->announce();
+  this->info_answer(STRING_INFORMATION_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_SERIAL_NUMBER, 0x05, 0x00});
+  this->hub_->info_step(this->info_now_);  // asks for chunk 0 of string 5
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false, {0x30, 0x05, 0x00, 0x02, '1'});
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false,
+                       {0x30, 0x05, 0x00, 0x00, 'A', 'B', '0', '0'});
+  this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x05, 0x00, 0x01, 'A', '0', '0', '0'});
+  this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x05, 0x00, 0x02, '1'});
+
+  EXPECT_EQ(serial->unavailable_count, 0);
+  ASSERT_EQ(serial->texts.size(), 1u);
+  EXPECT_EQ(serial->texts[0], "AB00A0001");
 }
 
 // The firmware is each processor's software version, asked from 0 until the device refuses one.
