@@ -482,6 +482,15 @@ void MasterbusEntity::questions_unanswered_() {
     return;
   this->write_pending_ = false;
   if (this->writeable_ == -1) {
+    // A configuration field is a setting, and the vendor's own tool never writes one the device has
+    // not said it takes. It is asked again before the next write.
+    if (this->tab_ == MasterbusTab::MASTERBUS_TAB_CONFIGURATION) {
+      ESP_LOGW(TAG,
+               "Field %u on the configuration tab of device 0x%06" PRIX32
+               " did not say whether it takes a write; not written",
+               this->param_, this->masterbus_device_->get_address());
+      return;
+    }
     ESP_LOGD(TAG, "Field %u did not say whether it takes a write; writing it anyway", this->param_);
   }
   this->perform_write_(this->pending_value_, this->pending_read_back_);

@@ -2334,6 +2334,27 @@ TEST_F(MasterbusTest, SomebodyElsesAnswerOnWhetherAFieldTakesAWriteCounts) {
 // A device that does not answer the question is written anyway once it has had its chance, and
 // the field is read back afterwards - our own read, so it does not stand in for the next poll.
 TEST_F(MasterbusTest, AnUnansweredQuestionStillLetsTheWriteThroughAndTheFieldIsReadBack) {
+  SchedulingEntity entity(this->battery_.get(), 20, MasterbusTab::MASTERBUS_TAB_MONITORING,
+                          MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT);
+  this->hub_->register_entity(&entity);
+  entity.write(42.0f);
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, PROPERTY_REQUEST_TYPE);
+  entity.questions_unanswered_();
+  ASSERT_EQ(this->canbus_.sent.size(), 3u);
+  EXPECT_EQ(this->canbus_.sent[2].can_id >> MESSAGE_TYPE_SHIFT, MONITORING_REQUEST_TYPE);
+  EXPECT_EQ(this->canbus_.sent[2].can_data_length_code, MONITORING_WRITE_LENGTH);
+
+  entity.read_back_();
+  ASSERT_EQ(this->canbus_.sent.size(), 4u);
+  EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, MONITORING_REQUEST_TYPE);
+  EXPECT_EQ(this->canbus_.sent.back().can_data_length_code, MONITORING_REQUEST_LENGTH);
+}
+
+// The configuration tab holds a device's settings, and the vendor's own tool always has the device's
+// word on whether a field there takes a write before it writes one. A configuration field that does
+// not say is not written.
+TEST_F(MasterbusTest, AConfigurationFieldThatDoesNotSayItTakesAWriteIsNotWritten) {
   SchedulingEntity entity(this->battery_.get(), 20, MasterbusTab::MASTERBUS_TAB_CONFIGURATION,
                           MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT);
   this->hub_->register_entity(&entity);
@@ -2341,14 +2362,17 @@ TEST_F(MasterbusTest, AnUnansweredQuestionStillLetsTheWriteThroughAndTheFieldIsR
   ASSERT_EQ(this->canbus_.sent.size(), 2u);
   EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, 0x38);
   entity.questions_unanswered_();
+  EXPECT_EQ(this->canbus_.sent.size(), 2u);
+
+  // It is asked again before the next write, and written once it says yes.
+  this->canbus_.clear();
+  entity.write(42.0f);
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  this->hub_->on_frame(frame_id(0x18, BATTERY_1), true, false, {0x0B, 20, 0x00, 0x00, 0x01, 0x00});
+  entity.questions_unanswered_();
   ASSERT_EQ(this->canbus_.sent.size(), 3u);
   EXPECT_EQ(this->canbus_.sent[2].can_id >> MESSAGE_TYPE_SHIFT, 0x37);
   EXPECT_EQ(this->canbus_.sent[2].can_data_length_code, MONITORING_WRITE_LENGTH);
-
-  entity.read_back_();
-  ASSERT_EQ(this->canbus_.sent.size(), 4u);
-  EXPECT_EQ(this->canbus_.sent.back().can_id >> MESSAGE_TYPE_SHIFT, 0x37);
-  EXPECT_EQ(this->canbus_.sent.back().can_data_length_code, MONITORING_REQUEST_LENGTH);
 }
 
 // A hub can speak under an address of its own, in the node request and after every write.
