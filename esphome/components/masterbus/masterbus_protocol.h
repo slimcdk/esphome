@@ -369,7 +369,8 @@ inline bool is_software_version_header(const uint8_t *data, size_t size, uint8_t
 ///
 /// The vendor library asks all four of every device it finds, before it lists the device at all.
 /// VERIFIED: what the vendor calls the product name is the name the device carries - six identical
-/// battery blocks answered "BAT 1" to "BAT 6" - and the article number is the one on the label.
+/// battery blocks answered with the six names they were given at installation - and the article
+/// number is the one on the label.
 /// 09 03 was once read here as the highest string id a table holds. It is the name's id, which on
 /// both devices measured was the last string in the table.
 static constexpr uint8_t GENERAL_STRING_SELECTOR = 0x09;
