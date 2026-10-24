@@ -688,6 +688,11 @@ bool MasterbusHub::take_text_frame_(uint8_t type, uint32_t address, const std::v
     this->finish_text_read_(true);
     return true;
   }
+  if (string_buffer_full(this->text_chunk_, MASTERBUS_TEXT_LENGTH)) {
+    this->text_truncated_ = true;
+    this->finish_text_read_(true);
+    return true;
+  }
   // More to come.
   this->text_sent_at_ = App.get_loop_component_start_time();
   this->text_chunk_++;
@@ -838,7 +843,8 @@ bool MasterbusHub::take_info_frame_(uint8_t type, uint32_t address, const std::v
     this->next_info_();
     return true;
   }
-  if (take_string_chunk(data.data(), data.size(), this->info_text_, MASTERBUS_TEXT_LENGTH)) {
+  if (take_string_chunk(data.data(), data.size(), this->info_text_, MASTERBUS_TEXT_LENGTH) ||
+      string_buffer_full(this->info_chunk_, MASTERBUS_TEXT_LENGTH)) {
     this->publish_info_(this->info_text_[0] != '\0' ? this->info_text_ : nullptr);
     this->next_info_();
     return true;
