@@ -100,23 +100,27 @@ def _get_data() -> MasterbusData:
     return CORE.data[DOMAIN]
 
 
-def _device_address(value: Any) -> int:
+def _address_in_range(key: str, value: Any) -> int:
     address = cv.hex_int(value)
     if not 0 <= address <= MAX_DEVICE_ADDRESS:
         raise cv.Invalid(
-            f"'{CONF_DEVICE}' must be a MasterBus device identifier between 0x0 and "
-            f"{MAX_DEVICE_ADDRESS:#X}, but {address:#X} was given. The extended CAN identifier "
-            f"gives the address 23 bits; the rest of it carries the message type."
+            f"'{key}' must be a MasterBus address between 0x000000 and "
+            f"0x{MAX_DEVICE_ADDRESS:06X}, but 0x{address:06X} was given. The extended CAN "
+            f"identifier gives the address 23 bits; the rest of it carries the message type."
         )
     return address
 
 
+def _device_address(value: Any) -> int:
+    return _address_in_range(CONF_DEVICE, value)
+
+
 def _hub_address(value: Any) -> int:
-    address = _device_address(value)
+    address = _address_in_range(CONF_ADDRESS, value)
     if address >> DEVICE_CLASS_SHIFT == 0:
         raise cv.Invalid(
-            f"'{CONF_ADDRESS}' {address:#X} has no device class: the top five bits of a MasterBus "
-            f"address say what kind of node it is, and no node is class 0"
+            f"'{CONF_ADDRESS}' 0x{address:06X} has no device class: the top five bits of a "
+            f"MasterBus address say what kind of node it is, and no node is class 0"
         )
     return address
 
@@ -126,7 +130,7 @@ def _validate_unique_devices(config: ConfigType) -> ConfigType:
         device[CONF_DEVICE] for device in config.get(CONF_DEVICES, [])
     }:
         raise cv.Invalid(
-            f"the hub's own '{CONF_ADDRESS}' {address:#X} is also a declared device. Every device "
+            f"the hub's own '{CONF_ADDRESS}' 0x{address:06X} is also a declared device. Every device "
             f"answers a node request except the one whose address it carries, so that device would "
             f"never be heard announcing itself."
         )
@@ -135,7 +139,7 @@ def _validate_unique_devices(config: ConfigType) -> ConfigType:
         address = device[CONF_DEVICE]
         if (first := declared.get(address)) is not None:
             raise cv.Invalid(
-                f"MasterBus device {address:#X} is declared twice, as '{first}' and as "
+                f"MasterBus device 0x{address:06X} is declared twice, as '{first}' and as "
                 f"'{device[CONF_ID]}'. One identifier is one device, so two declarations would "
                 f"give two sets of entities reading the same source."
             )
