@@ -761,11 +761,7 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     case Phase::PHASE_FIELD_LONG_NAME_TEXT:
     case Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT:
     case Phase::PHASE_OPTION_TEXT: {
-      if (type == STRING_NOT_AVAILABLE_TYPE) {
-        this->advance_(false);
-        return true;
-      }
-      if (type != STRING_INFORMATION_TYPE || data.size() < STRING_CHUNK_LENGTH)
+      if ((type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE) || data.size() < STRING_CHUNK_LENGTH)
         return false;
       char *out = this->field_.name;
       uint8_t capacity = SCAN_NAME_LENGTH;
@@ -803,14 +799,18 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
           break;
       }
       // The answer echoes the request header, so it says which string and which chunk it carries.
-      // Believing our own counter instead once put the second half of "Battery" over the first,
-      // leaving "Batt" followed by whatever a stray chunk held.
-      if (data[0] != STRING_REQUEST_MARKER || value16(1) != wanted)
+      // Only the chunk asked for is ours: a display panel reading the same string is answered on
+      // the same bus, and its last chunk must not end our read before the first has arrived.
+      if (data[0] != STRING_REQUEST_MARKER || value16(1) != wanted || data[3] != this->chunk_)
         return false;
+      if (type == STRING_NOT_AVAILABLE_TYPE) {
+        this->advance_(false);
+        return true;
+      }
       if (data[3] == 0)
         this->string_truncated_ = false;
       const bool ended = take_string_chunk(data.data(), data.size(), out, capacity, &this->string_truncated_);
-      this->chunk_ = data[3] + 1;
+      this->chunk_++;
       this->waiting_ = false;
       if (ended) {
         if (this->string_truncated_) {
