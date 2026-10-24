@@ -184,12 +184,21 @@ class MasterbusDevice {
 #endif
 #ifdef MASTERBUS_INFO_COUNT
   void register_info_entity(MasterbusInfoEntity *entity);
-  /// Note the status bytes of an announcement. Returns whether what the device says about itself
-  /// should be read again: the device asks for it with bit 5 of byte 6, and a change of the status
-  /// version in byte 7 is how the vendor's own tool notices that something changed.
-  bool note_announcement(uint8_t flags, uint8_t status_version);
+  /// Note the status bytes of an announcement, at the time it arrived. Returns whether what the
+  /// device says about itself should be read again: the device asks for it with bit 5 of byte 6,
+  /// and a change of the status version in byte 7 is how the vendor's own tool notices that
+  /// something changed. Some equipment flips the version back and forth on nearly every
+  /// announcement, so a read asked for within the device's timeout of the last one waits until
+  /// an announcement after it.
+  bool note_announcement(uint8_t flags, uint8_t status_version, uint32_t now);
   bool has_info() const { return this->has_info_; }
   bool is_info_pending() const { return this->info_pending_; }
+  /// Mark the information as wanted, and when it was last asked for.
+  void request_info(uint32_t now) {
+    this->info_pending_ = true;
+    this->info_requested_at_ = now;
+    this->info_owed_ = false;
+  }
   void set_info_pending(bool pending) { this->info_pending_ = pending; }
 #endif
 
@@ -230,6 +239,9 @@ class MasterbusDevice {
   bool info_pending_{false};
   // The status version last announced, or -1 before the first announcement.
   int8_t status_version_{-1};
+  // A read the device asked for too soon after the last one, still to be made.
+  bool info_owed_{false};
+  uint32_t info_requested_at_{0};
 #endif
 };
 

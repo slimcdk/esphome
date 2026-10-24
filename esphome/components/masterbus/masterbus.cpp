@@ -74,11 +74,15 @@ void MasterbusDevice::register_info_entity(MasterbusInfoEntity *entity) {
   this->hub_->register_info_entity(entity);
 }
 
-bool MasterbusDevice::note_announcement(uint8_t flags, uint8_t status_version) {
+bool MasterbusDevice::note_announcement(uint8_t flags, uint8_t status_version, uint32_t now) {
   const int8_t version = static_cast<int8_t>(status_version & ANNOUNCEMENT_STATUS_VERSION_MASK);
   const bool changed = this->status_version_ >= 0 && version != this->status_version_;
   this->status_version_ = version;
-  return this->has_info_ && ((flags & ANNOUNCEMENT_READ_AGAIN_BIT) != 0 || changed);
+  if (!this->has_info_)
+    return false;
+  if ((flags & ANNOUNCEMENT_READ_AGAIN_BIT) != 0 || changed)
+    this->info_owed_ = true;
+  return this->info_owed_ && !this->info_pending_ && now - this->info_requested_at_ >= this->timeout_ms_;
 }
 #endif
 
@@ -292,7 +296,7 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
     device->mark_seen(App.get_loop_component_start_time());
 #ifdef MASTERBUS_INFO_COUNT
   if (type == DEVICE_ANNOUNCEMENT_TYPE && data.size() >= DEVICE_ANNOUNCEMENT_LENGTH &&
-      device->note_announcement(data[6], data[7]))
+      device->note_announcement(data[6], data[7], App.get_loop_component_start_time()))
     this->request_device_info(device);
   if (this->take_info_frame_(type, address, data))
     return;
@@ -730,7 +734,7 @@ void MasterbusHub::finish_text_read_(bool found) {
 
 #ifdef MASTERBUS_INFO_COUNT
 void MasterbusHub::request_device_info(MasterbusDevice *device) {
-  device->set_info_pending(true);
+  device->request_info(App.get_loop_component_start_time());
   this->enable_loop();
 }
 
