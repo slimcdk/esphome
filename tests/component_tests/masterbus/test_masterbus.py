@@ -33,7 +33,7 @@ from esphome.components.masterbus.switch import CONFIG_SCHEMA as SWITCH_SCHEMA
 from esphome.components.masterbus.text_sensor import CONFIG_SCHEMA as TEXT_SENSOR_SCHEMA
 from esphome.config import Config, validate_config
 from esphome.const import (
-    CONF_DEVICE,
+    CONF_ADDRESS,
     CONF_DEVICES,
     CONF_ID,
     CONF_NAME,
@@ -121,7 +121,7 @@ def test_diagnostics_default_to_off() -> None:
 
 
 def test_hub_speaks_as_the_vendor_library_unless_given_an_address() -> None:
-    assert CONFIG_SCHEMA(_hub())["address"] == 0x500001
+    assert CONFIG_SCHEMA(_hub())[CONF_ADDRESS] == 0x500001
 
 
 def test_hub_address_needs_a_device_class() -> None:
@@ -139,9 +139,9 @@ def test_hub_address_beyond_the_identifier_names_the_address() -> None:
     assert "0x7FFFFF" in str(error.value)
 
 
-def test_device_address_beyond_the_identifier_names_the_device() -> None:
-    with pytest.raises(cv.Invalid, match="'device' must be"):
-        DEVICE_SCHEMA({CONF_ID: "bat", CONF_DEVICE: 0x900000})
+def test_device_address_beyond_the_identifier_names_the_address() -> None:
+    with pytest.raises(cv.Invalid, match="'address' must be"):
+        DEVICE_SCHEMA({CONF_ID: "bat", CONF_ADDRESS: 0x900000})
 
 
 def test_hub_address_may_not_be_a_declared_device() -> None:
@@ -150,7 +150,7 @@ def test_hub_address_may_not_be_a_declared_device() -> None:
         CONFIG_SCHEMA(
             _hub(
                 address=0x6C1001,
-                **{CONF_DEVICES: [{CONF_ID: "bat", CONF_DEVICE: 0x6C1001}]},
+                **{CONF_DEVICES: [{CONF_ID: "bat", CONF_ADDRESS: 0x6C1001}]},
             )
         )
 
@@ -178,22 +178,22 @@ def test_node_request_interval_below_a_second_rejected(interval: str) -> None:
 @pytest.mark.parametrize("address", [0x0, 0x6C1001, 0x501001, WIDEST_ADDRESS])
 def test_device_identifier_within_the_extended_can_range_accepted(address: int) -> None:
     """Anything that fits the address field is a possible device."""
-    config = DEVICE_SCHEMA({CONF_ID: "mb_battery", CONF_DEVICE: address})
-    assert config[CONF_DEVICE] == address
+    config = DEVICE_SCHEMA({CONF_ID: "mb_battery", CONF_ADDRESS: address})
+    assert config[CONF_ADDRESS] == address
 
 
 @pytest.mark.parametrize("address", [0x800000, 0x6C10010])
 def test_device_identifier_beyond_the_extended_can_range_rejected(address: int) -> None:
     """23 bits is the hard ceiling, and the message says so with the value."""
     with pytest.raises(cv.Invalid, match=f"0x{address:06X}"):
-        DEVICE_SCHEMA({CONF_ID: "mb_battery", CONF_DEVICE: address})
+        DEVICE_SCHEMA({CONF_ID: "mb_battery", CONF_ADDRESS: address})
 
 
 def test_device_timeout_of_zero_rejected() -> None:
     """Zero would time the device out on the tick after its first frame, and every tick after."""
     with pytest.raises(cv.Invalid):
         DEVICE_SCHEMA(
-            {CONF_ID: "mb_battery", CONF_DEVICE: 0x6C1001, CONF_TIMEOUT: "0s"}
+            {CONF_ID: "mb_battery", CONF_ADDRESS: 0x6C1001, CONF_TIMEOUT: "0s"}
         )
 
 
@@ -210,8 +210,8 @@ def test_duplicate_device_identifiers_rejected() -> None:
             _hub(
                 **{
                     CONF_DEVICES: [
-                        {CONF_ID: "mb_battery", CONF_DEVICE: 0x6C1001},
-                        {CONF_ID: "mb_spare", CONF_DEVICE: 0x6C1001},
+                        {CONF_ID: "mb_battery", CONF_ADDRESS: 0x6C1001},
+                        {CONF_ID: "mb_spare", CONF_ADDRESS: 0x6C1001},
                     ]
                 }
             )
@@ -224,8 +224,8 @@ def test_distinct_device_identifiers_accepted() -> None:
         _hub(
             **{
                 CONF_DEVICES: [
-                    {CONF_ID: "mb_battery", CONF_DEVICE: 0x6C1001},
-                    {CONF_ID: "mb_charger", CONF_DEVICE: 0x501001},
+                    {CONF_ID: "mb_battery", CONF_ADDRESS: 0x6C1001},
+                    {CONF_ID: "mb_charger", CONF_ADDRESS: 0x501001},
                 ]
             }
         )

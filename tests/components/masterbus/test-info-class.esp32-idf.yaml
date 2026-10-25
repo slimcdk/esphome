@@ -16,7 +16,7 @@ masterbus:
   canbus_id: canbus_bus
   devices:
     - id: mb_battery
-      device: 0x6C1001
+      address: 0x6C1001
 
 text_sensor:
   - platform: masterbus
