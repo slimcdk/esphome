@@ -254,14 +254,14 @@ void MasterbusHub::setup() {
     this->on_frame(can_id, extended_id, rtr, data);
   });
 #ifdef MASTERBUS_DEVICE_COUNT
-  this->set_interval(AVAILABILITY_INTERVAL_ID, AVAILABILITY_INTERVAL_MS,
+  this->set_interval(AVAILABILITY_INTERVAL_MS,
                      [this]() { this->check_availability(App.get_loop_component_start_time()); });
 #endif
 #ifdef USE_MASTERBUS_NODE_REQUEST
   // An announcement is what keeps a device nobody polls online. Where no other node asks for them,
   // this hub does. The define is global, so a second hub given no interval still gets here.
   if (this->node_request_interval_ms_ != 0)
-    this->set_interval(NODE_REQUEST_INTERVAL_ID, this->node_request_interval_ms_, [this]() { this->request_nodes(); });
+    this->set_interval(this->node_request_interval_ms_, [this]() { this->request_nodes(); });
 #endif
 }
 
