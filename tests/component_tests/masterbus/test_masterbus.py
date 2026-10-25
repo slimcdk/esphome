@@ -587,6 +587,17 @@ def test_each_hub_sizes_its_lists_for_its_own_devices(
     assert get_define_value("MASTERBUS_UNKNOWN_FRAME_COUNT") == "1"
 
 
+def test_only_the_hub_asked_to_logs_every_frame(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    """The define compiles the logging in for every hub, so each hub is told on its own."""
+    main_cpp = generate_main(component_config_path("two_hubs.yaml"))
+    assert get_define_value("USE_MASTERBUS_LOG_ALL_FRAMES") is not None
+    assert "mb_starboard->set_log_all_frames(true);" in main_cpp
+    assert "mb_port->set_log_all_frames" not in main_cpp
+
+
 # Every schema branch, checked in the code it generates. A missing registration still compiles and
 # silently does nothing, so it is the generated call that is asserted.
 

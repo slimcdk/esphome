@@ -352,7 +352,9 @@ async def to_code(config: ConfigType) -> None:
         cg.add(var.set_address(config[CONF_ADDRESS]))
 
     if config[CONF_LOG_ALL_FRAMES]:
+        # The define compiles the logging in for every hub; the flag turns it on for this one.
         cg.add_define("USE_MASTERBUS_LOG_ALL_FRAMES")
+        cg.add(var.set_log_all_frames(True))
     if (interval := config.get(CONF_NODE_REQUEST_INTERVAL)) is not None:
         cg.add_define("USE_MASTERBUS_NODE_REQUEST")
         cg.add(var.set_node_request_interval(interval))
