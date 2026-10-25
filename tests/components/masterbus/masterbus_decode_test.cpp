@@ -1081,26 +1081,26 @@ TEST_F(MasterbusTest, NodeRequestIsAnEmptyFrameUnderTheVendorsOwnAddress) {
   }
 }
 
-// A hub that can say which timers it has armed.
-class TimerHub : public MasterbusHub {
- public:
-  using MasterbusHub::MasterbusHub;
-  using Component::cancel_interval;
-};
-
 // node_request_interval compiles node requests in for every hub. A second hub given no interval of
-// its own must not arm one at zero, which the scheduler runs every millisecond.
+// its own must not arm one at zero, which the scheduler would run on every pass.
 TEST_F(MasterbusTest, OnlyAHubGivenAnIntervalAsksForAnnouncements) {
-  TimerHub quiet(&this->canbus_);
-  TimerHub asking(&this->canbus_);
-  asking.set_node_request_interval(10000);
+  // An interval cannot be taken off again, so the hubs and their buses outlive the test, and are
+  // failed at the end so that the scheduler skips what they armed.
+  static RecordingCanbus quiet_bus;
+  static RecordingCanbus asking_bus;
+  static MasterbusHub quiet(&quiet_bus);
+  static MasterbusHub asking(&asking_bus);
+  // An interval first runs a random part of half its length after it is armed, so one this short is
+  // due at once.
+  asking.set_node_request_interval(2);
   quiet.setup();
   asking.setup();
+  App.scheduler.call(millis());
 
-  EXPECT_FALSE(quiet.cancel_interval(NODE_REQUEST_INTERVAL_ID));
-  EXPECT_TRUE(asking.cancel_interval(NODE_REQUEST_INTERVAL_ID));
-  quiet.cancel_interval(AVAILABILITY_INTERVAL_ID);
-  asking.cancel_interval(AVAILABILITY_INTERVAL_ID);
+  EXPECT_TRUE(quiet_bus.sent.empty());
+  EXPECT_EQ(asking_bus.sent.size(), static_cast<size_t>(NODE_REQUEST_REPEATS));
+  quiet.mark_failed();
+  asking.mark_failed();
 }
 
 TEST_F(MasterbusTest, ScanCollectsWhatTheNodeRequestBringsBack) {
