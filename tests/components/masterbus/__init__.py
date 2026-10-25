@@ -17,7 +17,6 @@ def override_manifest(manifest: ComponentManifestOverride) -> None:
         cg.add_define("USE_MASTERBUS_NODE_REQUEST")
         cg.add_define("USE_MASTERBUS_TEXT")
         cg.add_define("MASTERBUS_UNKNOWN_FRAME_COUNT", 2)
-        cg.add_define("MASTERBUS_SCAN_MAX_DEVICES", 4)
         # The scan's lines are a contract with the converter on the documentation page, so a
         # test reads them back through a log callback.
         cg.add_define("USE_LOG_LISTENERS")

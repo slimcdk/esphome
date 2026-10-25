@@ -46,10 +46,6 @@ MAX_PARAM = 0xFFFF
 HUB_ADDRESS = 0x500001
 DEVICE_CLASS_SHIFT = 18
 
-# How many devices a scan will list. A MasterBus network is a boat's electrical system, not a
-# fieldbus - the largest installation seen carries nine devices.
-MAX_SCAN_DEVICES = 32
-
 masterbus_ns = cg.esphome_ns.namespace("masterbus")
 MasterbusHub = masterbus_ns.class_("MasterbusHub", cg.Component)
 MasterbusDevice = masterbus_ns.class_("MasterbusDevice")
@@ -340,7 +336,6 @@ async def scan_action_to_code(
 ) -> MockObj:
     # The scan is compiled in only where something starts one, at boot or from a button.
     cg.add_define("USE_MASTERBUS_SCAN")
-    cg.add_define("MASTERBUS_SCAN_MAX_DEVICES", MAX_SCAN_DEVICES)
     return await _scan_action(config, action_id, template_arg, args)
 
 

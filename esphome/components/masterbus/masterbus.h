@@ -253,6 +253,10 @@ class MasterbusDevice {
 };
 
 #ifdef USE_MASTERBUS_SCAN
+/// How many devices a scan will list. A MasterBus network is a boat's electrical system, not a
+/// fieldbus - the largest installation seen carries nine devices.
+static constexpr uint8_t SCAN_MAX_DEVICES = 32;
+
 /// One device the scan heard announce itself. Held as data rather than log text so that a test can
 /// assert on what was discovered instead of on the wording of a log line.
 struct MasterbusDiscoveredDevice {
@@ -309,7 +313,7 @@ class MasterbusHub : public Component {
 
 #ifdef USE_MASTERBUS_SCAN
   /// Every device heard announcing itself since boot, in the order they were first heard.
-  const StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> &get_discovered_devices() const {
+  const StaticVector<MasterbusDiscoveredDevice, SCAN_MAX_DEVICES> &get_discovered_devices() const {
     return this->discovered_;
   }
 #endif
@@ -445,7 +449,7 @@ class MasterbusHub : public Component {
       unknown_frame_callback_;
 #endif
 #ifdef USE_MASTERBUS_SCAN
-  StaticVector<MasterbusDiscoveredDevice, MASTERBUS_SCAN_MAX_DEVICES> discovered_;
+  StaticVector<MasterbusDiscoveredDevice, SCAN_MAX_DEVICES> discovered_;
   MasterbusScanner scanner_{this};
   // Between asking for announcements and reporting them, when each new device is worth a line.
   bool scan_listening_{false};
