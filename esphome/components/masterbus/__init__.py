@@ -6,7 +6,7 @@ from typing import Any
 from esphome import automation
 import esphome.codegen as cg
 from esphome.components.canbus import CONF_CANBUS_ID, CanbusComponent
-from esphome.components.const import CONF_VALUE_TYPE
+from esphome.components.const import CONF_ON_OFFLINE, CONF_ON_ONLINE, CONF_VALUE_TYPE
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ADDRESS,
@@ -33,8 +33,6 @@ MULTI_CONF = True
 CONF_LOG_ALL_FRAMES = "log_all_frames"
 CONF_MASTERBUS_DEVICE_ID = "masterbus_device_id"
 CONF_NODE_REQUEST_INTERVAL = "node_request_interval"
-CONF_ON_OFFLINE = "on_offline"
-CONF_ON_ONLINE = "on_online"
 CONF_ON_UNKNOWN_FRAME = "on_unknown_frame"
 CONF_PARAM = "param"
 CONF_TAB = "tab"
