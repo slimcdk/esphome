@@ -106,15 +106,28 @@ class RecordingInfo : public text_sensor::TextSensor {
   std::vector<std::string> texts;
 };
 
-/// Build the payload of a monitoring answer the way a device does: field number little-endian,
-/// then the four value bytes little-endian. The message type belongs to the identifier, which
-/// frame_id() below builds.
-inline std::vector<uint8_t> monitoring_answer(uint16_t param, float value) {
+/// Append a float the way a device sends one: its four bytes, little-endian.
+inline void append_float(std::vector<uint8_t> &out, float value) {
   uint32_t bits;
   memcpy(&bits, &value, sizeof(bits));
-  return {static_cast<uint8_t>(param & 0xFF),        static_cast<uint8_t>(param >> 8),
-          static_cast<uint8_t>(bits & 0xFF),         static_cast<uint8_t>((bits >> 8) & 0xFF),
-          static_cast<uint8_t>((bits >> 16) & 0xFF), static_cast<uint8_t>((bits >> 24) & 0xFF)};
+  for (unsigned shift = 0; shift < 32; shift += 8)
+    out.push_back(static_cast<uint8_t>(bits >> shift));
+}
+
+/// Build the payload of a monitoring answer the way a device does: field number little-endian,
+/// then the float. The message type belongs to the identifier, which frame_id() below builds.
+inline std::vector<uint8_t> monitoring_answer(uint16_t param, float value) {
+  std::vector<uint8_t> out{static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)};
+  append_float(out, value);
+  return out;
+}
+
+/// Build a property or group answer that carries a float: the selector, the field or group number
+/// little-endian, the index, then the float.
+inline std::vector<uint8_t> float_answer(uint8_t selector, uint16_t number, float value, uint8_t index = 0) {
+  std::vector<uint8_t> out{selector, static_cast<uint8_t>(number & 0xFF), static_cast<uint8_t>(number >> 8), index};
+  append_float(out, value);
+  return out;
 }
 
 /// Collects what the scan logged, with the log's own header and colouring taken off. Those lines

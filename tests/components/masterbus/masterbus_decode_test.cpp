@@ -179,22 +179,14 @@ class MasterbusTest : public ::testing::Test {
     this->hub_->report_scan();
     this->answer_eventables(2);
     this->answer_group_count(1);
-    uint32_t bits;
-    const float one = 1.0f;
-    memcpy(&bits, &one, sizeof(bits));
-    this->answer(GROUP_INFORMATION_TYPE,
-                 {0x07, 0x00, 0x00, 0x00, static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
-                  static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)});
+    this->answer(GROUP_INFORMATION_TYPE, float_answer(0x07, 0, 1.0f));
     this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // no group name
     this->answer(GROUP_INFORMATION_TYPE, {0x03, 0x00, 0x00, 0x00, 12, 0x00});
     this->answer(PROPERTY_INFORMATION_TYPE, {0x02, 12, 0x00, 0x00, static_cast<uint8_t>(display), 0x00});
     this->unanswered();  // no name
     this->unanswered();  // no unit
     this->unanswered();  // no minimum
-    memcpy(&bits, &maximum, sizeof(bits));
-    this->answer(PROPERTY_INFORMATION_TYPE,
-                 {0x07, 12, 0x00, 0x00, static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
-                  static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)});
+    this->answer(PROPERTY_INFORMATION_TYPE, float_answer(0x07, 12, maximum));
     this->unanswered();  // no step
     this->unanswered_factory_and_flags();
   }
@@ -1336,11 +1328,7 @@ TEST_F(MasterbusTest, AnImpossibleFieldCountWalksAsAnEmptyGroup) {
     this->hub_->report_scan();
     this->answer_eventables(2);
     this->refuse_group_count();
-    uint32_t bits;
-    memcpy(&bits, &count, sizeof(bits));
-    this->answer(GROUP_INFORMATION_TYPE,
-                 {0x07, 0x00, 0x00, 0x00, static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
-                  static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24)});
+    this->answer(GROUP_INFORMATION_TYPE, float_answer(0x07, 0, count));
     this->answer(GROUP_INFORMATION_TYPE, {0x28, 0x00, 0x00, 0x00, 0x00, 0x00});  // no name
     this->hub_->scan_step(this->scan_now_);
 
