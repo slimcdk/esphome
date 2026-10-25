@@ -376,9 +376,11 @@ async def to_code(config: ConfigType) -> None:
         _request_device_slot(str(config[CONF_ID]))
         _get_data().device_hubs[str(device_config[CONF_ID])] = str(config[CONF_ID])
         device = cg.new_Pvariable(
-            device_config[CONF_ID], var, device_config[CONF_DEVICE]
+            device_config[CONF_ID],
+            var,
+            device_config[CONF_DEVICE],
+            device_config[CONF_TIMEOUT],
         )
-        cg.add(device.set_timeout(device_config[CONF_TIMEOUT]))
         cg.add(var.register_device(device))
         for conf_key, callback in (
             (CONF_ON_ONLINE, "add_on_online_callback"),

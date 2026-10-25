@@ -14,18 +14,20 @@ namespace esphome::masterbus::testing {
 static constexpr uint32_t BATTERY_1 = 0x6C1001;
 static constexpr uint32_t BATTERY_6 = 0x6C1002;
 static constexpr uint32_t UNDECLARED_DEVICE = 0x281001;
+/// The timeout a device is given when the configuration names none.
+static constexpr uint32_t DEFAULT_TIMEOUT_MS = 60000;
 
 class MasterbusTest : public ::testing::Test {
  protected:
   void SetUp() override {
     this->hub_ = std::make_unique<MasterbusHub>(&this->canbus_);
-    this->battery_ = std::make_unique<MasterbusDevice>(this->hub_.get(), BATTERY_1);
+    this->battery_ = std::make_unique<MasterbusDevice>(this->hub_.get(), BATTERY_1, DEFAULT_TIMEOUT_MS);
     this->hub_->register_device(this->battery_.get());
   }
 
   /// A second device on the same hub, for the questions that are about telling them apart.
-  MasterbusDevice *add_device(uint32_t address) {
-    auto device = std::make_unique<MasterbusDevice>(this->hub_.get(), address);
+  MasterbusDevice *add_device(uint32_t address, uint32_t timeout_ms = DEFAULT_TIMEOUT_MS) {
+    auto device = std::make_unique<MasterbusDevice>(this->hub_.get(), address, timeout_ms);
     auto *raw = device.get();
     this->hub_->register_device(raw);
     this->devices_.push_back(std::move(device));
@@ -653,7 +655,6 @@ TEST_F(MasterbusTest, TheComponentNamesTheMessagesTheVendorLibraryAcceptsAndNoOt
 }
 
 TEST_F(MasterbusTest, ADeviceIsJudgedTimedOutOnlyOnceItsTimeoutHasRun) {
-  this->battery_->set_timeout(60000);
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
   const uint32_t answered_at = App.get_loop_component_start_time();
 
@@ -671,12 +672,10 @@ TEST_F(MasterbusTest, ADeviceIsJudgedTimedOutOnlyOnceItsTimeoutHasRun) {
 // read every second - so availability belongs to the device: when it goes quiet everything it
 // carries goes with it, whatever each field's own cadence was.
 TEST_F(MasterbusTest, ADeviceGoingQuietTakesAllItsEntitiesDownTogetherAndComesBackWithThem) {
-  this->battery_->set_timeout(60000);
   auto *voltage = this->add_sensor(1);
   auto *relay = this->add_sensor(117, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
   // An hour of silence, so this one is judged by a bound the test never reaches.
-  auto *other_device = this->add_device(BATTERY_6);
-  other_device->set_timeout(3600000);
+  auto *other_device = this->add_device(BATTERY_6, 3600000);
   auto *other_voltage = this->add_sensor(1, MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT,
                                          MasterbusTab::MASTERBUS_TAB_MONITORING, other_device);
 
@@ -712,11 +711,8 @@ TEST_F(MasterbusTest, ADeviceGoingQuietTakesAllItsEntitiesDownTogetherAndComesBa
 // One sweep, three devices, three answers: each is judged against the silence it was given, not
 // against the sweep's own clock.
 TEST_F(MasterbusTest, TheSweepJudgesEachDeviceOnItsOwnTimeout) {
-  this->battery_->set_timeout(60000);
-  auto *patient = this->add_device(BATTERY_6);
-  patient->set_timeout(3600000);
+  auto *patient = this->add_device(BATTERY_6, 3600000);
   auto *never_heard = this->add_device(0x111111);
-  never_heard->set_timeout(60000);
 
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(1, 26.241f));
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_6), true, false, monitoring_answer(1, 26.0f));
@@ -731,7 +727,6 @@ TEST_F(MasterbusTest, TheSweepJudgesEachDeviceOnItsOwnTimeout) {
 }
 
 TEST_F(MasterbusTest, DeviceTriggersFireOnTheEdgesOnly) {
-  this->battery_->set_timeout(60000);
   int online = 0;
   int offline = 0;
   this->battery_->add_on_online_callback([&online]() { online++; });
@@ -2203,18 +2198,26 @@ TEST_F(MasterbusTest, ADeviceIsReadAgainWhenItsStatusVersionChangesOrItAsksToBe)
     this->info_answer(STRING_INFORMATION_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_ARTICLE_NUMBER, 0x02, 0x00});
     this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x02, 0x00, 0x00, '6', '6', '0', 0x00});
   };
-  this->announce(0x00, 0x02);
+  // A device is read again a timeout after the last read at the soonest, so each announcement
+  // comes that long after the one before.
+  uint32_t now = 1000;
+  const auto announce = [this, &now](uint8_t flags, uint8_t status_version) {
+    LoopBlockingGuard clock{nullptr, nullptr, now};
+    this->announce(flags, status_version);
+    now += DEFAULT_TIMEOUT_MS;
+  };
+  announce(0x00, 0x02);
   read_article();
   ASSERT_EQ(article->texts.size(), 1u);
 
-  this->announce(0x00, 0x02);
+  announce(0x00, 0x02);
   EXPECT_FALSE(this->hub_->info_step(this->info_now_)) << "an unchanged announcement asked for a read";
 
-  this->announce(0x00, 0x04);
+  announce(0x00, 0x04);
   read_article();
   EXPECT_EQ(article->texts.size(), 2u);
 
-  this->announce(ANNOUNCEMENT_READ_AGAIN_BIT, 0x04);
+  announce(ANNOUNCEMENT_READ_AGAIN_BIT, 0x04);
   read_article();
   EXPECT_EQ(article->texts.size(), 3u);
 }
@@ -2224,7 +2227,6 @@ TEST_F(MasterbusTest, ADeviceIsReadAgainWhenItsStatusVersionChangesOrItAsksToBe)
 // for every few seconds would be read in full every few seconds. A flip within the device's timeout
 // of the last read waits, and is read on the first announcement after it.
 TEST_F(MasterbusTest, AStatusVersionThatFlipsBackAndForthIsReadOncePerTimeout) {
-  this->battery_->set_timeout(60000);
   auto *article = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_ARTICLE_NUMBER);
   const auto read_article = [this]() {
     this->info_answer(STRING_INFORMATION_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_ARTICLE_NUMBER, 0x02, 0x00});

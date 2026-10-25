@@ -613,10 +613,13 @@ def test_the_hub_and_its_devices_are_generated_as_configured(
         "TriggerForwarder<std::vector<uint8_t>, uint8_t, uint32_t>" in main_cpp
     )
     assert get_define_value("MASTERBUS_UNKNOWN_FRAME_COUNT") == "1"
-    assert "new(mb_battery) masterbus::MasterbusDevice(mb, 0x6C1001);" in main_cpp
     # A device's timeout defaults to a minute.
-    assert "mb_battery->set_timeout(60000);" in main_cpp
-    assert "mb_display->set_timeout(300000);" in main_cpp
+    assert (
+        "new(mb_battery) masterbus::MasterbusDevice(mb, 0x6C1001, 60000);" in main_cpp
+    )
+    assert (
+        "new(mb_display) masterbus::MasterbusDevice(mb, 0x501001, 300000);" in main_cpp
+    )
     assert "mb->register_device(mb_battery);" in main_cpp
     assert "mb->register_device(mb_display);" in main_cpp
     assert "mb_battery->add_on_online_callback(TriggerForwarder<>" in main_cpp
