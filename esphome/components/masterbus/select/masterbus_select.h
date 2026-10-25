@@ -5,7 +5,7 @@
 
 namespace esphome::masterbus {
 
-class MasterbusSelect : public select::Select, public MasterbusEntity {
+class MasterbusSelect final : public select::Select, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 

@@ -21,7 +21,7 @@ class MasterbusHub;
  * second exchange. One read runs at a time: a device answers one question at a time, and a text
  * field that has to wait simply asks again on its next poll.
  */
-class MasterbusTextReader {
+class MasterbusTextReader final {
  public:
   explicit MasterbusTextReader(MasterbusHub *hub) : hub_(hub) {}
 

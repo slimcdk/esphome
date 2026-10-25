@@ -5,7 +5,7 @@
 
 namespace esphome::masterbus {
 
-class MasterbusNumber : public number::Number, public MasterbusEntity {
+class MasterbusNumber final : public number::Number, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 

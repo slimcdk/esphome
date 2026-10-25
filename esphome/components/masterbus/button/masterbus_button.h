@@ -5,7 +5,7 @@
 
 namespace esphome::masterbus {
 
-class MasterbusButton : public button::Button, public MasterbusEntity {
+class MasterbusButton final : public button::Button, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 

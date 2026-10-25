@@ -62,7 +62,7 @@ struct MasterbusFieldQuestion {
  * request and consumes the answer to the previous one. A question a device does not answer is
  * taken as "this does not exist" after a timeout, which is also how the end of a list is found.
  */
-class MasterbusScanner {
+class MasterbusScanner final {
  public:
   explicit MasterbusScanner(MasterbusHub *hub) : hub_(hub) {}
 

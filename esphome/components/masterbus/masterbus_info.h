@@ -39,7 +39,7 @@ struct MasterbusInfoSensor {
  * One device and one question at a time, like everything else on this bus: each step sends at most
  * one question, and its answer, or a second of silence, moves the read on to the next.
  */
-class MasterbusInfoReader {
+class MasterbusInfoReader final {
  public:
   explicit MasterbusInfoReader(MasterbusHub *hub) : hub_(hub) {}
 
