@@ -6,12 +6,10 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-#ifdef MASTERBUS_INFO_COUNT
-#include "esphome/components/text_sensor/text_sensor.h"
-#endif
-
+#include "masterbus_info.h"
 #include "masterbus_protocol.h"
 #include "masterbus_scan.h"
+#include "masterbus_text.h"
 
 #include <cinttypes>
 
@@ -22,25 +20,6 @@ class MasterbusHub;
 
 /// The tab's name, for a log line.
 const LogString *masterbus_tab_to_string(MasterbusTab tab);
-
-#ifdef MASTERBUS_INFO_COUNT
-/// What a device says about itself and is read off the bus, numbered as the vendor's GeneralString
-/// question numbers the four strings, then the firmware, which comes from another question.
-enum class MasterbusDeviceInfo : uint8_t {
-  MASTERBUS_DEVICE_INFO_ARTICLE_NUMBER = GENERAL_STRING_ARTICLE_NUMBER,
-  MASTERBUS_DEVICE_INFO_SERIAL_NUMBER = GENERAL_STRING_SERIAL_NUMBER,
-  MASTERBUS_DEVICE_INFO_PRODUCT_NAME = GENERAL_STRING_PRODUCT_NAME,
-  MASTERBUS_DEVICE_INFO_REVISION_CODE = GENERAL_STRING_REVISION_CODE,
-  MASTERBUS_DEVICE_INFO_FIRMWARE = 5,
-};
-
-/// A text sensor that shows one thing a device says about itself, and which thing.
-struct MasterbusInfoSensor {
-  MasterbusDevice *device;
-  MasterbusDeviceInfo info;
-  text_sensor::TextSensor *sensor;
-};
-#endif
 
 /** One configured field of one MasterBus device, rendered as an ESPHome entity.
  *
@@ -371,13 +350,13 @@ class MasterbusHub : public Component {
 #endif
 #ifdef MASTERBUS_INFO_COUNT
   void register_info_sensor(MasterbusDevice *device, MasterbusDeviceInfo info, text_sensor::TextSensor *sensor) {
-    this->info_sensors_.push_back({device, info, sensor});
+    this->info_reader_.add_sensor(device, info, sensor);
   }
   /// Read what a device says about itself, as soon as it is online and nothing else is being read.
   void request_device_info(MasterbusDevice *device);
   /// Drive the reading one step, at the given time. Returns whether there is more to do. Public so
   /// a test can step it.
-  bool info_step(uint32_t now);
+  bool info_step(uint32_t now) { return this->info_reader_.step(now); }
 #endif
 #ifdef MASTERBUS_ENTITY_COUNT
   void register_entity(MasterbusEntity *entity) { this->entities_.push_back(entity); }
@@ -394,27 +373,14 @@ class MasterbusHub : public Component {
 #ifdef MASTERBUS_DEVICE_COUNT
   /// The device this identifier belongs to, or nullptr when it is not one we were told about.
   MasterbusDevice *find_device_(uint32_t address);
+  /// Take a frame a declared device sent, or that was sent to it.
+  void on_device_frame_(MasterbusDevice *device, uint8_t type, const std::vector<uint8_t> &data);
 #endif
 #ifdef MASTERBUS_ENTITY_COUNT
+  /// Take a frame about one of a declared device's fields: a value, or its word on a write.
+  void on_entity_frame_(const MasterbusDevice *device, uint8_t type, const std::vector<uint8_t> &data);
   /// Hand a decoded value to every entity configured for that field.
   void publish_value_(const MasterbusDevice *device, MasterbusTab tab, uint16_t param, float value);
-#endif
-#ifdef USE_MASTERBUS_TEXT
-  /// Start reading the string table entry a text field answered with. One read runs at a time; a
-  /// field that arrives while another is running waits for its own next poll.
-  void begin_text_read_(MasterbusEntity *entity, uint16_t string_id);
-  /// Take a string answer if it belongs to the read in flight. Returns whether it was consumed.
-  bool take_text_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data);
-  /// End the read in flight, publishing what it assembled or reporting it unavailable.
-  void finish_text_read_(bool found);
-#endif
-#ifdef MASTERBUS_INFO_COUNT
-  /// Take an answer if it belongs to the device information being read. Returns whether it did.
-  bool take_info_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data);
-  /// Hand what was read to every sensor that shows it, or nullptr where the device has none.
-  void publish_info_(const char *text);
-  /// Move on to the next thing the device being read is asked about.
-  void next_info_();
 #endif
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
   void log_frame_(uint32_t can_id, bool extended_id, bool rtr, const std::vector<uint8_t> &data);
@@ -457,28 +423,10 @@ class MasterbusHub : public Component {
   uint8_t short_answer_said_{0};
 #endif
 #ifdef MASTERBUS_INFO_COUNT
-  StaticVector<MasterbusInfoSensor, MASTERBUS_INFO_COUNT> info_sensors_;
-  /// The device whose information is being read, or nullptr; which of its facts; and where the
-  /// question stands. One device and one question at a time, like everything else on this bus.
-  MasterbusDevice *info_device_{nullptr};
-  uint8_t info_item_{0};
-  uint8_t info_processor_{0};
-  MasterbusStringRead info_read_;
-  bool info_have_string_{false};
-  bool info_waiting_{false};
-  uint32_t info_sent_at_{0};
-  char info_text_[STRING_BUFFER_LENGTH]{};
+  MasterbusInfoReader info_reader_{this};
 #endif
 #ifdef USE_MASTERBUS_TEXT
-  /// Where the string being read is assembled. It belongs to the hub rather than to a publish
-  /// call because a string arrives in chunks across several frames, and because an entity only
-  /// ever borrows the text it is handed.
-  char value_text_[STRING_BUFFER_LENGTH]{};
-  /// The string read in flight, or nullptr. One slot is enough: a device answers one question at
-  /// a time, and a text field that has to wait simply asks again on its next poll.
-  MasterbusEntity *text_entity_{nullptr};
-  uint32_t text_sent_at_{0};
-  MasterbusStringRead text_read_;
+  MasterbusTextReader text_reader_{this};
 #endif
 };
 
