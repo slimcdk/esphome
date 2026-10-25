@@ -49,10 +49,6 @@ class MasterbusInfoEntity {
 };
 #endif
 
-/// The longest text a field value renders to. What a text field holds on this equipment is a label
-/// or a serial number, so this is generous; anything longer is truncated rather than dropped.
-static constexpr uint8_t MASTERBUS_TEXT_LENGTH = 32;
-
 /** One configured field of one MasterBus device, rendered as an ESPHome entity.
  *
  * The address is device, tab and field number. The declared value type is what the entity expects
@@ -475,13 +471,13 @@ class MasterbusHub : public Component {
   bool info_have_string_{false};
   bool info_waiting_{false};
   uint32_t info_sent_at_{0};
-  char info_text_[MASTERBUS_TEXT_LENGTH]{};
+  char info_text_[STRING_BUFFER_LENGTH]{};
 #endif
 #ifdef USE_MASTERBUS_TEXT
   /// Where the string being read is assembled. It belongs to the hub rather than to a publish
   /// call because a string arrives in chunks across several frames, and because an entity only
   /// ever borrows the text it is handed.
-  char value_text_[MASTERBUS_TEXT_LENGTH]{};
+  char value_text_[STRING_BUFFER_LENGTH]{};
   /// The string read in flight, or nullptr. One slot is enough: a device answers one question at
   /// a time, and a text field that has to wait simply asks again on its next poll.
   MasterbusEntity *text_entity_{nullptr};

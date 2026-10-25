@@ -43,8 +43,6 @@ static constexpr uint32_t TEXT_READ_TIMEOUT_MS = 1000;
 #ifdef MASTERBUS_INFO_COUNT
 /// How long one question about a device may go unanswered before it is taken as not carried.
 static constexpr uint32_t INFO_TIMEOUT_MS = 1000;
-/// How many processors' versions are read. The vendor's example device has one.
-static constexpr uint8_t INFO_MAX_PROCESSORS = 8;
 #endif
 
 const LogString *masterbus_tab_to_string(MasterbusTab tab) {
@@ -729,11 +727,11 @@ bool MasterbusHub::take_text_frame_(uint8_t type, uint32_t address, const std::v
     this->finish_text_read_(false);
     return true;
   }
-  if (take_string_chunk(data.data(), data.size(), this->value_text_, MASTERBUS_TEXT_LENGTH, &this->text_truncated_)) {
+  if (take_string_chunk(data.data(), data.size(), this->value_text_, STRING_BUFFER_LENGTH, &this->text_truncated_)) {
     this->finish_text_read_(true);
     return true;
   }
-  if (string_buffer_full(this->text_chunk_, MASTERBUS_TEXT_LENGTH)) {
+  if (string_buffer_full(this->text_chunk_, STRING_BUFFER_LENGTH)) {
     this->text_truncated_ = true;
     this->finish_text_read_(true);
     return true;
@@ -758,7 +756,7 @@ void MasterbusHub::finish_text_read_(bool found) {
   }
   if (this->text_truncated_) {
     ESP_LOGW(TAG, "Text of field %u is longer than %u characters and is published cut short", entity->get_param(),
-             static_cast<unsigned>(MASTERBUS_TEXT_LENGTH - 1));
+             static_cast<unsigned>(STRING_BUFFER_LENGTH - 1));
   }
   entity->publish_masterbus_text(this->value_text_);
 }
@@ -846,14 +844,14 @@ bool MasterbusHub::take_info_frame_(uint8_t type, uint32_t address, const std::v
   if (this->info_item_ == static_cast<uint8_t>(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE)) {
     if (!is_software_version_header(data.data(), data.size(), this->info_processor_))
       return false;
-    if (!refused && data.size() >= SOFTWARE_VERSION_INFORMATION_LENGTH && this->info_processor_ < INFO_MAX_PROCESSORS) {
+    if (!refused && data.size() >= SOFTWARE_VERSION_INFORMATION_LENGTH && this->info_processor_ < MAX_PROCESSORS) {
       // One version per processor, as the device numbers them: high byte, a dot, low byte.
       const size_t at = strlen(this->info_text_);
       snprintf(this->info_text_ + at, sizeof(this->info_text_) - at, "%s%u.%u", at == 0 ? "" : " ",
                static_cast<unsigned>(data[3]), static_cast<unsigned>(data[2]));
       this->info_processor_++;
       this->info_waiting_ = false;
-      if (this->info_processor_ < INFO_MAX_PROCESSORS)
+      if (this->info_processor_ < MAX_PROCESSORS)
         return true;
     }
     // Refused, or as many as are kept: the list of processors is done.
@@ -885,8 +883,8 @@ bool MasterbusHub::take_info_frame_(uint8_t type, uint32_t address, const std::v
     this->next_info_();
     return true;
   }
-  if (take_string_chunk(data.data(), data.size(), this->info_text_, MASTERBUS_TEXT_LENGTH) ||
-      string_buffer_full(this->info_chunk_, MASTERBUS_TEXT_LENGTH)) {
+  if (take_string_chunk(data.data(), data.size(), this->info_text_, STRING_BUFFER_LENGTH) ||
+      string_buffer_full(this->info_chunk_, STRING_BUFFER_LENGTH)) {
     this->publish_info_(this->info_text_[0] != '\0' ? this->info_text_ : nullptr);
     this->next_info_();
     return true;

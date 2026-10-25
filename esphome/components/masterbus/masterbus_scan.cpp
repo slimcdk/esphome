@@ -25,8 +25,6 @@ static constexpr uint16_t MAX_FIELDS_PER_GROUP = 64;
 static constexpr uint8_t MAX_LIST_ENTRIES = 64;
 /// After this many fields in a row without a long name, a device is taken to carry none.
 static constexpr uint8_t LONG_NAME_GIVE_UP = 3;
-/// The device's own strings, in the vendor's numbering, and the key each is reported under.
-static constexpr uint8_t DEVICE_STRING_COUNT = 4;
 
 /// Write a string as a logfmt reader expects it: always quoted, the quote and the backslash
 /// escaped, and every byte outside printable ASCII as \xNN. The bus is documented to send ASCII
@@ -227,7 +225,7 @@ void MasterbusScanner::advance_(bool answered) {
 
     // One processor after another, until the device refuses the one past its last.
     case Phase::PHASE_SOFTWARE_VERSION:
-      if (answered && ++this->processor_ < SCAN_MAX_PROCESSORS)
+      if (answered && ++this->processor_ < MAX_PROCESSORS)
         return;
       this->report_device_();
       this->general_count_ = 0;
@@ -404,7 +402,7 @@ void MasterbusScanner::advance_(bool answered) {
 
 void MasterbusScanner::next_device_string_() {
   this->device_string_++;
-  if (this->device_string_ <= DEVICE_STRING_COUNT) {
+  if (this->device_string_ <= GENERAL_STRING_COUNT) {
     this->device_strings_[this->device_string_ - 1][0] = '\0';
     this->phase_ = Phase::PHASE_DEVICE_STRING_ID;
     return;
@@ -786,7 +784,7 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       if ((type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE) || data.size() < STRING_CHUNK_LENGTH)
         return false;
       char *out = this->field_.name;
-      uint8_t capacity = SCAN_NAME_LENGTH;
+      uint8_t capacity = STRING_BUFFER_LENGTH;
       uint16_t wanted = this->name_string_;
       const char *what = LOG_STR_LITERAL("name");
       switch (this->phase_) {
@@ -861,17 +859,17 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
 /// otherwise be missing from the configuration the converter builds.
 // The key each of the device's own strings is reported under, in the vendor's numbering from 1.
 PROGMEM_STRING_TABLE(MasterbusScanStringKeys, "article", "serial", "name", "revision");
-static_assert(MasterbusScanStringKeys::COUNT == DEVICE_STRING_COUNT, "one key per device string");
+static_assert(MasterbusScanStringKeys::COUNT == GENERAL_STRING_COUNT, "one key per device string");
 
 void MasterbusScanner::report_device_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
-  char quoted[SCAN_NAME_LENGTH * 4 + 3];
+  char quoted[STRING_BUFFER_LENGTH * 4 + 3];
   // Class, eventables, four quoted strings with their keys, and the versions.
-  char line[24 + DEVICE_STRING_COUNT * (sizeof(quoted) + 12) + SCAN_MAX_PROCESSORS * 12 + 16];
+  char line[24 + GENERAL_STRING_COUNT * (sizeof(quoted) + 12) + MAX_PROCESSORS * 12 + 16];
   size_t at = snprintf(line, sizeof(line), " class=%u", static_cast<unsigned>(device_class(address)));
   if (this->eventables_known_)
     at += snprintf(line + at, sizeof(line) - at, " eventables=%u", static_cast<unsigned>(this->eventables_));
-  for (uint8_t i = 0; i < DEVICE_STRING_COUNT; i++) {
+  for (uint8_t i = 0; i < GENERAL_STRING_COUNT; i++) {
     if ((this->device_strings_known_ & (1 << i)) == 0)
       continue;
     quote_string(this->device_strings_[i], quoted, sizeof(quoted));
@@ -897,7 +895,7 @@ void MasterbusScanner::report_device_() {
 void MasterbusScanner::report_field_() {
   // Quoted strings can grow fourfold, if every byte has to be escaped. A name and a unit get
   // their own buffers so each one's bound is the bound of the string it holds.
-  char quoted[SCAN_NAME_LENGTH * 4 + 3];
+  char quoted[STRING_BUFFER_LENGTH * 4 + 3];
   char quoted_unit[SCAN_UNIT_LENGTH * 4 + 3];
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
 

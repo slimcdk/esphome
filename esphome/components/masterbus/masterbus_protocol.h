@@ -256,6 +256,11 @@ static constexpr uint8_t STRING_NOT_AVAILABLE_TYPE = 0x0D;
 static constexpr uint8_t STRING_REQUEST_MARKER = 0x30;
 static constexpr uint8_t STRING_CHUNK_LENGTH = 4;
 
+/// How much of one string table entry a reader keeps, its terminator included. What a device keeps
+/// there is a name, a label or a serial number, and the longest seen runs to about fifteen
+/// characters ("Bat. temperature"); anything longer is cut short, and said to be.
+static constexpr uint8_t STRING_BUFFER_LENGTH = 32;
+
 /// Copy one chunk of a string answer into place and say whether the string ended there. Where the
 /// text belongs is the chunk number the answer carries rather than a counter of our own: believing
 /// our own once put the second half of "Battery" over the first.
@@ -359,6 +364,9 @@ static constexpr uint8_t GENERAL_COUNT_LAST_QUESTION = 0x60;
 /// processors by asking from 0 until a device refuses one.
 static constexpr uint8_t SOFTWARE_VERSION_SELECTOR = 0x82;
 static constexpr uint8_t SOFTWARE_VERSION_INFORMATION_LENGTH = 4;
+/// How many processors' versions are read. The vendor's example device has one; past this many a
+/// reader stops asking.
+static constexpr uint8_t MAX_PROCESSORS = 8;
 
 inline bool is_software_version_header(const uint8_t *data, size_t size, uint8_t processor) {
   return size >= 2 && data[0] == SOFTWARE_VERSION_SELECTOR && data[1] == processor;
@@ -383,6 +391,7 @@ static constexpr uint8_t GENERAL_STRING_ARTICLE_NUMBER = 1;
 static constexpr uint8_t GENERAL_STRING_SERIAL_NUMBER = 2;
 static constexpr uint8_t GENERAL_STRING_PRODUCT_NAME = 3;
 static constexpr uint8_t GENERAL_STRING_REVISION_CODE = 4;
+static constexpr uint8_t GENERAL_STRING_COUNT = 4;
 
 inline bool is_general_string_header(const uint8_t *data, size_t size, uint8_t question) {
   return size >= 2 && data[0] == GENERAL_STRING_SELECTOR && data[1] == question;
