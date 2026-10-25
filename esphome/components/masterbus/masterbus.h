@@ -184,7 +184,10 @@ class MasterbusEntity : public PollingComponent {
  */
 class MasterbusDevice {
  public:
-  MasterbusDevice(MasterbusHub *hub, uint32_t address) : hub_(hub), address_(address) {}
+  /// The timeout is how many milliseconds of silence the device is given before it is treated as
+  /// gone, for when its own status reports stop arriving too.
+  MasterbusDevice(MasterbusHub *hub, uint32_t address, uint32_t timeout_ms)
+      : hub_(hub), address_(address), timeout_ms_(timeout_ms) {}
 
 #ifdef MASTERBUS_ENTITY_COUNT
   void register_entity(MasterbusEntity *entity);
@@ -214,9 +217,6 @@ class MasterbusDevice {
 
   bool is_online() const { return this->status_ != MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE; }
 
-  /// Milliseconds of silence after which the device is treated as gone, for when its own status
-  /// reports stop arriving too.
-  void set_timeout(uint32_t timeout_ms) { this->timeout_ms_ = timeout_ms; }
   uint32_t get_timeout() const { return this->timeout_ms_; }
 
   /// Record that the device was heard from, at the time the frame arrived.
@@ -238,7 +238,7 @@ class MasterbusDevice {
   LazyCallbackManager<void()> online_callback_;
   LazyCallbackManager<void()> offline_callback_;
   uint32_t address_;
-  uint32_t timeout_ms_{0};
+  uint32_t timeout_ms_;
   uint32_t last_seen_{0};
   MasterbusDeviceStatus status_{MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE};
 #ifdef MASTERBUS_INFO_COUNT
