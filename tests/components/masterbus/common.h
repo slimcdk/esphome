@@ -44,29 +44,49 @@ class RecordingCanbus : public canbus::Canbus {
   canbus::Error read_message(struct canbus::CanFrame *frame) override { return canbus::ERROR_NOMSG; }
 };
 
+/// Which of an entity's publish calls the hub made.
+enum class Published : uint8_t {
+  PUBLISHED_FLOAT,
+  PUBLISHED_BOOLEAN,
+  PUBLISHED_INDEX,
+  PUBLISHED_TEXT,
+};
+
+/// One value the hub handed an entity, and the call it came through.
+struct RecordedValue {
+  Published published;
+  float as_float{0.0f};
+  bool as_boolean{false};
+  uint32_t as_index{0};
+  const char *as_text{nullptr};
+};
+
 // An entity that records what the hub handed it. Using this rather than a real sensor keeps the
 // test on the frame boundary, which is the seam the component is meant to be exercised through.
 class RecordingEntity : public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 
-  std::vector<MasterbusValue> values;
+  std::vector<RecordedValue> values;
   int unavailable_count{0};
 
-  void publish_masterbus_value(const MasterbusValue &value) override {
-    MasterbusValue recorded = value;
+  void publish_masterbus_float(float value) override { this->values.push_back({Published::PUBLISHED_FLOAT, value}); }
+  void publish_masterbus_boolean(bool value) override {
+    RecordedValue recorded{Published::PUBLISHED_BOOLEAN};
+    recorded.as_boolean = value;
+    this->values.push_back(recorded);
+  }
+  void publish_masterbus_index(uint32_t index) override {
+    RecordedValue recorded{Published::PUBLISHED_INDEX};
+    recorded.as_index = index;
+    this->values.push_back(recorded);
+  }
+  void publish_masterbus_text(const char *text) override {
     // The text is only borrowed for the duration of the call, so a recorded value has to point at
     // a copy of its own, exactly as a real entity keeps one.
-    switch (value.type) {
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT:
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME:
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE:
-        this->texts_.emplace_back(value.as_text != nullptr ? value.as_text : "");
-        recorded.as_text = this->texts_.back().c_str();
-        break;
-      default:
-        break;
-    }
+    this->texts_.emplace_back(text != nullptr ? text : "");
+    RecordedValue recorded{Published::PUBLISHED_TEXT};
+    recorded.as_text = this->texts_.back().c_str();
     this->values.push_back(recorded);
   }
   void publish_masterbus_unavailable() override { this->unavailable_count++; }

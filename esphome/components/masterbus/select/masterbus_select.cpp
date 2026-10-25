@@ -6,21 +6,14 @@ namespace esphome::masterbus {
 
 ESPHOME_LOG_TAG(TAG, "masterbus.select");
 
-void MasterbusSelect::publish_masterbus_value(const MasterbusValue &value) {
-  // A device list and an event field answer with the index of an entry, the way a list option does.
-  if (value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION &&
-      value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID &&
-      value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE) {
-    this->publish_masterbus_unavailable();
-    return;
-  }
-  if (!this->has_index(value.as_raw)) {
+void MasterbusSelect::publish_masterbus_index(uint32_t index) {
+  if (!this->has_index(index)) {
     ESP_LOGW(TAG, "Field %u reported option %" PRIu32 ", which is beyond the configured options", this->get_param(),
-             value.as_raw);
+             index);
     this->publish_masterbus_unavailable();
     return;
   }
-  this->publish_state(static_cast<size_t>(value.as_raw));
+  this->publish_state(static_cast<size_t>(index));
 }
 
 void MasterbusSelect::control(size_t index) {

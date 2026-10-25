@@ -11,13 +11,7 @@ class MasterbusSwitch : public switch_::Switch, public MasterbusEntity {
 
   void dump_config() override;
 
-  void publish_masterbus_value(const MasterbusValue &value) override {
-    if (value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN) {
-      this->publish_masterbus_unavailable();
-      return;
-    }
-    this->publish_state(value.as_boolean);
-  }
+  void publish_masterbus_boolean(bool value) override { this->publish_state(value); }
   // A switch has no way to clear a published state, so the state flag is all that can be dropped.
   void publish_masterbus_unavailable() override { this->set_has_state(false); }
 

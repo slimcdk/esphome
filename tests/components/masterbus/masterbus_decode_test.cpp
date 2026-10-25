@@ -265,7 +265,7 @@ TEST_F(MasterbusTest, BooleanFieldReadsAsBoolean) {
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(117, 1.0f));
 
   ASSERT_EQ(relay->values.size(), 1u);
-  EXPECT_EQ(relay->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN);
+  EXPECT_EQ(relay->values[0].published, Published::PUBLISHED_BOOLEAN);
   EXPECT_TRUE(relay->values[0].as_boolean);
 }
 
@@ -279,10 +279,10 @@ TEST_F(MasterbusTest, ADeviceListAndAnEventFieldAnswerWithTheIndexOfAnEntry) {
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(10, -1.0f));
 
   ASSERT_EQ(devices->values.size(), 1u);
-  EXPECT_EQ(devices->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID);
-  EXPECT_EQ(devices->values[0].as_raw, 2u);
+  EXPECT_EQ(devices->values[0].published, Published::PUBLISHED_INDEX);
+  EXPECT_EQ(devices->values[0].as_index, 2u);
   ASSERT_EQ(event->values.size(), 1u);
-  EXPECT_EQ(event->values[0].as_raw, UINT32_MAX);
+  EXPECT_EQ(event->values[0].as_index, UINT32_MAX);
 }
 
 // An index too large for any list, or infinite, is no entry either. Casting it would be undefined
@@ -293,8 +293,8 @@ TEST_F(MasterbusTest, AnIndexBeyondAnyListIsNoEntry) {
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(30, 1e10f));
 
   ASSERT_EQ(option->values.size(), 2u);
-  EXPECT_EQ(option->values[0].as_raw, UINT32_MAX);
-  EXPECT_EQ(option->values[1].as_raw, UINT32_MAX);
+  EXPECT_EQ(option->values[0].as_index, UINT32_MAX);
+  EXPECT_EQ(option->values[1].as_index, UINT32_MAX);
 }
 
 // A string id is two bytes. A text field answering anything outside that names no entry, and asking
@@ -345,7 +345,7 @@ TEST_F(MasterbusTest, TextFieldIsReadFromTheStringTable) {
                        {0x30, 0x61, 0x00, 0x01, 'e', 'r', 'y', 0x00});
 
   ASSERT_EQ(label->values.size(), 1u);
-  EXPECT_EQ(label->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT);
+  EXPECT_EQ(label->values[0].published, Published::PUBLISHED_TEXT);
   EXPECT_STREQ(label->values[0].as_text, "Battery");
 }
 
@@ -489,7 +489,7 @@ TEST_F(MasterbusTest, TimeFieldReadsAsSecondsSinceMidnight) {
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(94, 45296.0f));
 
   ASSERT_EQ(clock->values.size(), 1u);
-  EXPECT_EQ(clock->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_TIME);
+  EXPECT_EQ(clock->values[0].published, Published::PUBLISHED_TEXT);
   EXPECT_STREQ(clock->values[0].as_text, "12:34:56");
 }
 
@@ -502,7 +502,7 @@ TEST_F(MasterbusTest, DateFieldUnpacksTheCalendarTheDevicePacked) {
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(95, 842095.0f));
 
   ASSERT_EQ(today->values.size(), 1u);
-  EXPECT_EQ(today->values[0].type, MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE);
+  EXPECT_EQ(today->values[0].published, Published::PUBLISHED_TEXT);
   EXPECT_STREQ(today->values[0].as_text, "2024-03-15");
 }
 

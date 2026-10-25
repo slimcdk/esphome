@@ -11,13 +11,7 @@ class MasterbusBinarySensor : public binary_sensor::BinarySensor, public Masterb
 
   void dump_config() override;
 
-  void publish_masterbus_value(const MasterbusValue &value) override {
-    if (value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN) {
-      this->publish_masterbus_unavailable();
-      return;
-    }
-    this->publish_state(value.as_boolean);
-  }
+  void publish_masterbus_boolean(bool value) override { this->publish_state(value); }
   void publish_masterbus_unavailable() override { this->invalidate_state(); }
 };
 

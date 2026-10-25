@@ -18,7 +18,8 @@ class MasterbusTextSensor : public text_sensor::TextSensor, public MasterbusEnti
     this->option_count_ = count;
   }
 
-  void publish_masterbus_value(const MasterbusValue &value) override;
+  void publish_masterbus_text(const char *text) override { this->publish_state(text); }
+  void publish_masterbus_index(uint32_t index) override;
   // A text sensor has no way to clear a published string, so the state flag is all that can be
   // dropped here.
   void publish_masterbus_unavailable() override { this->set_has_state(false); }

@@ -592,27 +592,26 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
       continue;
     }
 
-    // Monitoring always arrives as a float on the wire. The entity's declared type says how to
-    // read it, so a checkbox field becomes a boolean rather than a 1.0.
-    MasterbusValue decoded{};
-    decoded.type = entity->get_value_type();
     // Where a number that publishes as text is rendered. Not value_text_: that holds a string
     // read that may be in flight, and a chunk landing on a rendered number ruins both.
     char text[16];
-    switch (decoded.type) {
+    // Monitoring always arrives as a float on the wire. The entity's declared type says how to
+    // read it, so a checkbox field becomes a boolean rather than a 1.0.
+    switch (entity->get_value_type()) {
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT:
-        decoded.as_float = value;
-        break;
+        entity->publish_masterbus_float(value);
+        continue;
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_BOOLEAN:
-        decoded.as_boolean = value != 0.0f;
-        break;
+        entity->publish_masterbus_boolean(value != 0.0f);
+        continue;
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION:
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID:
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE:
         // Each answers with the index of an entry in a list the device holds. One that is negative,
         // infinite or too large to be an index is no entry, rather than cast round to some other.
-        decoded.as_raw = value >= 0.0f && value < 4294967296.0f ? static_cast<uint32_t>(value) : UINT32_MAX;
-        break;
+        entity->publish_masterbus_index(value >= 0.0f && value < 4294967296.0f ? static_cast<uint32_t>(value)
+                                                                               : UINT32_MAX);
+        continue;
 #ifdef USE_MASTERBUS_TEXT
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT:
         // A text field answers with the number of an entry in the device's string table, not with
@@ -641,8 +640,8 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
           continue;
         }
         snprintf(text, sizeof(text), "%02u:%02u:%02u", time.hour, time.minute, time.second);
-        decoded.as_text = text;
-        break;
+        entity->publish_masterbus_text(text);
+        continue;
       }
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_DATE: {
         // Zero is a date the device leaves unset, which is ordinary and not worth a warning.
@@ -658,14 +657,13 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
           continue;
         }
         snprintf(text, sizeof(text), "%04u-%02u-%02u", date.year, date.month, date.day);
-        decoded.as_text = text;
-        break;
+        entity->publish_masterbus_text(text);
+        continue;
       }
       default:
         entity->publish_masterbus_unavailable();
         continue;
     }
-    entity->publish_masterbus_value(decoded);
   }
 }
 
@@ -759,10 +757,7 @@ void MasterbusHub::finish_text_read_(bool found) {
     ESP_LOGW(TAG, "Text of field %u is longer than %u characters and is published cut short", entity->get_param(),
              static_cast<unsigned>(MASTERBUS_TEXT_LENGTH - 1));
   }
-  MasterbusValue decoded{};
-  decoded.type = MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT;
-  decoded.as_text = this->value_text_;
-  entity->publish_masterbus_value(decoded);
+  entity->publish_masterbus_text(this->value_text_);
 }
 #endif
 
