@@ -335,8 +335,6 @@ class MasterbusHub : public Component {
   /// Ask a device one of the counts it answers about itself, such as how many groups a tab holds. Equipment that does
   /// not carry a question refuses it outright, which is not an error - see masterbus_protocol.h.
   bool request_general_count(uint32_t address, uint8_t question);
-  /// Ask which string table entry holds one of the device's own strings (GENERAL_STRING_*).
-  bool request_general_string(uint32_t address, uint8_t question);
 
   /// The three questions a scan asks about a device's structure. Each is asked per tab: the four
   /// tabs are the same protocol under different message numbers, so the tab only picks which.
@@ -347,14 +345,18 @@ class MasterbusHub : public Component {
   /// One entry of a list property: an option's name, a device-list entry, an event's field.
   bool request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
                               MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
-  /// Ask one of a device's processors for its software version.
-  bool request_software_version(uint32_t address, uint8_t processor);
 
   /// Drive the field walk one step, at the given time. Called from a tick; public so a test can
   /// step it deliberately, and move the clock on to the question a device never answers.
   void scan_step(uint32_t now) { this->scanner_.loop(now); }
   const MasterbusScannedField &get_scanned_field() const { return this->scanner_.get_last_field(); }
   const char *get_scanned_group_name() const { return this->scanner_.get_group_name(); }
+#endif
+#if defined(USE_MASTERBUS_SCAN) || defined(MASTERBUS_INFO_COUNT)
+  /// Ask which string table entry holds one of the device's own strings (GENERAL_STRING_*).
+  bool request_general_string(uint32_t address, uint8_t question);
+  /// Ask one of a device's processors for its software version.
+  bool request_software_version(uint32_t address, uint8_t processor);
 #endif
 
   /// Ask a device for one property of one field.
