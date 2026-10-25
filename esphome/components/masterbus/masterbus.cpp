@@ -162,13 +162,19 @@ bool MasterbusHub::request_nodes() {
 }
 #endif
 
+#if defined(USE_MASTERBUS_SCAN) || defined(MASTERBUS_INFO_COUNT)
+bool MasterbusHub::request_general_string(uint32_t address, uint8_t question) {
+  return this->send_(STRING_REQUEST_TYPE, address, {GENERAL_STRING_SELECTOR, question});
+}
+
+bool MasterbusHub::request_software_version(uint32_t address, uint8_t processor) {
+  return this->send_(STRING_REQUEST_TYPE, address, {SOFTWARE_VERSION_SELECTOR, processor});
+}
+#endif
+
 #ifdef USE_MASTERBUS_SCAN
 bool MasterbusHub::request_general_count(uint32_t address, uint8_t question) {
   return this->send_(STRING_REQUEST_TYPE, address, {GENERAL_COUNT_SELECTOR, question});
-}
-
-bool MasterbusHub::request_general_string(uint32_t address, uint8_t question) {
-  return this->send_(STRING_REQUEST_TYPE, address, {GENERAL_STRING_SELECTOR, question});
 }
 
 bool MasterbusHub::request_group(uint32_t address, MasterbusGroupSelector selector, uint16_t group, MasterbusTab tab) {
@@ -189,10 +195,6 @@ bool MasterbusHub::request_property_entry(uint32_t address, MasterbusProperty pr
   return this->send_(
       tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).request, address,
       {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8), index});
-}
-
-bool MasterbusHub::request_software_version(uint32_t address, uint8_t processor) {
-  return this->send_(STRING_REQUEST_TYPE, address, {SOFTWARE_VERSION_SELECTOR, processor});
 }
 
 void MasterbusHub::start_scan() {
@@ -798,11 +800,11 @@ bool MasterbusHub::info_step(uint32_t now) {
   const uint32_t address = this->info_device_->get_address();
   bool sent;
   if (this->info_item_ == static_cast<uint8_t>(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE)) {
-    sent = this->send_(STRING_REQUEST_TYPE, address, {SOFTWARE_VERSION_SELECTOR, this->info_processor_});
+    sent = this->request_software_version(address, this->info_processor_);
   } else if (this->info_have_string_) {
     sent = this->request_string(address, this->info_string_, this->info_chunk_);
   } else {
-    sent = this->send_(STRING_REQUEST_TYPE, address, {GENERAL_STRING_SELECTOR, this->info_item_});
+    sent = this->request_general_string(address, this->info_item_);
   }
   if (!sent) {
     // The bus would not take it. Leave the device pending and try again on a later pass.
