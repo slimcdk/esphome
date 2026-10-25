@@ -2,8 +2,7 @@ import esphome.codegen as cg
 from esphome.components import text_sensor
 from esphome.components.const import CONF_VALUE_TYPE
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_OPTIONS
-from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
+from esphome.const import CONF_ID, CONF_OPTIONS, CONF_TYPE
 from esphome.types import ConfigType
 
 from .. import (
@@ -18,8 +17,6 @@ from .. import (
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
 
-CONF_INFO = "info"
-
 MasterbusTextSensor = masterbus_ns.class_(
     "MasterbusTextSensor", text_sensor.TextSensor, cg.PollingComponent
 )
@@ -28,6 +25,8 @@ MasterbusInfoTextSensor = masterbus_ns.class_(
 )
 MasterbusDeviceInfo = masterbus_ns.enum("MasterbusDeviceInfo", is_class=True)
 
+# A field of the device, by its number, is the type a text sensor has unless it names another.
+TYPE_FIELD = "field"
 # What a device says about itself. The class needs no question: the device's address carries it.
 INFO = {
     "article_number": MasterbusDeviceInfo.MASTERBUS_DEVICE_INFO_ARTICLE_NUMBER,
@@ -59,7 +58,7 @@ def _validate_options(config: ConfigType) -> ConfigType:
     return config
 
 
-_FIELD_KEYS = (
+FIELD_SCHEMA = cv.All(
     text_sensor.text_sensor_schema(MasterbusTextSensor)
     .extend(
         entity_schema(
@@ -73,43 +72,28 @@ _FIELD_KEYS = (
                 cv.ensure_list(cv.string_strict), cv.Length(min=1)
             )
         }
-    )
+    ),
+    _validate_options,
 )
-FIELD_SCHEMA = cv.All(_FIELD_KEYS, _validate_options)
 
 INFO_SCHEMA = (
     text_sensor.text_sensor_schema(MasterbusInfoTextSensor)
-    .extend(
-        {
-            cv.GenerateID(CONF_MASTERBUS_DEVICE_ID): cv.use_id(MasterbusDevice),
-            cv.Required(CONF_INFO): cv.enum(INFO, lower=True),
-        }
-    )
+    .extend({cv.GenerateID(CONF_MASTERBUS_DEVICE_ID): cv.use_id(MasterbusDevice)})
     .extend(cv.COMPONENT_SCHEMA)
 )
 
-
-# What schema extraction shows: one schema holding the keys of both forms, since an editor sees
-# no `info` to choose between them by.
-_EXTRACT_SCHEMA = _FIELD_KEYS.extend(
-    {cv.Optional(CONF_INFO): cv.enum(INFO, lower=True)}
+CONFIG_SCHEMA = cv.typed_schema(
+    {TYPE_FIELD: FIELD_SCHEMA, **dict.fromkeys(INFO, INFO_SCHEMA)},
+    key=CONF_TYPE,
+    default_type=TYPE_FIELD,
+    lower=True,
 )
 
 
-@schema_extractor("schema")
-def CONFIG_SCHEMA(config: ConfigType) -> ConfigType:
-    """A field of a device, by its number, or what the device says about itself, by `info`."""
-    if config is SCHEMA_EXTRACT:
-        return _EXTRACT_SCHEMA
-    if isinstance(config, dict) and CONF_INFO in config:
-        return INFO_SCHEMA(config)
-    return FIELD_SCHEMA(config)
-
-
 async def to_code(config: ConfigType) -> None:
-    if (info := config.get(CONF_INFO)) is not None:
+    if (info := config[CONF_TYPE]) != TYPE_FIELD:
         device = await cg.get_variable(config[CONF_MASTERBUS_DEVICE_ID])
-        var = cg.new_Pvariable(config[CONF_ID], device, info)
+        var = cg.new_Pvariable(config[CONF_ID], device, INFO[info])
         await cg.register_component(var, config)
         await text_sensor.register_text_sensor(var, config)
         # The sensor exists for every kind of information; only the ones read off the bus take

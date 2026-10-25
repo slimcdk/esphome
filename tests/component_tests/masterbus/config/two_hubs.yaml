@@ -41,9 +41,9 @@ sensor:
 text_sensor:
   - platform: masterbus
     masterbus_device_id: mb_port_battery
-    info: serial_number
+    type: serial_number
     name: Port battery serial number
   - platform: masterbus
     masterbus_device_id: mb_starboard_battery
-    info: serial_number
+    type: serial_number
     name: Starboard battery serial number

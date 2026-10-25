@@ -70,15 +70,15 @@ text_sensor:
   # What the device says about itself, read off the bus, and its class, which its address carries.
   - platform: masterbus
     masterbus_device_id: mb_battery
-    info: serial_number
+    type: serial_number
     name: Battery serial number
   - platform: masterbus
     masterbus_device_id: mb_battery
-    info: firmware
+    type: firmware
     name: Battery firmware
   - platform: masterbus
     masterbus_device_id: mb_battery
-    info: class
+    type: class
     name: Battery class
   # A list field shown by the names of its entries, which a scan reports.
   - platform: masterbus
