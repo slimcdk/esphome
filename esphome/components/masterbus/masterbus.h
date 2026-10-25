@@ -147,6 +147,8 @@ class MasterbusEntity : public PollingComponent {
   /// must have said yes.
   void questions_unanswered_();
   void read_back_();
+  /// Say that a write was dropped because the device says the field takes none.
+  void warn_takes_no_write_();
 
   MasterbusDevice *masterbus_device_;
   uint32_t stale_timeout_ms_{0};

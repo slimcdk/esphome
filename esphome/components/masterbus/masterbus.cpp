@@ -435,8 +435,7 @@ bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property
 
 bool MasterbusEntity::write(float value, bool read_back) {
   if (this->writeable_ == 0) {
-    ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " takes no write, by the device's own word; not written",
-             this->param_, this->masterbus_device_->get_address());
+    this->warn_takes_no_write_();
     return false;
   }
   if (this->writeable_ == 1 && this->eventable_ != -1)
@@ -485,6 +484,10 @@ void MasterbusEntity::write_if_answered_() {
     this->perform_write_(this->pending_value_, this->pending_read_back_);
     return;
   }
+  this->warn_takes_no_write_();
+}
+
+void MasterbusEntity::warn_takes_no_write_() {
   ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " takes no write, by the device's own word; not written",
            this->param_, this->masterbus_device_->get_address());
 }
