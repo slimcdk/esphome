@@ -16,7 +16,7 @@ class MasterbusSelect : public select::Select, public MasterbusEntity {
   void publish_masterbus_unavailable() override { this->set_has_state(false); }
 
  protected:
-  void control(const std::string &value) override;
+  void control(size_t index) override;
 };
 
 }  // namespace esphome::masterbus

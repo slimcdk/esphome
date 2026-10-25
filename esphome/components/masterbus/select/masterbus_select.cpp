@@ -23,16 +23,11 @@ void MasterbusSelect::publish_masterbus_value(const MasterbusValue &value) {
   this->publish_state(static_cast<size_t>(value.as_raw));
 }
 
-void MasterbusSelect::control(const std::string &value) {
-  const auto index = this->index_of(value);
-  if (!index.has_value()) {
-    ESP_LOGW(TAG, "%s is not one of the configured options for field %u", value.c_str(), this->get_param());
-    return;
-  }
+void MasterbusSelect::control(size_t index) {
   // A list option travels as its index, in the same float a number would use.
   // Nothing is published here on purpose: the select follows what the device reports afterwards,
   // so it never claims an option the equipment did not confirm.
-  this->write(static_cast<float>(index.value()));
+  this->write(static_cast<float>(index));
 }
 
 void MasterbusSelect::dump_config() {
