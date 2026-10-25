@@ -102,6 +102,11 @@ def _get_data() -> MasterbusData:
     return CORE.data[DOMAIN]
 
 
+def _hub_of(device_id: ID) -> str:
+    """The id of the hub a declared device belongs to, which is whose lists its entities join."""
+    return _get_data().device_hubs[str(device_id)]
+
+
 def _address(value: Any) -> int:
     address = cv.hex_int(value)
     if not 0 <= address <= MAX_DEVICE_ADDRESS:
@@ -297,7 +302,7 @@ async def new_entity(
         config[CONF_VALUE_TYPE],
         **kwargs,
     )
-    _request_entity_slot(_get_data().device_hubs[str(device_id)])
+    _request_entity_slot(_hub_of(device_id))
     await cg.register_component(var, config)
     if config[CONF_VALUE_TYPE] == VALUE_TYPE_TEXT:
         # A text field answers with a string table entry number, so the hub needs the second read
@@ -314,7 +319,7 @@ async def register_info_sensor(
     device_id: ID, device: MockObj, var: MockObj, info: MockObj
 ) -> None:
     """Hand the hub a text sensor that shows one thing a device says about itself."""
-    _request_info_slot(_get_data().device_hubs[str(device_id)])
+    _request_info_slot(_hub_of(device_id))
     cg.add(device.register_info_sensor(var, info))
 
 
