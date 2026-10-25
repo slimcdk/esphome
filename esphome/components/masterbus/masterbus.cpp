@@ -627,8 +627,8 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
         // A text field answers with the number of an entry in the device's string table, not with
         // the text. Reading that entry is a second exchange, so the entity is published by the text
         // reader rather than from here. A string id is two bytes, so anything else names no entry
-        // at all.
-        if (!(value >= 0.0f && value <= 65535.0f)) {
+        // at all. Not a number was dealt with above.
+        if (value < 0.0f || value > 65535.0f) {
           entity->publish_masterbus_unavailable();
           continue;
         }
