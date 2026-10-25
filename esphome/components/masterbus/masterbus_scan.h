@@ -50,6 +50,12 @@ struct MasterbusScannedField {
   char very_long_name[STRING_BUFFER_LENGTH];
 };
 
+/// One question the walk asks about every field: the property, and how long its answer is.
+struct MasterbusFieldQuestion {
+  MasterbusProperty property;
+  uint8_t answer_length;
+};
+
 /** Walks the devices a scan discovered and reports their fields as pasteable configuration.
  *
  * A device answers one question at a time, so this is a state machine: each tick sends one
@@ -112,6 +118,8 @@ class MasterbusScanner {
     PHASE_EVENT_FIELD,
   };
 
+  /// The question a phase asks about the field, where it is one of those questions.
+  static bool field_question(Phase phase, MasterbusFieldQuestion &out);
   void send_current_();
   void advance_(bool answered);
   void next_device_string_();

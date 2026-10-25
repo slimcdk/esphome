@@ -58,6 +58,22 @@ static void quote_string(const char *value, char *out, size_t capacity) {
   out[at] = '\0';
 }
 
+/// The questions asked about every field, in the order the walk asks them, which is the order of
+/// their phases from PHASE_FIELD_DISPLAY_TYPE on.
+static constexpr MasterbusFieldQuestion FIELD_QUESTIONS[] PROGMEM = {
+    {MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, PROPERTY_NUMBER_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_NAME_STRING, PROPERTY_NUMBER_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_UNIT_STRING, PROPERTY_NUMBER_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_MINIMUM, PROPERTY_FLOAT_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_MAXIMUM, PROPERTY_FLOAT_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_STEP, PROPERTY_FLOAT_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_FACTORY, PROPERTY_FLOAT_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE, PROPERTY_NUMBER_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE, PROPERTY_NUMBER_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_LONG_NAME_STRING, PROPERTY_NUMBER_ANSWER_LENGTH},
+    {MasterbusProperty::MASTERBUS_PROPERTY_VERY_LONG_NAME_STRING, PROPERTY_NUMBER_ANSWER_LENGTH},
+};
+
 /// The counts the walk asks for on its own account, which the round of every count leaves out.
 static bool asked_elsewhere(uint8_t question) {
   return question == GENERAL_COUNT_EVENTABLES || question == GENERAL_COUNT_MONITORING_GROUPS ||
@@ -97,9 +113,27 @@ void MasterbusScanner::loop(uint32_t now) {
   }
 }
 
+bool MasterbusScanner::field_question(Phase phase, MasterbusFieldQuestion &out) {
+  static_assert(static_cast<uint8_t>(Phase::PHASE_FIELD_VERY_LONG_NAME_ID) -
+                        static_cast<uint8_t>(Phase::PHASE_FIELD_DISPLAY_TYPE) + 1 ==
+                    sizeof(FIELD_QUESTIONS) / sizeof(FIELD_QUESTIONS[0]),
+                "one question per field phase");
+  if (phase < Phase::PHASE_FIELD_DISPLAY_TYPE || phase > Phase::PHASE_FIELD_VERY_LONG_NAME_ID)
+    return false;
+  progmem_memcpy(&out,
+                 &FIELD_QUESTIONS[static_cast<uint8_t>(phase) - static_cast<uint8_t>(Phase::PHASE_FIELD_DISPLAY_TYPE)],
+                 sizeof(out));
+  return true;
+}
+
 void MasterbusScanner::send_current_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
   const uint16_t param = this->field_.param;
+  MasterbusFieldQuestion question;
+  if (field_question(this->phase_, question)) {
+    this->hub_->request_property(address, question.property, param, this->tab_);
+    return;
+  }
   switch (this->phase_) {
     case Phase::PHASE_EVENTABLES:
       this->hub_->request_general_count(address, GENERAL_COUNT_EVENTABLES);
@@ -136,40 +170,6 @@ void MasterbusScanner::send_current_() {
     case Phase::PHASE_FIELD_NUMBER:
       this->hub_->request_group_index(address, this->group_, this->field_index_, this->tab_);
       break;
-    case Phase::PHASE_FIELD_DISPLAY_TYPE:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_NAME_ID:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_NAME_STRING, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_UNIT_ID:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_UNIT_STRING, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_MINIMUM:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_MINIMUM, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_MAXIMUM:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_MAXIMUM, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_STEP:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_STEP, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_FACTORY:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_FACTORY, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_WRITEABLE:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_EVENTABLE:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_LONG_NAME_ID:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_LONG_NAME_STRING, param, this->tab_);
-      break;
-    case Phase::PHASE_FIELD_VERY_LONG_NAME_ID:
-      this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_VERY_LONG_NAME_STRING, param,
-                                   this->tab_);
-      break;
     case Phase::PHASE_OPTION_ID:
       this->hub_->request_property_entry(address, MasterbusProperty::MASTERBUS_PROPERTY_OPTION_STRING, param,
                                          this->entry_, this->tab_);
@@ -186,7 +186,7 @@ void MasterbusScanner::send_current_() {
       this->hub_->request_property_entry(address, MasterbusProperty::MASTERBUS_PROPERTY_EVENT_FIELD, param,
                                          this->entry_, this->tab_);
       break;
-    case Phase::PHASE_IDLE:
+    default:
       break;
   }
 }
@@ -213,9 +213,6 @@ void MasterbusScanner::advance_(bool answered) {
       this->next_device_string_();
       return;
     case Phase::PHASE_DEVICE_STRING_TEXT:
-      if (answered)
-        return;  // more chunks; on_frame decides when the string ended
-      this->name_string_ = 0;
       this->next_device_string_();
       return;
 
@@ -333,26 +330,13 @@ void MasterbusScanner::advance_(bool answered) {
       }
       this->next_field_text_();
       return;
+    // After the last question about the field its strings are read. Each ends with a refusal, a
+    // short chunk or silence, and the next one starts.
     case Phase::PHASE_FIELD_VERY_LONG_NAME_ID:
-      this->next_field_text_();
-      return;
-
-    // Each string ends with a refusal, a short chunk or silence, and the next one starts.
     case Phase::PHASE_FIELD_NAME_TEXT:
     case Phase::PHASE_FIELD_UNIT_TEXT:
     case Phase::PHASE_FIELD_LONG_NAME_TEXT:
     case Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT:
-      if (answered)
-        return;  // more chunks; on_frame decides when the string ended
-      if (this->phase_ == Phase::PHASE_FIELD_NAME_TEXT) {
-        this->name_string_ = 0;
-      } else if (this->phase_ == Phase::PHASE_FIELD_UNIT_TEXT) {
-        this->unit_string_ = 0;
-      } else if (this->phase_ == Phase::PHASE_FIELD_LONG_NAME_TEXT) {
-        this->long_name_string_ = 0;
-      } else {
-        this->very_long_name_string_ = 0;
-      }
       this->next_field_text_();
       return;
 
@@ -370,8 +354,6 @@ void MasterbusScanner::advance_(bool answered) {
       this->next_entry_();
       return;
     case Phase::PHASE_OPTION_TEXT:
-      if (answered)
-        return;
       this->report_entry_(0);
       this->next_entry_();
       return;
@@ -419,23 +401,32 @@ void MasterbusScanner::next_general_count_() {
 
 void MasterbusScanner::next_field_text_() {
   this->waiting_ = false;
-  // Asking for string zero would only burn the answer timeout, on every field that carries no
-  // unit - and most of them do not.
-  if (this->name_string_ != 0) {
-    this->read_string_(Phase::PHASE_FIELD_NAME_TEXT, this->name_string_, this->field_.name, STRING_BUFFER_LENGTH,
-                       LOG_STR_LITERAL("name"));
-  } else if (this->unit_string_ != 0) {
-    this->read_string_(Phase::PHASE_FIELD_UNIT_TEXT, this->unit_string_, this->field_.unit, SCAN_UNIT_LENGTH,
-                       LOG_STR_LITERAL("unit"));
-  } else if (this->long_name_string_ != 0) {
-    this->read_string_(Phase::PHASE_FIELD_LONG_NAME_TEXT, this->long_name_string_, this->field_.long_name,
-                       STRING_BUFFER_LENGTH, LOG_STR_LITERAL("name"));
-  } else if (this->very_long_name_string_ != 0) {
-    this->read_string_(Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT, this->very_long_name_string_,
-                       this->field_.very_long_name, STRING_BUFFER_LENGTH, LOG_STR_LITERAL("name"));
-  } else {
-    this->complete_field_();
+  struct FieldString {
+    Phase phase;
+    uint16_t id;
+    char *out;
+    uint8_t capacity;
+    const char *what;
+  };
+  // The field's strings, in the order their phases are declared, after every question about the
+  // field; each is read after the one before it. Asking for string zero would only burn the answer
+  // timeout, on every field that carries no unit - and most of them do not.
+  const FieldString strings[] = {
+      {Phase::PHASE_FIELD_NAME_TEXT, this->name_string_, this->field_.name, STRING_BUFFER_LENGTH,
+       LOG_STR_LITERAL("name")},
+      {Phase::PHASE_FIELD_UNIT_TEXT, this->unit_string_, this->field_.unit, SCAN_UNIT_LENGTH, LOG_STR_LITERAL("unit")},
+      {Phase::PHASE_FIELD_LONG_NAME_TEXT, this->long_name_string_, this->field_.long_name, STRING_BUFFER_LENGTH,
+       LOG_STR_LITERAL("name")},
+      {Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT, this->very_long_name_string_, this->field_.very_long_name,
+       STRING_BUFFER_LENGTH, LOG_STR_LITERAL("name")},
+  };
+  for (const FieldString &string : strings) {
+    if (string.phase > this->phase_ && string.id != 0) {
+      this->read_string_(string.phase, string.id, string.out, string.capacity, string.what);
+      return;
+    }
   }
+  this->complete_field_();
 }
 
 void MasterbusScanner::read_string_(Phase phase, uint16_t id, char *out, uint8_t capacity, const char *what) {
@@ -595,6 +586,11 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     return is_property(property, length) && data[PROPERTY_INDEX_OFFSET] == index;
   };
 
+  // A question about the field: the answer has to be to that property of that field.
+  MasterbusFieldQuestion question;
+  if (field_question(this->phase_, question) && !is_property(question.property, question.answer_length))
+    return false;
+
   switch (this->phase_) {
     case Phase::PHASE_EVENTABLES:
     case Phase::PHASE_GENERAL_COUNT:
@@ -684,72 +680,43 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       break;
 
     case Phase::PHASE_FIELD_DISPLAY_TYPE:
-      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, PROPERTY_NUMBER_ANSWER_LENGTH))
-        return false;
       this->field_.display_type = static_cast<MasterbusDisplayType>(value16(PROPERTY_VALUE_OFFSET));
       break;
-
     case Phase::PHASE_FIELD_NAME_ID:
-      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_NAME_STRING, PROPERTY_NUMBER_ANSWER_LENGTH))
-        return false;
       this->name_string_ = value16(PROPERTY_VALUE_OFFSET);
       this->field_.has_name = this->name_string_ != 0;
       break;
-
     case Phase::PHASE_FIELD_UNIT_ID:
-      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_UNIT_STRING, PROPERTY_NUMBER_ANSWER_LENGTH))
-        return false;
       this->unit_string_ = value16(PROPERTY_VALUE_OFFSET);
       this->field_.has_unit = this->unit_string_ != 0;
       break;
-
     case Phase::PHASE_FIELD_MINIMUM:
-    case Phase::PHASE_FIELD_MAXIMUM:
-    case Phase::PHASE_FIELD_STEP: {
-      const MasterbusProperty property =
-          this->phase_ == Phase::PHASE_FIELD_MINIMUM   ? MasterbusProperty::MASTERBUS_PROPERTY_MINIMUM
-          : this->phase_ == Phase::PHASE_FIELD_MAXIMUM ? MasterbusProperty::MASTERBUS_PROPERTY_MAXIMUM
-                                                       : MasterbusProperty::MASTERBUS_PROPERTY_STEP;
-      if (!is_property(property, PROPERTY_FLOAT_ANSWER_LENGTH))
-        return false;
-      const float value = value32(PROPERTY_VALUE_OFFSET);
-      if (this->phase_ == Phase::PHASE_FIELD_MINIMUM) {
-        this->field_.minimum = value;
-      } else if (this->phase_ == Phase::PHASE_FIELD_MAXIMUM) {
-        this->field_.maximum = value;
-      } else {
-        this->field_.step = value;
-      }
+      this->field_.minimum = value32(PROPERTY_VALUE_OFFSET);
       break;
-    }
-
+    case Phase::PHASE_FIELD_MAXIMUM:
+      this->field_.maximum = value32(PROPERTY_VALUE_OFFSET);
+      break;
+    case Phase::PHASE_FIELD_STEP:
+      this->field_.step = value32(PROPERTY_VALUE_OFFSET);
+      break;
     case Phase::PHASE_FIELD_FACTORY:
-      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_FACTORY, PROPERTY_FLOAT_ANSWER_LENGTH))
-        return false;
       this->field_.factory = value32(PROPERTY_VALUE_OFFSET);
       break;
     case Phase::PHASE_FIELD_WRITEABLE:
-    case Phase::PHASE_FIELD_EVENTABLE: {
-      const bool first = this->phase_ == Phase::PHASE_FIELD_WRITEABLE;
-      if (!is_property(
-              first ? MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE : MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE,
-              PROPERTY_NUMBER_ANSWER_LENGTH))
-        return false;
-      (first ? this->field_.writeable : this->field_.eventable) = masterbus_answer(value16(PROPERTY_VALUE_OFFSET) != 0);
+      this->field_.writeable = masterbus_answer(value16(PROPERTY_VALUE_OFFSET) != 0);
+      break;
+    case Phase::PHASE_FIELD_EVENTABLE:
+      this->field_.eventable = masterbus_answer(value16(PROPERTY_VALUE_OFFSET) != 0);
+      break;
+    // A long name that is the name itself has nothing new to read.
+    case Phase::PHASE_FIELD_LONG_NAME_ID: {
+      const uint16_t id = value16(PROPERTY_VALUE_OFFSET);
+      this->long_name_string_ = id != this->name_string_ ? id : 0;
       break;
     }
-    case Phase::PHASE_FIELD_LONG_NAME_ID:
     case Phase::PHASE_FIELD_VERY_LONG_NAME_ID: {
-      const bool first = this->phase_ == Phase::PHASE_FIELD_LONG_NAME_ID;
-      if (!is_property(first ? MasterbusProperty::MASTERBUS_PROPERTY_LONG_NAME_STRING
-                             : MasterbusProperty::MASTERBUS_PROPERTY_VERY_LONG_NAME_STRING,
-                       PROPERTY_NUMBER_ANSWER_LENGTH))
-        return false;
-      uint16_t id = value16(PROPERTY_VALUE_OFFSET);
-      // A long name that is the name itself has nothing new to read.
-      if (id == this->name_string_ || (!first && id == this->long_name_string_))
-        id = 0;
-      (first ? this->long_name_string_ : this->very_long_name_string_) = id;
+      const uint16_t id = value16(PROPERTY_VALUE_OFFSET);
+      this->very_long_name_string_ = id != this->name_string_ && id != this->long_name_string_ ? id : 0;
       break;
     }
 
