@@ -26,8 +26,8 @@ namespace esphome::masterbus {
 // ---------------------------------------------------------------------------
 
 /// VERIFIED: the extended identifier splits into a six bit message type and a 23 bit device
-/// address. Every address so decoded matched a device the vendor library independently reported by
-/// the same number - eight of eight on this bus.
+/// address, so the mask is also the largest address there can be. Every address so decoded matched a device the vendor
+/// library independently reported by the same number - eight of eight on this bus.
 ///
 /// The split was settled by payload length. Read as six bits, each type carries a near-fixed
 /// length: announcements are always eight bytes, node requests always zero, monitoring answers
@@ -77,17 +77,16 @@ static constexpr uint8_t MONITORING_INFORMATION_LENGTH = 6;
 // answer of a different length is dropped rather than misread, so equipment that answers otherwise
 // shows up as silence, not as a wrong value.
 
-/// VERIFIED: a monitoring field is written with the same message type that reads it. What tells
-/// the two apart is the payload length: two bytes asks, six bytes writes. LIBRARY: every other tab
-/// is written the same way, on its own request number.
-///
-///     write     type 0x30, 6 bytes: field number little-endian, then float32 little-endian
-///
-/// Captured while driving the vendor library's own "Open relay" and "Close relay" calls against a
-/// battery block: twelve writes, all of this shape, and the relay opened on the first of them.
-/// VERIFIED for a number too: 40.0 written to a display panel's Backlight, a percentage, was read
-/// back as 40, and the field after it was left as it was.
-static constexpr uint8_t MONITORING_WRITE_LENGTH = 6;
+// VERIFIED: a monitoring field is written with the same message type that reads it. What tells
+// the two apart is the payload length: two bytes asks, six bytes writes. LIBRARY: every other tab
+// is written the same way, on its own request number.
+//
+//     write     type 0x30, 6 bytes: field number little-endian, then float32 little-endian
+//
+// Captured while driving the vendor library's own "Open relay" and "Close relay" calls against a
+// battery block: twelve writes, all of this shape, and the relay opened on the first of them.
+// VERIFIED for a number too: 40.0 written to a display panel's Backlight, a percentage, was read
+// back as 40, and the field after it was left as it was.
 
 /// VERIFIED as to the bytes, LIBRARY as to their meaning: a write to an event field is followed by a
 /// second one, to the field one higher, whose value is the address of the node that wrote -
@@ -497,20 +496,6 @@ enum class MasterbusGroupSelector : uint8_t {
 };
 
 // ---------------------------------------------------------------------------
-// Bounds the configuration validates against
-// ---------------------------------------------------------------------------
-//
-// Mirrored in __init__.py, which is where they are enforced.
-
-/// The identifier gives the address 23 bits, so the mask above is also the largest address there
-/// can be. The BusID in the vendor's own example data is the same address held another way: the
-/// class moved up to bit 24, the low 18 bits where they were.
-static constexpr uint32_t MAX_DEVICE_ADDRESS = DEVICE_ADDRESS_MASK;
-
-/// A field number occupies two bytes of the monitoring payload.
-static constexpr uint16_t MAX_PARAM = 0xFFFF;
-
-// ---------------------------------------------------------------------------
 // The vendor's data model
 // ---------------------------------------------------------------------------
 
@@ -780,22 +765,6 @@ enum class MasterbusValueType : uint8_t {
   MASTERBUS_VALUE_TYPE_TEXT = 5,
   MASTERBUS_VALUE_TYPE_DEVICE_ID = 6,
   MASTERBUS_VALUE_TYPE_EVENTABLE = 7,
-  MASTERBUS_VALUE_TYPE_INVALID = 8,
-};
-
-/// The status a device reports for itself. Sleeping, off-fault and off-error are defined by the
-/// vendor API but documented there as unused.
-///
-/// A device is treated as on for as long as frames arrive from it. The vendor library never sets
-/// anything but "on" either (see the announcement above), so there is no status to read.
-enum class MasterbusDeviceStatus : uint8_t {
-  MASTERBUS_DEVICE_STATUS_OFFLINE = 0,
-  MASTERBUS_DEVICE_STATUS_SLEEPING = 1,
-  MASTERBUS_DEVICE_STATUS_ON = 2,
-  MASTERBUS_DEVICE_STATUS_ON_WARNING = 3,
-  MASTERBUS_DEVICE_STATUS_OFF_FAULT = 4,
-  MASTERBUS_DEVICE_STATUS_OFF_ERROR = 5,
-  MASTERBUS_DEVICE_STATUS_UPDATING = 6,
 };
 
 }  // namespace esphome::masterbus

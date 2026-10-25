@@ -16,6 +16,8 @@ static constexpr uint32_t BATTERY_6 = 0x6C1002;
 static constexpr uint32_t UNDECLARED_DEVICE = 0x281001;
 /// The timeout a device is given when the configuration names none.
 static constexpr uint32_t DEFAULT_TIMEOUT_MS = 60000;
+/// A write is the field number and a float, on the number that reads the field with the number alone.
+static constexpr uint8_t WRITE_LENGTH = 6;
 
 class MasterbusTest : public ::testing::Test {
  protected:
@@ -869,13 +871,13 @@ TEST_F(MasterbusTest, WritingAnEventSendsTheValueAndThenWhoWroteIt) {
   ASSERT_EQ(this->canbus_.sent.size(), 2u);
   const auto &write = this->canbus_.sent[0];
   EXPECT_EQ(write.can_id, 0x186C1001);
-  ASSERT_EQ(write.can_data_length_code, MONITORING_WRITE_LENGTH);
+  ASSERT_EQ(write.can_data_length_code, WRITE_LENGTH);
   EXPECT_EQ(encode_uint16(write.data[1], write.data[0]), 117);
   EXPECT_EQ(encode_uint32(write.data[5], write.data[4], write.data[3], write.data[2]), 0x3F800000);
 
   const auto &source = this->canbus_.sent[1];
   EXPECT_EQ(source.can_id, 0x186C1001);
-  ASSERT_EQ(source.can_data_length_code, MONITORING_WRITE_LENGTH);
+  ASSERT_EQ(source.can_data_length_code, WRITE_LENGTH);
   EXPECT_EQ(encode_uint16(source.data[1], source.data[0]), 118);
   // The bytes the capture holds, and what they are.
   EXPECT_EQ(source.data[2], 0x01);
@@ -908,7 +910,7 @@ TEST_F(MasterbusTest, AFieldOnAnyTabIsWrittenOnThatTabsOwnRequestNumber) {
   ASSERT_EQ(this->canbus_.sent.size(), 1u);
   const auto &write = this->canbus_.sent[0];
   EXPECT_EQ(write.can_id, frame_id(0x37, BATTERY_1));
-  ASSERT_EQ(write.can_data_length_code, MONITORING_WRITE_LENGTH);
+  ASSERT_EQ(write.can_data_length_code, WRITE_LENGTH);
   EXPECT_EQ(encode_uint16(write.data[1], write.data[0]), 40);
   float value;
   const uint32_t bits = encode_uint32(write.data[5], write.data[4], write.data[3], write.data[2]);
@@ -1017,7 +1019,7 @@ TEST_F(MasterbusTest, AnnouncementKeepsToTheAddressBitsTheIdentifierCarries) {
 
   const auto &found = this->hub_->get_discovered_devices();
   ASSERT_EQ(found.size(), 1u);
-  EXPECT_LE(found[0].address, MAX_DEVICE_ADDRESS);
+  EXPECT_LE(found[0].address, DEVICE_ADDRESS_MASK);
   EXPECT_EQ(found[0].address, BATTERY_1);
 }
 
@@ -2284,8 +2286,7 @@ class SchedulingEntity : public RecordingEntity {
 };
 
 static bool is_data_write(const canbus::CanFrame &frame) {
-  return (frame.can_id >> MESSAGE_TYPE_SHIFT) == MONITORING_REQUEST_TYPE &&
-         frame.can_data_length_code == MONITORING_WRITE_LENGTH;
+  return (frame.can_id >> MESSAGE_TYPE_SHIFT) == MONITORING_REQUEST_TYPE && frame.can_data_length_code == WRITE_LENGTH;
 }
 
 // The first write to a field asks the device whether the field takes one and whether it is an
@@ -2406,7 +2407,7 @@ TEST_F(MasterbusTest, AnUnansweredQuestionStillLetsTheWriteThroughAndTheFieldIsR
   entity.questions_unanswered_();
   ASSERT_EQ(this->canbus_.sent.size(), 3u);
   EXPECT_EQ(this->canbus_.sent[2].can_id >> MESSAGE_TYPE_SHIFT, MONITORING_REQUEST_TYPE);
-  EXPECT_EQ(this->canbus_.sent[2].can_data_length_code, MONITORING_WRITE_LENGTH);
+  EXPECT_EQ(this->canbus_.sent[2].can_data_length_code, WRITE_LENGTH);
 
   entity.read_back_();
   ASSERT_EQ(this->canbus_.sent.size(), 4u);
@@ -2435,7 +2436,7 @@ TEST_F(MasterbusTest, AConfigurationFieldThatDoesNotSayItTakesAWriteIsNotWritten
   entity.questions_unanswered_();
   ASSERT_EQ(this->canbus_.sent.size(), 3u);
   EXPECT_EQ(this->canbus_.sent[2].can_id >> MESSAGE_TYPE_SHIFT, 0x37);
-  EXPECT_EQ(this->canbus_.sent[2].can_data_length_code, MONITORING_WRITE_LENGTH);
+  EXPECT_EQ(this->canbus_.sent[2].can_data_length_code, WRITE_LENGTH);
 }
 
 // A hub can speak under an address of its own, in the node request and after every write.

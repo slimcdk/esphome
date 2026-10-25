@@ -172,6 +172,10 @@ class MasterbusEntity : public PollingComponent {
  * enormously within one device, so a per-entity timeout short enough for a current read every
  * second would mark a setting read once an hour permanently dead. When a device goes quiet all of
  * its entities go unavailable together.
+ *
+ * Online is all a device is: it is online for as long as frames arrive from it. The vendor API
+ * defines statuses beyond that, but its library never sets anything but on (see the announcement
+ * in masterbus_protocol.h), so there is no status to read.
  */
 class MasterbusDevice {
  public:
@@ -206,7 +210,7 @@ class MasterbusDevice {
   uint32_t get_address() const { return this->address_; }
   MasterbusHub *get_hub() const { return this->hub_; }
 
-  bool is_online() const { return this->status_ != MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE; }
+  bool is_online() const { return this->online_; }
 
   uint32_t get_timeout() const { return this->timeout_ms_; }
 
@@ -231,7 +235,7 @@ class MasterbusDevice {
   uint32_t address_;
   uint32_t timeout_ms_;
   uint32_t last_seen_{0};
-  MasterbusDeviceStatus status_{MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE};
+  bool online_{false};
 #ifdef MASTERBUS_INFO_COUNT
   bool has_info_{false};
   bool info_pending_{false};

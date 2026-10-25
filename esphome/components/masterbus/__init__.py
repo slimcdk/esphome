@@ -36,7 +36,8 @@ CONF_ON_UNKNOWN_FRAME = "on_unknown_frame"
 CONF_PARAM = "param"
 CONF_TAB = "tab"
 
-# Both bounds mirror masterbus_protocol.h, which is where the wire format is recorded.
+# The identifier gives an address 23 bits (DEVICE_ADDRESS_MASK in masterbus_protocol.h), and a
+# field number takes two bytes of the payload.
 MAX_DEVICE_ADDRESS = 0x007FFFFF
 MAX_PARAM = 0xFFFF
 # The vendor library's own address, which a hub borrows unless given one of its own.
