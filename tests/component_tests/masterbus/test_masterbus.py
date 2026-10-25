@@ -333,6 +333,12 @@ def test_button_takes_no_update_interval() -> None:
         BUTTON_SCHEMA(_sensor(**{CONF_UPDATE_INTERVAL: "10s"}))
 
 
+def test_button_takes_no_timeout() -> None:
+    """A button has no value, so it has nothing to go unavailable over."""
+    with pytest.raises(cv.Invalid, match="unavailable"):
+        BUTTON_SCHEMA(_sensor(**{CONF_TIMEOUT: "30s"}))
+
+
 @pytest.mark.parametrize("value_type", ["float", "list_option", "text"])
 def test_switch_takes_only_a_boolean(value_type: str) -> None:
     with pytest.raises(cv.Invalid, match=CONF_VALUE_TYPE):
