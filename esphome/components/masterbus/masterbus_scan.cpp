@@ -26,6 +26,10 @@ static constexpr uint8_t MAX_LIST_ENTRIES = 64;
 /// After this many fields in a row without a long name, a device is taken to carry none.
 static constexpr uint8_t LONG_NAME_GIVE_UP = 3;
 
+/// How long a string can be once quoted: every byte escaped as \\xNN, then the quotes and the
+/// terminator.
+static constexpr size_t quoted_length(size_t length) { return length * 4 + 3; }
+
 /// Write a string as a logfmt reader expects it: always quoted, the quote and the backslash
 /// escaped, and every byte outside printable ASCII as \xNN. The bus is documented to send ASCII
 /// but nothing enforces it, and a raw byte would mangle a log viewer that carries JSON.
@@ -608,13 +612,13 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       if (type != STRING_INFORMATION_TYPE || data.size() < GENERAL_COUNT_INFORMATION_LENGTH)
         return false;
       if (this->phase_ == Phase::PHASE_EVENTABLES) {
-        this->eventables_ = value16(2);
+        this->eventables_ = value16(GENERAL_VALUE_OFFSET);
         this->eventables_known_ = true;
       } else if (this->phase_ == Phase::PHASE_GENERAL_COUNT) {
         ESP_LOGI(TAG, "count device=0x%06" PRIX32 " q=0x%02X value=%u", address, question,
-                 static_cast<unsigned>(value16(2)));
+                 static_cast<unsigned>(value16(GENERAL_VALUE_OFFSET)));
       } else {
-        this->groups_in_tab_ = value16(2);
+        this->groups_in_tab_ = value16(GENERAL_VALUE_OFFSET);
         this->groups_known_ = true;
       }
       break;
@@ -631,7 +635,7 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
         return false;
       // Unlike a field's name, string 0 is a real entry here: the vendor's example device keeps its
       // serial number there.
-      this->name_string_ = value16(2);
+      this->name_string_ = value16(GENERAL_VALUE_OFFSET);
       break;
 
     case Phase::PHASE_SOFTWARE_VERSION:
@@ -643,28 +647,28 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       }
       if (type != STRING_INFORMATION_TYPE || data.size() < SOFTWARE_VERSION_INFORMATION_LENGTH)
         return false;
-      this->software_versions_[this->processor_] = value16(2);
+      this->software_versions_[this->processor_] = value16(GENERAL_VALUE_OFFSET);
       break;
 
     case Phase::PHASE_GROUP_FIELD_COUNT: {
-      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, 8))
+      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_COUNT, PROPERTY_FLOAT_ANSWER_LENGTH))
         return false;
       // The count arrives as a float, which is odd for a count but consistent on every group seen.
       // One that cannot be a count is an empty group.
-      const float count = value32(4);
+      const float count = value32(PROPERTY_VALUE_OFFSET);
       this->fields_in_group_ = count >= 0.0f && count < 65536.0f ? static_cast<uint16_t>(count) : 0;
       break;
     }
 
     case Phase::PHASE_GROUP_NAME_ID:
-      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING, 6))
+      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_NAME_STRING, PROPERTY_NUMBER_ANSWER_LENGTH))
         return false;
-      this->name_string_ = value16(4);
+      this->name_string_ = value16(PROPERTY_VALUE_OFFSET);
       this->group_named_ = this->name_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_NUMBER:
-      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX, 6) ||
+      if (!is_group(MasterbusGroupSelector::MASTERBUS_GROUP_SELECTOR_FIELD_AT_INDEX, PROPERTY_NUMBER_ANSWER_LENGTH) ||
           data[3] != static_cast<uint8_t>(this->field_index_))
         return false;
       this->field_ = {};
@@ -672,30 +676,30 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       this->field_.maximum = NAN;
       this->field_.step = NAN;
       this->field_.factory = NAN;
-      this->field_.writable = -1;
-      this->field_.eventable = -1;
+      this->field_.writeable = MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN;
+      this->field_.eventable = MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN;
       this->field_.group = this->group_;
       this->field_.tab = this->tab_;
-      this->field_.param = value16(4);
+      this->field_.param = value16(PROPERTY_VALUE_OFFSET);
       break;
 
     case Phase::PHASE_FIELD_DISPLAY_TYPE:
-      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, 6))
+      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_DISPLAY_TYPE, PROPERTY_NUMBER_ANSWER_LENGTH))
         return false;
-      this->field_.display_type = static_cast<MasterbusDisplayType>(value16(4));
+      this->field_.display_type = static_cast<MasterbusDisplayType>(value16(PROPERTY_VALUE_OFFSET));
       break;
 
     case Phase::PHASE_FIELD_NAME_ID:
-      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_NAME_STRING, 6))
+      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_NAME_STRING, PROPERTY_NUMBER_ANSWER_LENGTH))
         return false;
-      this->name_string_ = value16(4);
+      this->name_string_ = value16(PROPERTY_VALUE_OFFSET);
       this->field_.has_name = this->name_string_ != 0;
       break;
 
     case Phase::PHASE_FIELD_UNIT_ID:
-      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_UNIT_STRING, 6))
+      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_UNIT_STRING, PROPERTY_NUMBER_ANSWER_LENGTH))
         return false;
-      this->unit_string_ = value16(4);
+      this->unit_string_ = value16(PROPERTY_VALUE_OFFSET);
       this->field_.has_unit = this->unit_string_ != 0;
       break;
 
@@ -706,9 +710,9 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
           this->phase_ == Phase::PHASE_FIELD_MINIMUM   ? MasterbusProperty::MASTERBUS_PROPERTY_MINIMUM
           : this->phase_ == Phase::PHASE_FIELD_MAXIMUM ? MasterbusProperty::MASTERBUS_PROPERTY_MAXIMUM
                                                        : MasterbusProperty::MASTERBUS_PROPERTY_STEP;
-      if (!is_property(property, 8))
+      if (!is_property(property, PROPERTY_FLOAT_ANSWER_LENGTH))
         return false;
-      const float value = value32(4);
+      const float value = value32(PROPERTY_VALUE_OFFSET);
       if (this->phase_ == Phase::PHASE_FIELD_MINIMUM) {
         this->field_.minimum = value;
       } else if (this->phase_ == Phase::PHASE_FIELD_MAXIMUM) {
@@ -720,18 +724,18 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     }
 
     case Phase::PHASE_FIELD_FACTORY:
-      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_FACTORY, 8))
+      if (!is_property(MasterbusProperty::MASTERBUS_PROPERTY_FACTORY, PROPERTY_FLOAT_ANSWER_LENGTH))
         return false;
-      this->field_.factory = value32(4);
+      this->field_.factory = value32(PROPERTY_VALUE_OFFSET);
       break;
     case Phase::PHASE_FIELD_WRITEABLE:
     case Phase::PHASE_FIELD_EVENTABLE: {
       const bool first = this->phase_ == Phase::PHASE_FIELD_WRITEABLE;
       if (!is_property(
               first ? MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE : MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE,
-              6))
+              PROPERTY_NUMBER_ANSWER_LENGTH))
         return false;
-      (first ? this->field_.writable : this->field_.eventable) = value16(4) != 0 ? 1 : 0;
+      (first ? this->field_.writeable : this->field_.eventable) = masterbus_answer(value16(PROPERTY_VALUE_OFFSET) != 0);
       break;
     }
     case Phase::PHASE_FIELD_LONG_NAME_ID:
@@ -739,9 +743,9 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
       const bool first = this->phase_ == Phase::PHASE_FIELD_LONG_NAME_ID;
       if (!is_property(first ? MasterbusProperty::MASTERBUS_PROPERTY_LONG_NAME_STRING
                              : MasterbusProperty::MASTERBUS_PROPERTY_VERY_LONG_NAME_STRING,
-                       6))
+                       PROPERTY_NUMBER_ANSWER_LENGTH))
         return false;
-      uint16_t id = value16(4);
+      uint16_t id = value16(PROPERTY_VALUE_OFFSET);
       // A long name that is the name itself has nothing new to read.
       if (id == this->name_string_ || (!first && id == this->long_name_string_))
         id = 0;
@@ -750,24 +754,24 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     }
 
     case Phase::PHASE_OPTION_ID:
-      if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_OPTION_STRING, this->entry_, 6))
+      if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_OPTION_STRING, this->entry_, PROPERTY_NUMBER_ANSWER_LENGTH))
         return false;
       this->option_string_ = value16(PROPERTY_VALUE_OFFSET);
       break;
     // A device's address arrives packed the way an announcement packs it.
     case Phase::PHASE_LIST_DEVICE:
-      if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, this->entry_, 8))
+      if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, this->entry_, PROPERTY_FLOAT_ANSWER_LENGTH))
         return false;
       this->report_entry_(decode_announced_address(data.data() + PROPERTY_VALUE_OFFSET));
       break;
     case Phase::PHASE_EVENT_TARGET:
-      if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, 0, 8))
+      if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, 0, PROPERTY_FLOAT_ANSWER_LENGTH))
         return false;
       this->event_target_ = decode_announced_address(data.data() + PROPERTY_VALUE_OFFSET);
       this->event_target_known_ = true;
       break;
     case Phase::PHASE_EVENT_FIELD:
-      if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_EVENT_FIELD, this->entry_, 5))
+      if (!is_entry(MasterbusProperty::MASTERBUS_PROPERTY_EVENT_FIELD, this->entry_, PROPERTY_BYTE_ANSWER_LENGTH))
         return false;
       this->report_entry_(data[PROPERTY_VALUE_OFFSET]);
       break;
@@ -814,7 +818,7 @@ static_assert(MasterbusScanStringKeys::COUNT == GENERAL_STRING_COUNT, "one key p
 
 void MasterbusScanner::report_device_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
-  char quoted[STRING_BUFFER_LENGTH * 4 + 3];
+  char quoted[quoted_length(STRING_BUFFER_LENGTH)];
   // Class, eventables, four quoted strings with their keys, and the versions.
   char line[24 + GENERAL_STRING_COUNT * (sizeof(quoted) + 12) + MAX_PROCESSORS * 12 + 16];
   size_t at = snprintf(line, sizeof(line), " class=%u", static_cast<unsigned>(device_class(address)));
@@ -844,10 +848,9 @@ void MasterbusScanner::report_device_() {
 /// Render one field as the configuration a user would write for it. The display type is what
 /// picks the platform, which is the whole point of asking for it.
 void MasterbusScanner::report_field_() {
-  // Quoted strings can grow fourfold, if every byte has to be escaped. A name and a unit get
-  // their own buffers so each one's bound is the bound of the string it holds.
-  char quoted[STRING_BUFFER_LENGTH * 4 + 3];
-  char quoted_unit[SCAN_UNIT_LENGTH * 4 + 3];
+  // A name and a unit get their own buffers, each sized for the string it holds once quoted.
+  char quoted[quoted_length(STRING_BUFFER_LENGTH)];
+  char quoted_unit[quoted_length(SCAN_UNIT_LENGTH)];
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
 
   if (!this->group_reported_) {
@@ -892,10 +895,14 @@ void MasterbusScanner::report_field_() {
   at = 0;
   if (!std::isnan(this->field_.factory))
     at += snprintf(extra + at, sizeof(extra) - at, " factory=%g", this->field_.factory);
-  if (this->field_.writable >= 0)
-    at += snprintf(extra + at, sizeof(extra) - at, " writable=%d", this->field_.writable);
-  if (this->field_.eventable >= 0)
-    snprintf(extra + at, sizeof(extra) - at, " eventable=%d", this->field_.eventable);
+  if (this->field_.writeable != MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN) {
+    at += snprintf(extra + at, sizeof(extra) - at, " writable=%d",
+                   this->field_.writeable == MasterbusAnswer::MASTERBUS_ANSWER_YES ? 1 : 0);
+  }
+  if (this->field_.eventable != MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN) {
+    snprintf(extra + at, sizeof(extra) - at, " eventable=%d",
+             this->field_.eventable == MasterbusAnswer::MASTERBUS_ANSWER_YES ? 1 : 0);
+  }
 
   // The longer names, where the device has one that says more than the name does.
   char longer[2 * (sizeof(quoted) + 18)] = "";
@@ -919,7 +926,7 @@ void MasterbusScanner::report_field_() {
 /// or one of the eventables of the device an event commands.
 void MasterbusScanner::report_entry_(uint32_t value) {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;
-  char what[sizeof(this->option_text_) * 4 + 32] = "";
+  char what[quoted_length(sizeof(this->option_text_)) + 29] = "";
   switch (this->field_.display_type) {
     case MasterbusDisplayType::MASTERBUS_DISPLAY_TYPE_DEVICE_LIST:
       snprintf(what, sizeof(what), " entry=0x%06" PRIX32, value);
@@ -934,7 +941,7 @@ void MasterbusScanner::report_entry_(uint32_t value) {
       break;
     default:
       if (this->option_string_ != 0) {
-        char quoted[sizeof(this->option_text_) * 4 + 3];
+        char quoted[quoted_length(sizeof(this->option_text_))];
         quote_string(this->option_text_, quoted, sizeof(quoted));
         snprintf(what, sizeof(what), " name=%s", quoted);
       }

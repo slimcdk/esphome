@@ -101,7 +101,7 @@ class MasterbusEntity : public PollingComponent {
   void on_eventable_answer(bool eventable);
   /// Only an event is followed by the frame that names who wrote it: on any other field the next
   /// field number is a field of its own.
-  bool is_eventable() const { return this->eventable_ == 1; }
+  bool is_eventable() const { return this->eventable_ == MasterbusAnswer::MASTERBUS_ANSWER_YES; }
 
  protected:
   /// The lines every entity adds to its config dump: which field of which device it is.
@@ -128,10 +128,10 @@ class MasterbusEntity : public PollingComponent {
   bool value_was_ours_{false};
   // Already reported unavailable for its own timeout, so it is not reported again every second.
   bool stale_{false};
-  // Whether the device says the field takes a write, and whether it is an event: -1 not yet known,
-  // then 0 or 1. And a write waiting for those answers, with what it is to write.
-  int8_t writeable_{-1};
-  int8_t eventable_{-1};
+  // Whether the device says the field takes a write, and whether it is an event. And a write
+  // waiting for those answers, with what it is to write.
+  MasterbusAnswer writeable_{MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN};
+  MasterbusAnswer eventable_{MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN};
   bool write_pending_{false};
   bool pending_read_back_{false};
   float pending_value_{0.0f};
