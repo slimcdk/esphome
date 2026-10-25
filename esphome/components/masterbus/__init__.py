@@ -25,9 +25,9 @@ from esphome.types import ConfigType, TemplateArgsType
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "masterbus"
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["canbus"]
+DOMAIN = "masterbus"
 MULTI_CONF = True
 
 CONF_LOG_ALL_FRAMES = "log_all_frames"
@@ -305,8 +305,7 @@ async def new_entity(
         # A text field answers with a string table entry number, so the hub needs the second read
         # that turns it into text. Nothing else needs it, so nothing else pays for it.
         cg.add_define("USE_MASTERBUS_TEXT")
-    if (timeout := config.get(CONF_TIMEOUT)) is not None:
-        cg.add(var.set_stale_timeout(timeout))
+    cg.add_optional(var.set_stale_timeout, config.get(CONF_TIMEOUT))
     # Registration goes through the device rather than the hub so that a platform needs only the
     # one id the user writes; the device knows which hub it belongs to and the hub does not.
     cg.add(device.register_entity(var))
