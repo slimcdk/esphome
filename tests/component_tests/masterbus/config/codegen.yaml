@@ -10,13 +10,13 @@ masterbus:
       - lambda: ""
     devices:
       - id: mb_battery
-        device: 0x6C1001
+        address: 0x6C1001
         on_online:
           - lambda: ""
         on_offline:
           - lambda: ""
       - id: mb_display
-        device: 0x501001
+        address: 0x501001
         timeout: 5min
 
 sensor:

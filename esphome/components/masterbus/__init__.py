@@ -10,7 +10,6 @@ from esphome.components.const import CONF_ON_OFFLINE, CONF_ON_ONLINE, CONF_VALUE
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ADDRESS,
-    CONF_DEVICE,
     CONF_DEVICES,
     CONF_ID,
     CONF_PLATFORM,
@@ -94,23 +93,19 @@ def _get_data() -> MasterbusData:
     return CORE.data[DOMAIN]
 
 
-def _address_in_range(key: str, value: Any) -> int:
+def _address(value: Any) -> int:
     address = cv.hex_int(value)
     if not 0 <= address <= MAX_DEVICE_ADDRESS:
         raise cv.Invalid(
-            f"'{key}' must be a MasterBus address between 0x000000 and "
+            f"'{CONF_ADDRESS}' must be a MasterBus address between 0x000000 and "
             f"0x{MAX_DEVICE_ADDRESS:06X}, but 0x{address:06X} was given. The extended CAN "
             f"identifier gives the address 23 bits; the rest of it carries the message type."
         )
     return address
 
 
-def _device_address(value: Any) -> int:
-    return _address_in_range(CONF_DEVICE, value)
-
-
 def _hub_address(value: Any) -> int:
-    address = _address_in_range(CONF_ADDRESS, value)
+    address = _address(value)
     if address >> DEVICE_CLASS_SHIFT == 0:
         raise cv.Invalid(
             f"'{CONF_ADDRESS}' 0x{address:06X} has no device class: the top five bits of a "
@@ -121,7 +116,7 @@ def _hub_address(value: Any) -> int:
 
 def _validate_unique_devices(config: ConfigType) -> ConfigType:
     if (address := config[CONF_ADDRESS]) in {
-        device[CONF_DEVICE] for device in config.get(CONF_DEVICES, [])
+        device[CONF_ADDRESS] for device in config.get(CONF_DEVICES, [])
     }:
         raise cv.Invalid(
             f"the hub's own '{CONF_ADDRESS}' 0x{address:06X} is also a declared device. Every device "
@@ -130,7 +125,7 @@ def _validate_unique_devices(config: ConfigType) -> ConfigType:
         )
     declared: dict[int, str] = {}
     for device in config.get(CONF_DEVICES, []):
-        address = device[CONF_DEVICE]
+        address = device[CONF_ADDRESS]
         if (first := declared.get(address)) is not None:
             raise cv.Invalid(
                 f"MasterBus device 0x{address:06X} is declared twice, as '{first}' and as "
@@ -144,7 +139,7 @@ def _validate_unique_devices(config: ConfigType) -> ConfigType:
 DEVICE_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MasterbusDevice),
-        cv.Required(CONF_DEVICE): _device_address,
+        cv.Required(CONF_ADDRESS): _address,
         cv.Optional(CONF_TIMEOUT, default="60s"): cv.All(
             cv.positive_not_null_time_period, cv.positive_time_period_milliseconds
         ),
@@ -216,7 +211,7 @@ def _validate_poll_cadence(config: ConfigType) -> ConfigType:
             "configured for it are polled no more often than every %d ms. A device answers only "
             "when it is asked, so unless something else on the bus asks it for something, it will "
             "go offline between answers.",
-            device[CONF_DEVICE],
+            device[CONF_ADDRESS],
             timeout,
             interval,
         )
@@ -372,7 +367,7 @@ async def to_code(config: ConfigType) -> None:
         device = cg.new_Pvariable(
             device_config[CONF_ID],
             var,
-            device_config[CONF_DEVICE],
+            device_config[CONF_ADDRESS],
             device_config[CONF_TIMEOUT],
         )
         cg.add(var.register_device(device))

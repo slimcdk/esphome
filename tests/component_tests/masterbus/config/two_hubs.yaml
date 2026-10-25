@@ -9,11 +9,11 @@ masterbus:
       - lambda: ""
     devices:
       - id: mb_port_battery
-        device: 0x6C1001
+        address: 0x6C1001
       - id: mb_port_display
-        device: 0x501001
+        address: 0x501001
       - id: mb_port_charger
-        device: 0x281001
+        address: 0x281001
   - id: mb_starboard
     canbus_id: mb_can
     address: 0x500002
@@ -22,7 +22,7 @@ masterbus:
       - lambda: ""
     devices:
       - id: mb_starboard_battery
-        device: 0x6C1002
+        address: 0x6C1002
 
 sensor:
   - platform: masterbus
