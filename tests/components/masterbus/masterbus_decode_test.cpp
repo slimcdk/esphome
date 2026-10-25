@@ -1811,6 +1811,27 @@ TEST_F(MasterbusTest, AScanEscapesWhatAStringCannotCarryAsItIs) {
   EXPECT_EQ(scan_lines().lines()[0], "device device=0x6C1001 class=27 eventables=2 name=\"a\\\"\\\\\\x07\\xE9\"");
 }
 
+// A string answer meant for another node, heard while the walk reads one of the device's own
+// strings, says nothing about that string. The device never handed it over, so it is not listed.
+TEST_F(MasterbusTest, SomebodyElsesStringAnswerDoesNotListADeviceString) {
+  scan_lines().clear();
+  this->feed("ext 0x046C1001 [8] 1B:01:10:00:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer(STRING_INFORMATION_TYPE, {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES, 0x02, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_ARTICLE_NUMBER, 0x02, 0x00});
+  this->hub_->scan_step(this->scan_now_);
+  this->hub_->on_frame(frame_id(STRING_INFORMATION_TYPE, BATTERY_1), true, false, {0x30, 0x05, 0x00, 0x00, 'X', 0x00});
+  this->scan_now_ += SCAN_ANSWER_TIMEOUT_MS;
+  this->hub_->scan_step(this->scan_now_);
+  this->refuse_next();  // no serial number
+  this->refuse_next();  // no product name
+  this->refuse_next();  // no revision code
+  this->refuse_software_version();
+
+  ASSERT_EQ(scan_lines().lines().size(), 1u);
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6C1001 class=27 eventables=2");
+}
+
 // Equipment that does not carry eventables refuses the question outright - one device on the
 // reference bus refused all 240 of them. It is still listed, and its fields are still walked.
 TEST_F(MasterbusTest, ADeviceThatRefusesEventablesIsStillListedAndWalked) {

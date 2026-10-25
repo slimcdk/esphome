@@ -106,7 +106,11 @@ void MasterbusScanner::send_current_() {
     case Phase::PHASE_DEVICE_STRING_TEXT:
     case Phase::PHASE_GROUP_NAME_TEXT:
     case Phase::PHASE_FIELD_NAME_TEXT:
-      this->hub_->request_string(address, this->name_string_, this->chunk_);
+    case Phase::PHASE_FIELD_UNIT_TEXT:
+    case Phase::PHASE_FIELD_LONG_NAME_TEXT:
+    case Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT:
+    case Phase::PHASE_OPTION_TEXT:
+      this->hub_->request_string(address, this->string_.get_id(), this->string_.get_chunk());
       break;
     case Phase::PHASE_SOFTWARE_VERSION:
       this->hub_->request_software_version(address, this->processor_);
@@ -162,21 +166,9 @@ void MasterbusScanner::send_current_() {
       this->hub_->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_VERY_LONG_NAME_STRING, param,
                                    this->tab_);
       break;
-    case Phase::PHASE_FIELD_UNIT_TEXT:
-      this->hub_->request_string(address, this->unit_string_, this->chunk_);
-      break;
-    case Phase::PHASE_FIELD_LONG_NAME_TEXT:
-      this->hub_->request_string(address, this->long_name_string_, this->chunk_);
-      break;
-    case Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT:
-      this->hub_->request_string(address, this->very_long_name_string_, this->chunk_);
-      break;
     case Phase::PHASE_OPTION_ID:
       this->hub_->request_property_entry(address, MasterbusProperty::MASTERBUS_PROPERTY_OPTION_STRING, param,
                                          this->entry_, this->tab_);
-      break;
-    case Phase::PHASE_OPTION_TEXT:
-      this->hub_->request_string(address, this->option_string_, this->chunk_);
       break;
     case Phase::PHASE_LIST_DEVICE:
       this->hub_->request_property_entry(address, MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE, param,
@@ -209,8 +201,9 @@ void MasterbusScanner::advance_(bool answered) {
     // eventables is.
     case Phase::PHASE_DEVICE_STRING_ID:
       if (answered) {
-        this->chunk_ = 0;
-        this->phase_ = Phase::PHASE_DEVICE_STRING_TEXT;
+        this->read_string_(Phase::PHASE_DEVICE_STRING_TEXT, this->name_string_,
+                           this->device_strings_[this->device_string_ - 1], STRING_BUFFER_LENGTH,
+                           LOG_STR_LITERAL("device string"));
         return;
       }
       this->next_device_string_();
@@ -218,7 +211,6 @@ void MasterbusScanner::advance_(bool answered) {
     case Phase::PHASE_DEVICE_STRING_TEXT:
       if (answered)
         return;  // more chunks; on_frame decides when the string ended
-      this->chunk_ = 0;
       this->name_string_ = 0;
       this->next_device_string_();
       return;
@@ -253,7 +245,6 @@ void MasterbusScanner::advance_(bool answered) {
         return;
       }
       this->field_index_ = 0;
-      this->chunk_ = 0;
       this->name_string_ = 0;
       this->group_name_[0] = '\0';
       // Cleared with the name itself: a group whose name question goes unanswered would otherwise
@@ -264,10 +255,10 @@ void MasterbusScanner::advance_(bool answered) {
       return;
 
     case Phase::PHASE_GROUP_NAME_ID:
-      this->chunk_ = 0;
       // A group without a name is normal; its fields are still worth listing, if it has any.
       if (this->name_string_ != 0) {
-        this->phase_ = Phase::PHASE_GROUP_NAME_TEXT;
+        this->read_string_(Phase::PHASE_GROUP_NAME_TEXT, this->name_string_, this->group_name_, STRING_BUFFER_LENGTH,
+                           LOG_STR_LITERAL("name"));
       } else if (this->fields_in_group_ == 0) {
         this->next_group_();
       } else {
@@ -367,9 +358,8 @@ void MasterbusScanner::advance_(bool answered) {
         return;
       }
       if (this->option_string_ != 0) {
-        this->chunk_ = 0;
-        this->option_text_[0] = '\0';
-        this->phase_ = Phase::PHASE_OPTION_TEXT;
+        this->read_string_(Phase::PHASE_OPTION_TEXT, this->option_string_, this->option_text_, STRING_BUFFER_LENGTH,
+                           LOG_STR_LITERAL("option"));
         return;
       }
       this->report_entry_(0);
@@ -424,21 +414,30 @@ void MasterbusScanner::next_general_count_() {
 }
 
 void MasterbusScanner::next_field_text_() {
-  this->chunk_ = 0;
   this->waiting_ = false;
   // Asking for string zero would only burn the answer timeout, on every field that carries no
   // unit - and most of them do not.
   if (this->name_string_ != 0) {
-    this->phase_ = Phase::PHASE_FIELD_NAME_TEXT;
+    this->read_string_(Phase::PHASE_FIELD_NAME_TEXT, this->name_string_, this->field_.name, STRING_BUFFER_LENGTH,
+                       LOG_STR_LITERAL("name"));
   } else if (this->unit_string_ != 0) {
-    this->phase_ = Phase::PHASE_FIELD_UNIT_TEXT;
+    this->read_string_(Phase::PHASE_FIELD_UNIT_TEXT, this->unit_string_, this->field_.unit, SCAN_UNIT_LENGTH,
+                       LOG_STR_LITERAL("unit"));
   } else if (this->long_name_string_ != 0) {
-    this->phase_ = Phase::PHASE_FIELD_LONG_NAME_TEXT;
+    this->read_string_(Phase::PHASE_FIELD_LONG_NAME_TEXT, this->long_name_string_, this->field_.long_name,
+                       STRING_BUFFER_LENGTH, LOG_STR_LITERAL("name"));
   } else if (this->very_long_name_string_ != 0) {
-    this->phase_ = Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT;
+    this->read_string_(Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT, this->very_long_name_string_,
+                       this->field_.very_long_name, STRING_BUFFER_LENGTH, LOG_STR_LITERAL("name"));
   } else {
     this->complete_field_();
   }
+}
+
+void MasterbusScanner::read_string_(Phase phase, uint16_t id, char *out, uint8_t capacity, const char *what) {
+  this->phase_ = phase;
+  this->string_.begin(id, out, capacity);
+  this->string_what_ = what;
 }
 
 void MasterbusScanner::complete_field_() {
@@ -487,7 +486,6 @@ void MasterbusScanner::next_entry_() {
 void MasterbusScanner::next_field_() {
   this->completed_++;
   this->field_index_++;
-  this->chunk_ = 0;
   this->name_string_ = 0;
   this->unit_string_ = 0;
   this->long_name_string_ = 0;
@@ -781,68 +779,21 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
     case Phase::PHASE_FIELD_LONG_NAME_TEXT:
     case Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT:
     case Phase::PHASE_OPTION_TEXT: {
-      if ((type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE) || data.size() < STRING_CHUNK_LENGTH)
+      const MasterbusStringRead::Result result = this->string_.take(type, data.data(), data.size());
+      if (result == MasterbusStringRead::Result::RESULT_NOT_OURS)
         return false;
-      char *out = this->field_.name;
-      uint8_t capacity = STRING_BUFFER_LENGTH;
-      uint16_t wanted = this->name_string_;
-      const char *what = LOG_STR_LITERAL("name");
-      switch (this->phase_) {
-        case Phase::PHASE_DEVICE_STRING_TEXT:
-          out = this->device_strings_[this->device_string_ - 1];
-          this->device_strings_known_ |= 1 << (this->device_string_ - 1);
-          what = LOG_STR_LITERAL("device string");
-          break;
-        case Phase::PHASE_GROUP_NAME_TEXT:
-          out = this->group_name_;
-          break;
-        case Phase::PHASE_FIELD_UNIT_TEXT:
-          out = this->field_.unit;
-          capacity = SCAN_UNIT_LENGTH;
-          wanted = this->unit_string_;
-          what = LOG_STR_LITERAL("unit");
-          break;
-        case Phase::PHASE_FIELD_LONG_NAME_TEXT:
-          out = this->field_.long_name;
-          wanted = this->long_name_string_;
-          break;
-        case Phase::PHASE_FIELD_VERY_LONG_NAME_TEXT:
-          out = this->field_.very_long_name;
-          wanted = this->very_long_name_string_;
-          break;
-        case Phase::PHASE_OPTION_TEXT:
-          out = this->option_text_;
-          wanted = this->option_string_;
-          what = LOG_STR_LITERAL("option");
-          break;
-        default:
-          break;
-      }
-      // The answer echoes the request header, so it says which string and which chunk it carries.
-      // Only the chunk asked for is ours: a display panel reading the same string is answered on
-      // the same bus, and its last chunk must not end our read before the first has arrived.
-      if (data[0] != STRING_REQUEST_MARKER || value16(1) != wanted || data[3] != this->chunk_)
-        return false;
-      if (type == STRING_NOT_AVAILABLE_TYPE) {
-        this->advance_(false);
-        return true;
-      }
-      if (data[3] == 0)
-        this->string_truncated_ = false;
-      bool ended = take_string_chunk(data.data(), data.size(), out, capacity, &this->string_truncated_);
-      if (!ended && string_buffer_full(this->chunk_, capacity)) {
-        this->string_truncated_ = true;
-        ended = true;
-      }
-      this->chunk_++;
+      // Handed over, even if only as a refusal: the device has a string under that question.
+      if (this->phase_ == Phase::PHASE_DEVICE_STRING_TEXT)
+        this->device_strings_known_ |= 1 << (this->device_string_ - 1);
       this->waiting_ = false;
-      if (ended) {
-        if (this->string_truncated_) {
-          ESP_LOGW(TAG, "Device 0x%06" PRIX32 " sent a longer %s than %u characters; it is reported cut short",
-                   devices[this->device_index_].address, what, static_cast<unsigned>(capacity - 1));
-        }
-        this->advance_(false);  // the string is complete, move on the same way a refusal would
+      if (result == MasterbusStringRead::Result::RESULT_MORE)
+        return true;
+      if (result == MasterbusStringRead::Result::RESULT_DONE && this->string_.is_truncated()) {
+        ESP_LOGW(TAG, "Device 0x%06" PRIX32 " sent a longer %s than %u characters; it is reported cut short",
+                 devices[this->device_index_].address, this->string_what_,
+                 static_cast<unsigned>(this->string_.get_capacity() - 1));
       }
+      this->advance_(false);  // the string is complete or refused, and the walk moves on either way
       return true;
     }
 

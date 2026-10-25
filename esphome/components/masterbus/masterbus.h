@@ -468,8 +468,7 @@ class MasterbusHub : public Component {
   MasterbusDevice *info_device_{nullptr};
   uint8_t info_item_{0};
   uint8_t info_processor_{0};
-  uint8_t info_chunk_{0};
-  uint16_t info_string_{0};
+  MasterbusStringRead info_read_;
   bool info_have_string_{false};
   bool info_waiting_{false};
   uint32_t info_sent_at_{0};
@@ -484,13 +483,7 @@ class MasterbusHub : public Component {
   /// a time, and a text field that has to wait simply asks again on its next poll.
   MasterbusEntity *text_entity_{nullptr};
   uint32_t text_sent_at_{0};
-  uint16_t text_string_{0};
-  /// The chunk asked for last. Another node reading the same string sees its answers too, so an
-  /// answer to any other chunk is not ours.
-  uint8_t text_chunk_{0};
-  /// Whether the text had to be cut to fit the buffer, so that it is said rather than passed off
-  /// as what the device sent.
-  bool text_truncated_{false};
+  MasterbusStringRead text_read_;
 #endif
 };
 

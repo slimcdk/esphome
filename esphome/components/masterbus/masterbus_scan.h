@@ -120,6 +120,8 @@ class MasterbusScanner {
   void next_general_count_();
   /// Read the field's strings out of the table, one after the other, then report the field.
   void next_field_text_();
+  /// Move to a phase that reads one string into `out`. `what` names it in a warning.
+  void read_string_(Phase phase, uint16_t id, char *out, uint8_t capacity, const char *what);
   /// Report the field and walk its list, if it has one.
   void complete_field_();
   void next_entry_();
@@ -170,9 +172,7 @@ class MasterbusScanner {
   /// not carry the question is walked the older way, until a group goes unanswered.
   uint16_t groups_in_tab_{0};
   bool groups_known_{false};
-  /// Whether the string being assembled had to be cut to fit, and whether the field cap has
-  /// already been reported for the group being walked.
-  bool string_truncated_{false};
+  /// Whether the field cap has already been reported for the group being walked.
   bool cap_reported_{false};
   /// The name of the group being walked, printed once above its fields. Empty when the device
   /// does not name the group.
@@ -188,7 +188,9 @@ class MasterbusScanner {
   uint16_t unit_string_{0};
   uint16_t long_name_string_{0};
   uint16_t very_long_name_string_{0};
-  uint8_t chunk_{0};
+  /// The one string being read, and what it is, for a warning that it was cut short.
+  MasterbusStringRead string_;
+  const char *string_what_{nullptr};
   uint16_t completed_{0};
   /// The entry of a list field being asked for, and what it is known by so far: an option's
   /// string and text, and the device an event commands.

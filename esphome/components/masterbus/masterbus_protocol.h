@@ -295,6 +295,66 @@ constexpr bool string_buffer_full(uint8_t chunk, uint8_t capacity) {
   return (static_cast<size_t>(chunk) + 1) * 4 >= static_cast<size_t>(capacity) - 1;
 }
 
+/** One entry of a device's string table, read a chunk at a time into a buffer the caller owns.
+ *
+ * The answer echoes the request's header, so it says which entry and which chunk it carries, and
+ * only the chunk asked for last is taken. Another node reading the same entry is answered on the
+ * same bus: without the check its chunks would land in the middle of ours, and its last one would
+ * end our read before our first had arrived.
+ */
+class MasterbusStringRead {
+ public:
+  /// What an answer did to the read.
+  enum class Result : uint8_t {
+    RESULT_NOT_OURS,  // another entry, another chunk, or not a string answer at all
+    RESULT_MORE,      // a chunk was taken, and the next one is to be asked for
+    RESULT_DONE,      // the string ended, or filled the buffer
+    RESULT_REFUSED,   // the device holds no such entry
+  };
+
+  /// Start reading entry `id` into `out`, which holds `capacity` bytes and must outlive the read.
+  void begin(uint16_t id, char *out, uint8_t capacity) {
+    this->out_ = out;
+    this->id_ = id;
+    this->capacity_ = capacity;
+    this->chunk_ = 0;
+    this->truncated_ = false;
+    out[0] = '\0';
+  }
+
+  /// Offer an answer of the string family, whoever it was meant for.
+  Result take(uint8_t type, const uint8_t *data, size_t size) {
+    if ((type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE) || size < STRING_CHUNK_LENGTH ||
+        data[0] != STRING_REQUEST_MARKER || (data[1] | (data[2] << 8)) != this->id_ || data[3] != this->chunk_)
+      return Result::RESULT_NOT_OURS;
+    if (type == STRING_NOT_AVAILABLE_TYPE)
+      return Result::RESULT_REFUSED;
+    if (take_string_chunk(data, size, this->out_, this->capacity_, &this->truncated_))
+      return Result::RESULT_DONE;
+    if (string_buffer_full(this->chunk_, this->capacity_)) {
+      this->truncated_ = true;
+      return Result::RESULT_DONE;
+    }
+    this->chunk_++;
+    return Result::RESULT_MORE;
+  }
+
+  uint16_t get_id() const { return this->id_; }
+  /// The chunk to ask for next.
+  uint8_t get_chunk() const { return this->chunk_; }
+  uint8_t get_capacity() const { return this->capacity_; }
+  /// Whether the text had to be cut to fit, so that it is said rather than passed off as what the
+  /// device sent.
+  bool is_truncated() const { return this->truncated_; }
+
+ protected:
+  char *out_{nullptr};
+  uint16_t id_{0};
+  uint8_t capacity_{0};
+  uint8_t chunk_{0};
+  bool truncated_{false};
+};
+
 // ---------------------------------------------------------------------------
 // General counts
 // ---------------------------------------------------------------------------
