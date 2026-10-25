@@ -18,8 +18,6 @@ void MasterbusSelect::publish_masterbus_index(uint32_t index) {
 
 void MasterbusSelect::control(size_t index) {
   // A list option travels as its index, in the same float a number would use.
-  // Nothing is published here on purpose: the select follows what the device reports afterwards,
-  // so it never claims an option the equipment did not confirm.
   this->write(static_cast<float>(index));
 }
 
