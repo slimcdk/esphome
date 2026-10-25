@@ -463,10 +463,10 @@ void MasterbusScanner::complete_field_() {
 void MasterbusScanner::next_entry_() {
   this->entry_++;
   this->option_string_ = 0;
-  // The maximum is how many entries there are: 102 of 102 option lists on the reference bus held
-  // exactly that many. A device answers past the end of a device list or an event with filler -
-  // FF FF FF FF, a number one past its eventables - so the walk stops at the maximum, as the vendor
-  // library does, and only a field without one is walked until the device falls silent.
+  // The maximum is how many entries there are. A device answers past the end of a device list or an
+  // event with filler - FF FF FF FF, a number one past its eventables - so the walk stops at the
+  // maximum, as the vendor library does, and only a field without one is walked until the device
+  // falls silent.
   uint8_t entries = MAX_LIST_ENTRIES;
   if (this->field_.maximum >= 0.0f && this->field_.maximum < MAX_LIST_ENTRIES)
     entries = static_cast<uint8_t>(this->field_.maximum);
@@ -776,12 +776,13 @@ bool MasterbusScanner::on_frame(uint8_t type, uint32_t address, const std::vecto
   return true;
 }
 
-/// Name one device: its class, which its address carries, and what else it answered for. The line
-/// is written for every device - including one that describes no fields at all, which would
-/// otherwise be missing from the configuration the converter builds.
 // The key each of the device's own strings is reported under, in the vendor's numbering from 1.
 PROGMEM_STRING_TABLE(MasterbusScanStringKeys, "article", "serial", "name", "revision");
 static_assert(MasterbusScanStringKeys::COUNT == GENERAL_STRING_COUNT, "one key per device string");
+
+/// Name one device: its class, which its address carries, and what else it answered for. The line
+/// is written for every device - including one that describes no fields at all, which would
+/// otherwise be missing from the configuration the converter builds.
 
 void MasterbusScanner::report_device_() {
   const uint32_t address = this->hub_->get_discovered_devices()[this->device_index_].address;

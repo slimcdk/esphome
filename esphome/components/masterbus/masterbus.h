@@ -92,8 +92,9 @@ class MasterbusEntity : public PollingComponent {
   /// Write the field. The first write asks the device whether the field takes one at all (property
   /// 0x0B) and whether it is an event (0x0D), and goes out once it has answered; a field that says
   /// no is not written. With read_back the field is read again shortly afterwards, so the entity
-  /// shows what the device kept rather than what was asked for. Returns whether the write, or the
-  /// questions before it, reached the bus.
+  /// shows what the device kept rather than what was asked for. Nothing is published by a write
+  /// itself, so an entity never claims a value the equipment did not confirm. Returns whether the
+  /// write, or the questions before it, reached the bus.
   bool write(float value, bool read_back = true);
   /// The device's word on whether this field takes a write, and on whether it is an event, whoever
   /// asked for it.
@@ -341,7 +342,7 @@ class MasterbusHub : public Component {
   uint32_t get_address() const { return this->address_; }
 
   /// Set a field to a value, followed by this hub's address on the next field if the entity's field
-  /// is an event. A device may still decline to act on it - see the note on the lockout in
+  /// is an event. A device may still decline to act on it - see the note on writes in
   /// masterbus_protocol.h - so a caller that needs the result must read it back.
   bool write_value(const MasterbusEntity &entity, float value);
 
