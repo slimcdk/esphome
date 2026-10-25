@@ -87,7 +87,7 @@ void MasterbusDevice::mark_seen(uint32_t now) {
   this->last_seen_ = now;
   if (this->is_online())
     return;
-  this->status_ = MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_ON;
+  this->online_ = true;
   ESP_LOGD(TAG, "Device 0x%06" PRIX32 " is online", this->address_);
 #ifdef MASTERBUS_INFO_COUNT
   // A device that comes back may have been changed or replaced while it was away.
@@ -101,7 +101,7 @@ void MasterbusDevice::mark_offline() {
   if (!this->is_online())
     return;
   ESP_LOGW(TAG, "Device 0x%06" PRIX32 " stopped responding", this->address_);
-  this->status_ = MasterbusDeviceStatus::MASTERBUS_DEVICE_STATUS_OFFLINE;
+  this->online_ = false;
 #ifdef MASTERBUS_ENTITY_COUNT
   this->hub_->publish_device_unavailable(this);
 #endif
