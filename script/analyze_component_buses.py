@@ -54,7 +54,6 @@ PACKAGE_DEPENDENCIES = {
     "modbus": ["uart"],  # modbus packages include uart packages
     "modbus_server": ["uart"],  # modbus_server packages include uart packages
     "canbus": ["spi"],  # canbus packages include spi packages (for an MCP2515)
-    "canbus_secondary": ["canbus", "spi"],  # includes canbus, and so spi
     # Add more package dependencies here as needed
 }
 
