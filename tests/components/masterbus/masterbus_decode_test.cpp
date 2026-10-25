@@ -1790,6 +1790,25 @@ TEST_F(MasterbusTest, ScanReportsTheDevicesOwnStringsAndItsFirmware) {
                                      "serial=\"AB00A0001\" name=\"MLI\" firmware=\"61.1\"");
 }
 
+// The converter reads each string as logfmt, so a quote, a backslash or a byte outside printable
+// ASCII is escaped rather than written as it came.
+TEST_F(MasterbusTest, AScanEscapesWhatAStringCannotCarryAsItIs) {
+  scan_lines().clear();
+  this->feed("ext 0x046C1001 [8] 1B:01:10:00:51:00:00:02");
+  this->hub_->report_scan();
+  this->answer(STRING_INFORMATION_TYPE, {GENERAL_COUNT_SELECTOR, GENERAL_COUNT_EVENTABLES, 0x02, 0x00});
+  this->refuse_next();  // no article number
+  this->refuse_next();  // no serial number
+  this->answer(STRING_INFORMATION_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_PRODUCT_NAME, 0x01, 0x00});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x01, 0x00, 0x00, 'a', '"', '\\', 0x07});
+  this->answer(STRING_INFORMATION_TYPE, {0x30, 0x01, 0x00, 0x01, 0xE9, 0x00});
+  this->refuse_next();  // no revision code
+  this->refuse_software_version();
+
+  ASSERT_EQ(scan_lines().lines().size(), 1u);
+  EXPECT_EQ(scan_lines().lines()[0], "device device=0x6C1001 class=27 eventables=2 name=\"a\\\"\\\\\\x07\\xE9\"");
+}
+
 // Equipment that does not carry eventables refuses the question outright - one device on the
 // reference bus refused all 240 of them. It is still listed, and its fields are still walked.
 TEST_F(MasterbusTest, ADeviceThatRefusesEventablesIsStillListedAndWalked) {
