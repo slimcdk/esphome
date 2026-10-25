@@ -110,6 +110,10 @@ class MasterbusEntity : public PollingComponent {
   uint16_t get_param() const { return this->param_; }
   MasterbusTab get_tab() const { return this->tab_; }
   MasterbusValueType get_value_type() const { return this->value_type_; }
+  /// Whether this entity shows that field: a field number means something only on its device's tab.
+  bool is_field(const MasterbusDevice *device, MasterbusTab tab, uint16_t param) const {
+    return this->masterbus_device_ == device && this->tab_ == tab && this->param_ == param;
+  }
 
   /// Milliseconds without an update before this entity alone goes unavailable. Zero means it
   /// follows its device, which is what almost every field wants. Named apart from
