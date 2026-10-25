@@ -321,6 +321,9 @@ class MasterbusHub : public Component {
 #ifdef USE_MASTERBUS_NODE_REQUEST
   void set_node_request_interval(uint32_t interval_ms) { this->node_request_interval_ms_ = interval_ms; }
 #endif
+#ifdef USE_MASTERBUS_LOG_ALL_FRAMES
+  void set_log_all_frames(bool log_all_frames) { this->log_all_frames_ = log_all_frames; }
+#endif
 #ifdef USE_MASTERBUS_SCAN
   /// Ask every device to announce itself, then walk the ones that did and report them. Started by
   /// the masterbus.scan action, at boot or from a button; ignored while a walk is still running.
@@ -433,6 +436,9 @@ class MasterbusHub : public Component {
   uint32_t address_{HUB_ADDRESS};
 #ifdef USE_MASTERBUS_NODE_REQUEST
   uint32_t node_request_interval_ms_{0};
+#endif
+#ifdef USE_MASTERBUS_LOG_ALL_FRAMES
+  bool log_all_frames_{false};
 #endif
 #ifdef MASTERBUS_UNKNOWN_FRAME_COUNT
   StaticCallbackManager<MASTERBUS_UNKNOWN_FRAME_COUNT, void(const std::vector<uint8_t> &, uint8_t, uint32_t)>

@@ -267,7 +267,8 @@ void MasterbusHub::setup() {
 
 void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const std::vector<uint8_t> &data) {
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
-  this->log_frame_(can_id, extended_id, rtr, data);
+  if (this->log_all_frames_)
+    this->log_frame_(can_id, extended_id, rtr, data);
 #endif
 #if defined(USE_MASTERBUS_SCAN) || defined(MASTERBUS_DEVICE_COUNT) || defined(MASTERBUS_UNKNOWN_FRAME_COUNT)
   // Every MasterBus message rides an extended identifier. A remote transmission request carries
@@ -363,7 +364,9 @@ void MasterbusHub::dump_config() {
                 "  Address: 0x%06" PRIX32,
                 this->address_);
 #ifdef USE_MASTERBUS_LOG_ALL_FRAMES
-  ESP_LOGCONFIG(TAG, "  Raw frame logging: enabled");
+  if (this->log_all_frames_) {
+    ESP_LOGCONFIG(TAG, "  Raw frame logging: enabled");
+  }
 #endif
 #ifdef USE_MASTERBUS_NODE_REQUEST
   if (this->node_request_interval_ms_ != 0) {
