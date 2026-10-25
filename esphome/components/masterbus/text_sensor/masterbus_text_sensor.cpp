@@ -1,5 +1,6 @@
 #include "masterbus_text_sensor.h"
 
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 #include "esphome/core/progmem.h"
 
@@ -25,7 +26,7 @@ void MasterbusTextSensor::publish_masterbus_value(const MasterbusValue &value) {
         this->publish_masterbus_unavailable();
         return;
       }
-      this->publish_state(this->options_[value.as_raw]);
+      this->publish_state(progmem_read_ptr(&this->options_[value.as_raw]));
       return;
     default:
       this->publish_masterbus_unavailable();
