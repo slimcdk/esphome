@@ -3,7 +3,14 @@ import esphome.config_validation as cv
 from esphome.const import CONF_OPTIONS
 from esphome.types import ConfigType
 
-from .. import MasterbusEntity, entity_schema, masterbus_ns, new_entity
+from .. import (
+    LIST_VALUE_TYPES,
+    OPTIONS,
+    MasterbusEntity,
+    entity_schema,
+    masterbus_ns,
+    new_entity,
+)
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
@@ -29,18 +36,9 @@ def _unique_options(options: list[str]) -> list[str]:
 CONFIG_SCHEMA = (
     select.select_schema(MasterbusSelect)
     .extend(
-        entity_schema(
-            value_types=("list_option", "device_id", "eventable"),
-            default_value_type="list_option",
-        )
+        entity_schema(value_types=LIST_VALUE_TYPES, default_value_type="list_option")
     )
-    .extend(
-        {
-            cv.Required(CONF_OPTIONS): cv.All(
-                cv.ensure_list(cv.string_strict), cv.Length(min=1), _unique_options
-            )
-        }
-    )
+    .extend({cv.Required(CONF_OPTIONS): cv.All(OPTIONS, _unique_options)})
 )
 
 

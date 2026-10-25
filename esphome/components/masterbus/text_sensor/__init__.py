@@ -7,6 +7,8 @@ from esphome.types import ConfigType
 
 from .. import (
     CONF_MASTERBUS_DEVICE_ID,
+    LIST_VALUE_TYPES,
+    OPTIONS,
     MasterbusDevice,
     MasterbusEntity,
     entity_schema,
@@ -39,10 +41,6 @@ INFO = {
     "firmware": MasterbusDeviceInfo.MASTERBUS_DEVICE_INFO_FIRMWARE,
 }
 
-# A list field answers with the index of an entry, so the text it shows has to be given. A scan
-# reports each entry's name, and the converter on the documentation page writes them in.
-LIST_VALUE_TYPES = ("list_option", "device_id", "eventable")
-
 
 def _validate_options(config: ConfigType) -> ConfigType:
     listed = config[CONF_VALUE_TYPE] in LIST_VALUE_TYPES
@@ -67,13 +65,7 @@ FIELD_SCHEMA = cv.All(
             default_value_type="text",
         )
     )
-    .extend(
-        {
-            cv.Optional(CONF_OPTIONS): cv.All(
-                cv.ensure_list(cv.string_strict), cv.Length(min=1)
-            )
-        }
-    ),
+    .extend({cv.Optional(CONF_OPTIONS): OPTIONS}),
     _validate_options,
 )
 

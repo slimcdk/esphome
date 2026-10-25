@@ -61,6 +61,8 @@ TABS = {
 }
 
 VALUE_TYPE_TEXT = "text"
+# A list field answers with the index of an entry, so the entries' names have to be given.
+LIST_VALUE_TYPES = ("list_option", "device_id", "eventable")
 
 VALUE_TYPES = {
     "float": MasterbusValueType.MASTERBUS_VALUE_TYPE_FLOAT,
@@ -86,6 +88,12 @@ class MasterbusData:
     # The hub each declared device belongs to, by id, so that an entity, which names only its
     # device, takes its slot in the right hub's list.
     device_hubs: dict[str, str] = field(default_factory=dict)
+
+
+# The names of a list field's entries, in the device's own order. A scan reports them.
+OPTIONS = cv.All(cv.ensure_list(cv.string_strict), cv.Length(min=1))
+# A time without an answer, in milliseconds. Zero would read as never waiting at all.
+TIMEOUT = cv.All(cv.positive_not_null_time_period, cv.positive_time_period_milliseconds)
 
 
 def _get_data() -> MasterbusData:
@@ -141,9 +149,7 @@ DEVICE_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MasterbusDevice),
         cv.Required(CONF_ADDRESS): _address,
-        cv.Optional(CONF_TIMEOUT, default="60s"): cv.All(
-            cv.positive_not_null_time_period, cv.positive_time_period_milliseconds
-        ),
+        cv.Optional(CONF_TIMEOUT, default="60s"): TIMEOUT,
         cv.Optional(CONF_ON_ONLINE): automation.validate_automation(),
         cv.Optional(CONF_ON_OFFLINE): automation.validate_automation(),
     }
@@ -268,9 +274,7 @@ def entity_schema(
             ),
             # Zero would read as "follow the device", which is what leaving the key out already
             # means. Refused rather than given a second spelling.
-            cv.Optional(CONF_TIMEOUT): cv.All(
-                cv.positive_not_null_time_period, cv.positive_time_period_milliseconds
-            ),
+            cv.Optional(CONF_TIMEOUT): TIMEOUT,
         }
     ).extend(cv.COMPONENT_SCHEMA)
 
