@@ -1,3 +1,0 @@
-packages:
-  canbus: !include ../../test_build_components/common/canbus/esp32-c3-idf.yaml
-  masterbus: !include common.yaml
