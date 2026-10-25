@@ -1,17 +1,14 @@
-import esphome.codegen as cg
 from esphome.components import number
 import esphome.config_validation as cv
 from esphome.const import CONF_MAX_VALUE, CONF_MIN_VALUE, CONF_STEP
 from esphome.types import ConfigType
 
-from .. import entity_schema, masterbus_ns, new_entity
+from .. import MasterbusEntity, entity_schema, masterbus_ns, new_entity
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
 
-MasterbusNumber = masterbus_ns.class_(
-    "MasterbusNumber", number.Number, cg.PollingComponent
-)
+MasterbusNumber = masterbus_ns.class_("MasterbusNumber", number.Number, MasterbusEntity)
 
 
 def _validate_range(config: ConfigType) -> ConfigType:

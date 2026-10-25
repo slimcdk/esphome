@@ -8,6 +8,7 @@ from esphome.types import ConfigType
 from .. import (
     CONF_MASTERBUS_DEVICE_ID,
     MasterbusDevice,
+    MasterbusEntity,
     entity_schema,
     masterbus_ns,
     new_entity,
@@ -18,7 +19,7 @@ CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
 
 MasterbusTextSensor = masterbus_ns.class_(
-    "MasterbusTextSensor", text_sensor.TextSensor, cg.PollingComponent
+    "MasterbusTextSensor", text_sensor.TextSensor, MasterbusEntity
 )
 MasterbusClassTextSensor = masterbus_ns.class_(
     "MasterbusClassTextSensor", text_sensor.TextSensor, cg.Component

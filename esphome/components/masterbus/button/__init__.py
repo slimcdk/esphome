@@ -1,17 +1,14 @@
-import esphome.codegen as cg
 from esphome.components import button
 import esphome.config_validation as cv
 from esphome.const import CONF_TIMEOUT, CONF_UPDATE_INTERVAL
 from esphome.types import ConfigType
 
-from .. import entity_schema, masterbus_ns, new_entity
+from .. import MasterbusEntity, entity_schema, masterbus_ns, new_entity
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
 
-MasterbusButton = masterbus_ns.class_(
-    "MasterbusButton", button.Button, cg.PollingComponent
-)
+MasterbusButton = masterbus_ns.class_("MasterbusButton", button.Button, MasterbusEntity)
 
 # A push button carries no state, so there is nothing to poll for and nothing to go stale.
 CONFIG_SCHEMA = (

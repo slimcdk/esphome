@@ -1,15 +1,12 @@
-import esphome.codegen as cg
 from esphome.components import sensor
 from esphome.types import ConfigType
 
-from .. import entity_schema, masterbus_ns, new_entity
+from .. import MasterbusEntity, entity_schema, masterbus_ns, new_entity
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
 
-MasterbusSensor = masterbus_ns.class_(
-    "MasterbusSensor", sensor.Sensor, cg.PollingComponent
-)
+MasterbusSensor = masterbus_ns.class_("MasterbusSensor", sensor.Sensor, MasterbusEntity)
 
 CONFIG_SCHEMA = sensor.sensor_schema(MasterbusSensor).extend(
     entity_schema(
