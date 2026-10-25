@@ -16,13 +16,8 @@ class MasterbusHub;
 /// How long a question waits before it is taken as unanswered, which is how the walk finds the
 /// end of a list and which properties a field does not carry.
 static constexpr uint32_t SCAN_ANSWER_TIMEOUT_MS = 200;
-/// The longest name and unit a scan will keep. Names seen on real equipment run to about fifteen
-/// characters ("Bat. temperature"); anything longer is truncated rather than dropped.
-static constexpr uint8_t SCAN_NAME_LENGTH = 32;
+/// The longest unit a scan will keep. A unit is a symbol, so it needs less room than a name.
 static constexpr uint8_t SCAN_UNIT_LENGTH = 12;
-/// How many processors a device's software versions are kept for. The vendor's example device has
-/// one; past this many the walk stops asking.
-static constexpr uint8_t SCAN_MAX_PROCESSORS = 8;
 
 /** What the scan learned about one field.
  *
@@ -49,11 +44,11 @@ struct MasterbusScannedField {
   /// it. A field with a name string the device would not hand over reads as an empty name.
   bool has_name;
   bool has_unit;
-  char name[SCAN_NAME_LENGTH];
+  char name[STRING_BUFFER_LENGTH];
   char unit[SCAN_UNIT_LENGTH];
   /// The longer forms of the name some equipment carries, empty where it carries none.
-  char long_name[SCAN_NAME_LENGTH];
-  char very_long_name[SCAN_NAME_LENGTH];
+  char long_name[STRING_BUFFER_LENGTH];
+  char very_long_name[STRING_BUFFER_LENGTH];
 };
 
 /** Walks the devices a scan discovered and reports their fields as pasteable configuration.
@@ -157,11 +152,11 @@ class MasterbusScanner {
   /// The device's own strings - article number, serial number, product name and revision code, in
   /// the vendor's numbering from 1 - and which of them it handed over.
   uint8_t device_string_{0};
-  char device_strings_[4][SCAN_NAME_LENGTH]{};
+  char device_strings_[GENERAL_STRING_COUNT][STRING_BUFFER_LENGTH]{};
   uint8_t device_strings_known_{0};
   /// The software version of each processor that answered, and which one is being asked.
   uint8_t processor_{0};
-  uint16_t software_versions_[SCAN_MAX_PROCESSORS]{};
+  uint16_t software_versions_[MAX_PROCESSORS]{};
   /// The count being asked, of the ones every device is asked once.
   uint8_t general_count_{0};
   /// How many fields in a row went without an answer for a long name. Most equipment carries none,
@@ -181,7 +176,7 @@ class MasterbusScanner {
   bool cap_reported_{false};
   /// The name of the group being walked, printed once above its fields. Empty when the device
   /// does not name the group.
-  char group_name_[SCAN_NAME_LENGTH]{};
+  char group_name_[STRING_BUFFER_LENGTH]{};
   bool group_reported_{false};
   /// Whether the group being walked carries a name string.
   bool group_named_{false};
@@ -199,7 +194,7 @@ class MasterbusScanner {
   /// string and text, and the device an event commands.
   uint8_t entry_{0};
   uint16_t option_string_{0};
-  char option_text_[SCAN_NAME_LENGTH]{};
+  char option_text_[STRING_BUFFER_LENGTH]{};
   uint32_t event_target_{0};
   bool event_target_known_{false};
   MasterbusScannedField field_{};
