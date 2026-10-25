@@ -568,9 +568,9 @@ def test_a_class_sensor_alone_compiles_the_information_sensor_in(
 ) -> None:
     """The class needs no read, so it asks for no slot, but its sensor still has to exist."""
     main_cpp = generate_main(component_config_path("info_class_only.yaml"))
-    assert get_define_value("USE_MASTERBUS_INFO") is not None
+    assert get_define_value("USE_MASTERBUS_DEVICE_CLASS") is not None
     assert get_define_value("MASTERBUS_INFO_COUNT") is None
-    assert "MasterbusInfoTextSensor(" in main_cpp
+    assert "MasterbusClassTextSensor(" in main_cpp
 
 
 def test_each_hub_sizes_its_lists_for_its_own_devices(
@@ -705,7 +705,8 @@ def test_no_text_field_leaves_the_string_read_out(
 ) -> None:
     generate_main(component_config_path("full.yaml"))
     assert get_define_value("USE_MASTERBUS_TEXT") is None
-    assert get_define_value("USE_MASTERBUS_INFO") is None
+    assert get_define_value("USE_MASTERBUS_DEVICE_CLASS") is None
+    assert get_define_value("MASTERBUS_INFO_COUNT") is None
 
 
 def test_information_read_off_the_bus_is_registered_and_the_class_is_not(
@@ -713,14 +714,17 @@ def test_information_read_off_the_bus_is_registered_and_the_class_is_not(
     component_config_path: Callable[[str], Path],
 ) -> None:
     main_cpp = generate_main(component_config_path("codegen.yaml"))
-    assert get_define_value("USE_MASTERBUS_INFO") is not None
+    assert get_define_value("USE_MASTERBUS_DEVICE_CLASS") is not None
     assert get_define_value("MASTERBUS_INFO_COUNT") == "1"
-    assert "mb_battery->register_info_entity(battery_serial);" in main_cpp
-    assert "register_info_entity(battery_class)" not in main_cpp
-    for entity in ("battery_serial", "battery_class"):
-        assert f"App.register_component_({entity}," in main_cpp
-        assert f"App.register_text_sensor({entity}," in main_cpp
     assert (
-        "masterbus::MasterbusInfoTextSensor(mb_battery, "
-        "masterbus::MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_CLASS);" in main_cpp
+        "mb_battery->register_info_sensor(battery_serial, "
+        "masterbus::MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_SERIAL_NUMBER);"
+        in main_cpp
     )
+    assert "register_info_sensor(battery_class" not in main_cpp
+    # A sensor read off the bus is the hub's to drive; only the class sensor runs on its own.
+    assert "App.register_component_(battery_serial," not in main_cpp
+    assert "App.register_component_(battery_class," in main_cpp
+    for entity in ("battery_serial", "battery_class"):
+        assert f"App.register_text_sensor({entity}," in main_cpp
+    assert "masterbus::MasterbusClassTextSensor(mb_battery);" in main_cpp

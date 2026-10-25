@@ -6,6 +6,10 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
+#ifdef MASTERBUS_INFO_COUNT
+#include "esphome/components/text_sensor/text_sensor.h"
+#endif
+
 #include "masterbus_protocol.h"
 #include "masterbus_scan.h"
 
@@ -19,33 +23,22 @@ class MasterbusHub;
 /// The tab's name, for a log line.
 const LogString *masterbus_tab_to_string(MasterbusTab tab);
 
-#ifdef USE_MASTERBUS_INFO
-/// What a device says about itself, numbered as the vendor's GeneralString question numbers the
-/// four strings, then the two that come from elsewhere.
+#ifdef MASTERBUS_INFO_COUNT
+/// What a device says about itself and is read off the bus, numbered as the vendor's GeneralString
+/// question numbers the four strings, then the firmware, which comes from another question.
 enum class MasterbusDeviceInfo : uint8_t {
   MASTERBUS_DEVICE_INFO_ARTICLE_NUMBER = GENERAL_STRING_ARTICLE_NUMBER,
   MASTERBUS_DEVICE_INFO_SERIAL_NUMBER = GENERAL_STRING_SERIAL_NUMBER,
   MASTERBUS_DEVICE_INFO_PRODUCT_NAME = GENERAL_STRING_PRODUCT_NAME,
   MASTERBUS_DEVICE_INFO_REVISION_CODE = GENERAL_STRING_REVISION_CODE,
   MASTERBUS_DEVICE_INFO_FIRMWARE = 5,
-  MASTERBUS_DEVICE_INFO_CLASS = 6,
 };
 
-/// An entity that shows one thing a device says about itself rather than one of its fields.
-class MasterbusInfoEntity {
- public:
-  MasterbusInfoEntity(MasterbusDevice *device, MasterbusDeviceInfo info) : masterbus_device_(device), info_(info) {}
-
-  /// The text is only borrowed for the duration of the call.
-  virtual void publish_info(const char *text) = 0;
-  virtual void publish_info_unavailable() = 0;
-
-  MasterbusDevice *get_masterbus_device() const { return this->masterbus_device_; }
-  MasterbusDeviceInfo get_info() const { return this->info_; }
-
- protected:
-  MasterbusDevice *masterbus_device_;
-  MasterbusDeviceInfo info_;
+/// A text sensor that shows one thing a device says about itself, and which thing.
+struct MasterbusInfoSensor {
+  MasterbusDevice *device;
+  MasterbusDeviceInfo info;
+  text_sensor::TextSensor *sensor;
 };
 #endif
 
@@ -190,7 +183,7 @@ class MasterbusDevice {
   void register_entity(MasterbusEntity *entity);
 #endif
 #ifdef MASTERBUS_INFO_COUNT
-  void register_info_entity(MasterbusInfoEntity *entity);
+  void register_info_sensor(text_sensor::TextSensor *sensor, MasterbusDeviceInfo info);
   /// Note the status bytes of an announcement, at the time it arrived. Returns whether what the
   /// device says about itself should be read again: the device asks for it with bit 5 of byte 6,
   /// and a change of the status version in byte 7 is how the vendor's own tool notices that
@@ -377,7 +370,9 @@ class MasterbusHub : public Component {
   void register_device(MasterbusDevice *device) { this->devices_.push_back(device); }
 #endif
 #ifdef MASTERBUS_INFO_COUNT
-  void register_info_entity(MasterbusInfoEntity *entity) { this->info_entities_.push_back(entity); }
+  void register_info_sensor(MasterbusDevice *device, MasterbusDeviceInfo info, text_sensor::TextSensor *sensor) {
+    this->info_sensors_.push_back({device, info, sensor});
+  }
   /// Read what a device says about itself, as soon as it is online and nothing else is being read.
   void request_device_info(MasterbusDevice *device);
   /// Drive the reading one step, at the given time. Returns whether there is more to do. Public so
@@ -416,7 +411,7 @@ class MasterbusHub : public Component {
 #ifdef MASTERBUS_INFO_COUNT
   /// Take an answer if it belongs to the device information being read. Returns whether it did.
   bool take_info_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data);
-  /// Hand what was read to every entity that shows it, or nullptr where the device has none.
+  /// Hand what was read to every sensor that shows it, or nullptr where the device has none.
   void publish_info_(const char *text);
   /// Move on to the next thing the device being read is asked about.
   void next_info_();
@@ -462,7 +457,7 @@ class MasterbusHub : public Component {
   uint8_t short_answer_said_{0};
 #endif
 #ifdef MASTERBUS_INFO_COUNT
-  StaticVector<MasterbusInfoEntity *, MASTERBUS_INFO_COUNT> info_entities_;
+  StaticVector<MasterbusInfoSensor, MASTERBUS_INFO_COUNT> info_sensors_;
   /// The device whose information is being read, or nullptr; which of its facts; and where the
   /// question stands. One device and one question at a time, like everything else on this bus.
   MasterbusDevice *info_device_{nullptr};

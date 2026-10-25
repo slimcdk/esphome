@@ -29,18 +29,18 @@ class MasterbusTextSensor : public text_sensor::TextSensor, public MasterbusEnti
   size_t option_count_{0};
 };
 
-#ifdef USE_MASTERBUS_INFO
-/// One thing a device says about itself: its article or serial number, its name, its revision, its
-/// firmware - read off the bus by the hub - or its class, which its address already carries.
-class MasterbusInfoTextSensor : public text_sensor::TextSensor, public Component, public MasterbusInfoEntity {
+#ifdef USE_MASTERBUS_DEVICE_CLASS
+/// What kind of equipment a device is. Its address already carries that, so nothing is read off the
+/// bus: the sensor publishes it once, at setup.
+class MasterbusClassTextSensor : public text_sensor::TextSensor, public Component {
  public:
-  using MasterbusInfoEntity::MasterbusInfoEntity;
+  explicit MasterbusClassTextSensor(MasterbusDevice *device) : masterbus_device_(device) {}
 
   void setup() override;
   void dump_config() override;
 
-  void publish_info(const char *text) override { this->publish_state(text); }
-  void publish_info_unavailable() override { this->set_has_state(false); }
+ protected:
+  MasterbusDevice *masterbus_device_;
 };
 #endif
 
