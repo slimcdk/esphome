@@ -39,10 +39,10 @@ from esphome.const import (
     CONF_NAME,
     CONF_OPTIONS,
     CONF_TIMEOUT,
+    CONF_TYPE,
     CONF_UPDATE_INTERVAL,
 )
 from esphome.core import CORE
-from esphome.schema_extractors import SCHEMA_EXTRACT
 from esphome.types import ConfigType
 
 from ..helpers import get_define_value
@@ -380,27 +380,29 @@ def test_number_range_accepted() -> None:
 def test_text_sensor_shows_what_a_device_says_about_itself(info: str) -> None:
     """No field number: the device answers these for itself, and its address gives its class."""
     config = TEXT_SENSOR_SCHEMA(
-        {CONF_NAME: "Battery", CONF_MASTERBUS_DEVICE_ID: "mb_battery", "info": info}
+        {CONF_NAME: "Battery", CONF_MASTERBUS_DEVICE_ID: "mb_battery", CONF_TYPE: info}
     )
-    assert config["info"] == info
+    assert config[CONF_TYPE] == info
     assert CONF_PARAM not in config
 
 
-def test_schema_extraction_sees_both_text_sensor_forms() -> None:
-    """An editor offers a field by its number and what a device says about itself alike."""
-    keys = {str(key) for key in TEXT_SENSOR_SCHEMA(SCHEMA_EXTRACT).schema}
-    assert {CONF_PARAM, CONF_OPTIONS, "info"} <= keys
+def test_a_text_sensor_that_names_no_type_is_a_field() -> None:
+    assert TEXT_SENSOR_SCHEMA(_sensor())[CONF_TYPE] == "field"
 
 
 def test_text_sensor_info_takes_no_field_number() -> None:
     with pytest.raises(cv.Invalid):
-        TEXT_SENSOR_SCHEMA(_sensor(info="serial_number"))
+        TEXT_SENSOR_SCHEMA(_sensor(type="serial_number"))
 
 
 def test_text_sensor_info_must_be_one_the_device_answers() -> None:
-    with pytest.raises(cv.Invalid, match="info"):
+    with pytest.raises(cv.Invalid, match="colour"):
         TEXT_SENSOR_SCHEMA(
-            {CONF_NAME: "x", CONF_MASTERBUS_DEVICE_ID: "mb_battery", "info": "colour"}
+            {
+                CONF_NAME: "x",
+                CONF_MASTERBUS_DEVICE_ID: "mb_battery",
+                CONF_TYPE: "colour",
+            }
         )
 
 

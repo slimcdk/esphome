@@ -12,5 +12,5 @@ masterbus:
 text_sensor:
   - platform: masterbus
     masterbus_device_id: mb_battery
-    info: class
+    type: class
     name: Battery class

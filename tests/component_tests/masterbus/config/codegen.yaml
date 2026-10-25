@@ -56,12 +56,12 @@ text_sensor:
   - platform: masterbus
     id: battery_serial
     masterbus_device_id: mb_battery
-    info: serial_number
+    type: serial_number
     name: Battery serial number
   - platform: masterbus
     id: battery_class
     masterbus_device_id: mb_battery
-    info: class
+    type: class
     name: Battery class
 
 number:
