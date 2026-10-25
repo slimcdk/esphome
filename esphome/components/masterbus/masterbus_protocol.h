@@ -244,7 +244,7 @@ constexpr bool string_buffer_full(uint8_t chunk, uint8_t capacity) {
  * same bus: without the check its chunks would land in the middle of ours, and its last one would
  * end our read before our first had arrived.
  */
-class MasterbusStringRead {
+class MasterbusStringRead final {
  public:
   /// What an answer did to the read.
   enum class Result : uint8_t {

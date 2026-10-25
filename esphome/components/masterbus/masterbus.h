@@ -152,7 +152,7 @@ class MasterbusEntity : public PollingComponent {
  * defines statuses beyond that, but its library never sets anything but on (see the announcement
  * in masterbus_protocol.h), so there is no status to read.
  */
-class MasterbusDevice {
+class MasterbusDevice final {
  public:
   /// The timeout is how many milliseconds of silence the device is given before it is treated as
   /// gone, for when its own status reports stop arriving too.
@@ -244,7 +244,7 @@ static constexpr uint32_t SCAN_REPORT_TIMEOUT_ID = 1;
  * The hub does not own the CAN hardware. It binds to a `canbus` component, which keeps pin
  * configuration, bit rate and listen-only mode where they already are.
  */
-class MasterbusHub : public Component {
+class MasterbusHub final : public Component {
  public:
   explicit MasterbusHub(canbus::Canbus *canbus) : canbus_(canbus) {}
 

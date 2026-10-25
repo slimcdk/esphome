@@ -5,7 +5,7 @@
 
 namespace esphome::masterbus {
 
-class MasterbusBinarySensor : public binary_sensor::BinarySensor, public MasterbusEntity {
+class MasterbusBinarySensor final : public binary_sensor::BinarySensor, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 

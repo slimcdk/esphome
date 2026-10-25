@@ -5,7 +5,7 @@
 
 namespace esphome::masterbus {
 
-class MasterbusSwitch : public switch_::Switch, public MasterbusEntity {
+class MasterbusSwitch final : public switch_::Switch, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 

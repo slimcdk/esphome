@@ -5,7 +5,7 @@
 
 namespace esphome::masterbus {
 
-class MasterbusTextSensor : public text_sensor::TextSensor, public MasterbusEntity {
+class MasterbusTextSensor final : public text_sensor::TextSensor, public MasterbusEntity {
  public:
   using MasterbusEntity::MasterbusEntity;
 
@@ -32,7 +32,7 @@ class MasterbusTextSensor : public text_sensor::TextSensor, public MasterbusEnti
 #ifdef USE_MASTERBUS_DEVICE_CLASS
 /// What kind of equipment a device is. Its address already carries that, so nothing is read off the
 /// bus: the sensor publishes it once, at setup.
-class MasterbusClassTextSensor : public text_sensor::TextSensor, public Component {
+class MasterbusClassTextSensor final : public text_sensor::TextSensor, public Component {
  public:
   explicit MasterbusClassTextSensor(MasterbusDevice *device) : masterbus_device_(device) {}
 
