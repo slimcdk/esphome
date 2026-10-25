@@ -96,16 +96,14 @@ class RecordingEntity : public MasterbusEntity {
   std::deque<std::string> texts_;
 };
 
-/// An entity that records what the hub read about its device.
-class RecordingInfo : public MasterbusInfoEntity {
+/// A text sensor that records what the hub read about its device.
+class RecordingInfo : public text_sensor::TextSensor {
  public:
-  using MasterbusInfoEntity::MasterbusInfoEntity;
+  RecordingInfo() {
+    this->add_on_state_callback([this](const std::string &text) { this->texts.push_back(text); });
+  }
 
   std::vector<std::string> texts;
-  int unavailable_count{0};
-
-  void publish_info(const char *text) override { this->texts.emplace_back(text); }
-  void publish_info_unavailable() override { this->unavailable_count++; }
 };
 
 /// Build the payload of a monitoring answer the way a device does: field number little-endian,

@@ -64,9 +64,9 @@ void MasterbusDevice::register_entity(MasterbusEntity *entity) { this->hub_->reg
 #endif
 
 #ifdef MASTERBUS_INFO_COUNT
-void MasterbusDevice::register_info_entity(MasterbusInfoEntity *entity) {
+void MasterbusDevice::register_info_sensor(text_sensor::TextSensor *sensor, MasterbusDeviceInfo info) {
   this->has_info_ = true;
-  this->hub_->register_info_entity(entity);
+  this->hub_->register_info_sensor(this, info, sensor);
 }
 
 bool MasterbusDevice::note_announcement(uint8_t flags, uint8_t status_version, uint32_t now) {
@@ -377,6 +377,12 @@ void MasterbusHub::dump_config() {
   for (auto *device : this->devices_) {
     ESP_LOGCONFIG(TAG, "  Device 0x%06" PRIX32 ", timeout %" PRIu32 " ms", device->get_address(),
                   device->get_timeout());
+  }
+#endif
+#ifdef MASTERBUS_INFO_COUNT
+  for (const auto &entry : this->info_sensors_) {
+    LOG_TEXT_SENSOR("  ", "Device information", entry.sensor);
+    ESP_LOGCONFIG(TAG, "    Device: 0x%06" PRIX32, entry.device->get_address());
   }
 #endif
 }
@@ -806,13 +812,12 @@ void MasterbusHub::next_info_() {
   this->info_have_string_ = false;
   this->info_processor_ = 0;
   this->info_text_[0] = '\0';
-  // The next fact some entity shows for this device. The class needs no question at all.
+  // The next fact some sensor shows for this device.
   for (this->info_item_++;
        this->info_item_ <= static_cast<uint8_t>(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE);
        this->info_item_++) {
-    for (auto *entity : this->info_entities_) {
-      if (entity->get_masterbus_device() == this->info_device_ &&
-          static_cast<uint8_t>(entity->get_info()) == this->info_item_)
+    for (const auto &entry : this->info_sensors_) {
+      if (entry.device == this->info_device_ && static_cast<uint8_t>(entry.info) == this->info_item_)
         return;
     }
   }
@@ -879,14 +884,15 @@ bool MasterbusHub::take_info_frame_(uint8_t type, uint32_t address, const std::v
 }
 
 void MasterbusHub::publish_info_(const char *text) {
-  for (auto *entity : this->info_entities_) {
-    if (entity->get_masterbus_device() != this->info_device_ ||
-        static_cast<uint8_t>(entity->get_info()) != this->info_item_)
+  for (const auto &entry : this->info_sensors_) {
+    if (entry.device != this->info_device_ || static_cast<uint8_t>(entry.info) != this->info_item_)
       continue;
+    // A text sensor has no way to clear a published string, so the state flag is all that can be
+    // dropped.
     if (text == nullptr) {
-      entity->publish_info_unavailable();
+      entry.sensor->set_has_state(false);
     } else {
-      entity->publish_info(text);
+      entry.sensor->publish_state(text);
     }
   }
 }

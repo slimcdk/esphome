@@ -48,10 +48,10 @@ class MasterbusTest : public ::testing::Test {
   }
 
   RecordingInfo *add_info(MasterbusDeviceInfo info) {
-    auto entity = std::make_unique<RecordingInfo>(this->battery_.get(), info);
-    auto *raw = entity.get();
-    this->battery_->register_info_entity(raw);
-    this->infos_.push_back(std::move(entity));
+    auto sensor = std::make_unique<RecordingInfo>();
+    auto *raw = sensor.get();
+    this->battery_->register_info_sensor(raw, info);
+    this->infos_.push_back(std::move(sensor));
     return raw;
   }
 
@@ -2185,7 +2185,7 @@ TEST_F(MasterbusTest, AnotherNodesLaterChunkDoesNotEndAnInformationRead) {
   this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x05, 0x00, 0x01, 'A', '0', '0', '0'});
   this->info_answer(STRING_INFORMATION_TYPE, {0x30, 0x05, 0x00, 0x02, '1'});
 
-  EXPECT_EQ(serial->unavailable_count, 0);
+  EXPECT_TRUE(serial->has_state());
   ASSERT_EQ(serial->texts.size(), 1u);
   EXPECT_EQ(serial->texts[0], "AB00A0001");
 }
@@ -2220,6 +2220,9 @@ TEST_F(MasterbusTest, ADevicesFirmwareListsEveryProcessor) {
 TEST_F(MasterbusTest, AStringTheDeviceDoesNotCarryIsUnavailable) {
   auto *revision = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_REVISION_CODE);
   auto *name = this->add_info(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_PRODUCT_NAME);
+  // What each showed before, which must not stand once the device has nothing to say.
+  revision->publish_state("C");
+  name->publish_state("MLI");
   this->announce();
   // The product name is asked first, in the vendor's numbering, and goes unanswered.
   this->hub_->info_step(this->info_now_);
@@ -2227,9 +2230,9 @@ TEST_F(MasterbusTest, AStringTheDeviceDoesNotCarryIsUnavailable) {
   this->info_now_ += 1000;
   this->info_answer(STRING_NOT_AVAILABLE_TYPE, {GENERAL_STRING_SELECTOR, GENERAL_STRING_REVISION_CODE});
 
-  EXPECT_EQ(name->unavailable_count, 1);
-  EXPECT_EQ(revision->unavailable_count, 1);
-  EXPECT_TRUE(revision->texts.empty());
+  EXPECT_FALSE(name->has_state());
+  EXPECT_FALSE(revision->has_state());
+  EXPECT_EQ(revision->texts.size(), 1u);
 }
 
 // The vendor's own tool reads a device again when its status version moves; the device asks for

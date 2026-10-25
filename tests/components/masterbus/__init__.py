@@ -12,7 +12,7 @@ def override_manifest(manifest: ComponentManifestOverride) -> None:
         cg.add_define("MASTERBUS_DEVICE_COUNT", 4)
         cg.add_define("MASTERBUS_ENTITY_COUNT", 8)
         cg.add_define("MASTERBUS_INFO_COUNT", 4)
-        cg.add_define("USE_MASTERBUS_INFO")
+        cg.add_define("USE_MASTERBUS_DEVICE_CLASS")
         cg.add_define("USE_MASTERBUS_SCAN")
         cg.add_define("USE_MASTERBUS_NODE_REQUEST")
         cg.add_define("USE_MASTERBUS_TEXT")
@@ -23,6 +23,8 @@ def override_manifest(manifest: ComponentManifestOverride) -> None:
         cg.add_define("ESPHOME_LOG_MAX_LISTENERS", 2)
 
     manifest.to_code = to_code_testing
+    # What a device says about itself is shown on text sensors the hub holds directly.
+    manifest.dependencies = manifest.dependencies + ["text_sensor"]
     # to_code only runs for a component the harness put in the config, and it initialises every
     # MULTI_CONF component as an empty list. Dropping that for the test build is what lets the
     # defines above be emitted.

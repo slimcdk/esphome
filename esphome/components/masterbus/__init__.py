@@ -306,10 +306,12 @@ async def new_entity(
     return var
 
 
-async def register_info_entity(device_id: ID, device: MockObj, var: MockObj) -> None:
-    """Hand the hub an entity that shows what a device says about itself, read off the bus."""
+async def register_info_sensor(
+    device_id: ID, device: MockObj, var: MockObj, info: MockObj
+) -> None:
+    """Hand the hub a text sensor that shows one thing a device says about itself."""
     _request_info_slot(_get_data().device_hubs[str(device_id)])
-    cg.add(device.register_info_entity(var))
+    cg.add(device.register_info_sensor(var, info))
 
 
 SCAN_ACTION_SCHEMA = cv.Schema({cv.GenerateID(): cv.use_id(MasterbusHub)})
