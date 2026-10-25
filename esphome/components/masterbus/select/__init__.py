@@ -1,17 +1,14 @@
-import esphome.codegen as cg
 from esphome.components import select
 import esphome.config_validation as cv
 from esphome.const import CONF_OPTIONS
 from esphome.types import ConfigType
 
-from .. import entity_schema, masterbus_ns, new_entity
+from .. import MasterbusEntity, entity_schema, masterbus_ns, new_entity
 
 CODEOWNERS = ["@slimcdk"]
 DEPENDENCIES = ["masterbus"]
 
-MasterbusSelect = masterbus_ns.class_(
-    "MasterbusSelect", select.Select, cg.PollingComponent
-)
+MasterbusSelect = masterbus_ns.class_("MasterbusSelect", select.Select, MasterbusEntity)
 
 
 def _unique_options(options: list[str]) -> list[str]:
