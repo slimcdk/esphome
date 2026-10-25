@@ -683,39 +683,35 @@ constexpr uint8_t group_count_question(MasterbusTab tab) {
   }
 }
 
-/// Which tab an answer carrying a value belongs to, and whether it carries one at all. The four
-/// tabs answer with the same payload shape, so the message number is the only thing that says
-/// which tab a value came from - taking one for another would publish a field from the wrong tab.
+/// Which tab a frame of one tab message belongs to, by the number in `part` - the request, the
+/// answer or the refusal - and whether it is that message at all. The four tabs use the same
+/// payload shapes, so the message number is the only thing that says which tab a frame is about:
+/// taking one for another would publish a field from the wrong tab.
+constexpr bool message_tab(uint8_t type, MasterbusTabMessage message, uint8_t MasterbusMessageNumbers::*part,
+                           MasterbusTab &out) {
+  for (MasterbusTab tab : MASTERBUS_TABS) {
+    if (tab_message(tab, message).*part == type) {
+      out = tab;
+      return true;
+    }
+  }
+  return false;
+}
+
+/// The tab of an answer carrying a value.
 constexpr bool data_information_tab(uint8_t type, MasterbusTab &out) {
-  for (MasterbusTab tab : MASTERBUS_TABS) {
-    if (tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).information == type) {
-      out = tab;
-      return true;
-    }
-  }
-  return false;
+  return message_tab(type, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA, &MasterbusMessageNumbers::information, out);
 }
 
-/// The same for an answer to a property question.
+/// The tab of an answer to a property question.
 constexpr bool property_information_tab(uint8_t type, MasterbusTab &out) {
-  for (MasterbusTab tab : MASTERBUS_TABS) {
-    if (tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).information == type) {
-      out = tab;
-      return true;
-    }
-  }
-  return false;
+  return message_tab(type, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY, &MasterbusMessageNumbers::information,
+                     out);
 }
 
-/// The same for the request that reads a value - and, six bytes long, writes one.
+/// The tab of the request that reads a value - and, six bytes long, writes one.
 constexpr bool data_request_tab(uint8_t type, MasterbusTab &out) {
-  for (MasterbusTab tab : MASTERBUS_TABS) {
-    if (tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA).request == type) {
-      out = tab;
-      return true;
-    }
-  }
-  return false;
+  return message_tab(type, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_DATA, &MasterbusMessageNumbers::request, out);
 }
 
 /// Whether a frame is one this component reads past without understanding, and that a bus does
