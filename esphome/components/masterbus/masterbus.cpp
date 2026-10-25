@@ -702,11 +702,8 @@ void MasterbusHub::begin_text_read_(MasterbusEntity *entity, uint16_t string_id)
   }
 
   this->text_entity_ = entity;
-  this->text_string_ = string_id;
   this->text_sent_at_ = now;
-  this->text_chunk_ = 0;
-  this->value_text_[0] = '\0';
-  this->text_truncated_ = false;
+  this->text_read_.begin(string_id, this->value_text_, STRING_BUFFER_LENGTH);
   if (!this->request_string(entity->get_masterbus_device()->get_address(), string_id, 0)) {
     ESP_LOGW(TAG, "Could not ask for the text of field %u", entity->get_param());
     this->finish_text_read_(false);
@@ -716,32 +713,20 @@ void MasterbusHub::begin_text_read_(MasterbusEntity *entity, uint16_t string_id)
 bool MasterbusHub::take_text_frame_(uint8_t type, uint32_t address, const std::vector<uint8_t> &data) {
   if (this->text_entity_ == nullptr || address != this->text_entity_->get_masterbus_device()->get_address())
     return false;
-  if (type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE)
-    return false;
-  // The answer echoes the request header, so it says which string and which chunk it carries.
-  // Without that check a chunk of somebody else's string lands in the middle of ours, and another
-  // node's answer to a later chunk of the same string ends ours early.
-  if (data.size() < STRING_CHUNK_LENGTH || data[0] != STRING_REQUEST_MARKER ||
-      encode_uint16(data[2], data[1]) != this->text_string_ || data[3] != this->text_chunk_)
-    return false;
-
-  if (type == STRING_NOT_AVAILABLE_TYPE) {
-    this->finish_text_read_(false);
-    return true;
+  switch (this->text_read_.take(type, data.data(), data.size())) {
+    case MasterbusStringRead::Result::RESULT_NOT_OURS:
+      return false;
+    case MasterbusStringRead::Result::RESULT_REFUSED:
+      this->finish_text_read_(false);
+      return true;
+    case MasterbusStringRead::Result::RESULT_DONE:
+      this->finish_text_read_(true);
+      return true;
+    case MasterbusStringRead::Result::RESULT_MORE:
+      break;
   }
-  if (take_string_chunk(data.data(), data.size(), this->value_text_, STRING_BUFFER_LENGTH, &this->text_truncated_)) {
-    this->finish_text_read_(true);
-    return true;
-  }
-  if (string_buffer_full(this->text_chunk_, STRING_BUFFER_LENGTH)) {
-    this->text_truncated_ = true;
-    this->finish_text_read_(true);
-    return true;
-  }
-  // More to come.
   this->text_sent_at_ = App.get_loop_component_start_time();
-  this->text_chunk_++;
-  if (!this->request_string(address, this->text_string_, this->text_chunk_))
+  if (!this->request_string(address, this->text_read_.get_id(), this->text_read_.get_chunk()))
     this->finish_text_read_(false);
   return true;
 }
@@ -752,11 +737,11 @@ void MasterbusHub::finish_text_read_(bool found) {
   if (entity == nullptr)
     return;
   if (!found || this->value_text_[0] == '\0') {
-    ESP_LOGD(TAG, "Field %u has no text under string %u", entity->get_param(), this->text_string_);
+    ESP_LOGD(TAG, "Field %u has no text under string %u", entity->get_param(), this->text_read_.get_id());
     entity->publish_masterbus_unavailable();
     return;
   }
-  if (this->text_truncated_) {
+  if (this->text_read_.is_truncated()) {
     ESP_LOGW(TAG, "Text of field %u is longer than %u characters and is published cut short", entity->get_param(),
              static_cast<unsigned>(STRING_BUFFER_LENGTH - 1));
   }
@@ -802,7 +787,7 @@ bool MasterbusHub::info_step(uint32_t now) {
   if (this->info_item_ == static_cast<uint8_t>(MasterbusDeviceInfo::MASTERBUS_DEVICE_INFO_FIRMWARE)) {
     sent = this->request_software_version(address, this->info_processor_);
   } else if (this->info_have_string_) {
-    sent = this->request_string(address, this->info_string_, this->info_chunk_);
+    sent = this->request_string(address, this->info_read_.get_id(), this->info_read_.get_chunk());
   } else {
     sent = this->request_general_string(address, this->info_item_);
   }
@@ -819,7 +804,6 @@ bool MasterbusHub::info_step(uint32_t now) {
 void MasterbusHub::next_info_() {
   this->info_waiting_ = false;
   this->info_have_string_ = false;
-  this->info_chunk_ = 0;
   this->info_processor_ = 0;
   this->info_text_[0] = '\0';
   // The next fact some entity shows for this device. The class needs no question at all.
@@ -870,28 +854,26 @@ bool MasterbusHub::take_info_frame_(uint8_t type, uint32_t address, const std::v
       this->next_info_();
       return true;
     }
-    this->info_string_ = encode_uint16(data[3], data[2]);
+    this->info_read_.begin(encode_uint16(data[3], data[2]), this->info_text_, STRING_BUFFER_LENGTH);
     this->info_have_string_ = true;
     this->info_waiting_ = false;
     return true;
   }
 
-  // The answer echoes the request header, so it says which string and which chunk it carries.
-  if (data.size() < STRING_CHUNK_LENGTH || data[0] != STRING_REQUEST_MARKER ||
-      encode_uint16(data[2], data[1]) != this->info_string_ || data[3] != this->info_chunk_)
-    return false;
-  if (refused) {
-    this->publish_info_(nullptr);
-    this->next_info_();
-    return true;
+  switch (this->info_read_.take(type, data.data(), data.size())) {
+    case MasterbusStringRead::Result::RESULT_NOT_OURS:
+      return false;
+    case MasterbusStringRead::Result::RESULT_REFUSED:
+      this->publish_info_(nullptr);
+      this->next_info_();
+      return true;
+    case MasterbusStringRead::Result::RESULT_DONE:
+      this->publish_info_(this->info_text_[0] != '\0' ? this->info_text_ : nullptr);
+      this->next_info_();
+      return true;
+    case MasterbusStringRead::Result::RESULT_MORE:
+      break;
   }
-  if (take_string_chunk(data.data(), data.size(), this->info_text_, STRING_BUFFER_LENGTH) ||
-      string_buffer_full(this->info_chunk_, STRING_BUFFER_LENGTH)) {
-    this->publish_info_(this->info_text_[0] != '\0' ? this->info_text_ : nullptr);
-    this->next_info_();
-    return true;
-  }
-  this->info_chunk_++;
   this->info_waiting_ = false;
   return true;
 }
