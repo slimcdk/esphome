@@ -500,7 +500,6 @@ def test_diagnostics_emit_no_defines_when_disabled(
     generate_main(component_config_path("diagnostics_off.yaml"))
     assert get_define_value("USE_MASTERBUS_SCAN") is None
     assert get_define_value("USE_MASTERBUS_LOG_ALL_FRAMES") is None
-    assert get_define_value("MASTERBUS_SCAN_MAX_DEVICES") is None
 
 
 def test_diagnostics_emit_defines_when_enabled(
@@ -510,8 +509,6 @@ def test_diagnostics_emit_defines_when_enabled(
     generate_main(component_config_path("diagnostics_on.yaml"))
     assert get_define_value("USE_MASTERBUS_SCAN") is not None
     assert get_define_value("USE_MASTERBUS_LOG_ALL_FRAMES") is not None
-    # The scan's storage is sized by a define, so it goes with it.
-    assert get_define_value("MASTERBUS_SCAN_MAX_DEVICES") == "32"
 
 
 def test_a_scan_action_compiles_the_scan_in_without_scanning_at_boot(
@@ -521,7 +518,6 @@ def test_a_scan_action_compiles_the_scan_in_without_scanning_at_boot(
     """A button that starts a scan needs the walk, not a walk at every boot."""
     main_cpp = generate_main(component_config_path("scan_on_demand.yaml"))
     assert get_define_value("USE_MASTERBUS_SCAN") is not None
-    assert get_define_value("MASTERBUS_SCAN_MAX_DEVICES") == "32"
     assert "->start_scan();" in main_cpp
 
 

@@ -136,9 +136,9 @@ void MasterbusHub::record_announcement_(uint32_t address) {
       return;
     }
   }
-  if (this->discovered_.size() == MASTERBUS_SCAN_MAX_DEVICES) {
-    ESP_LOGW(TAG, "Scan is full at %d devices; 0x%06" PRIX32 " and any further ones are not listed",
-             MASTERBUS_SCAN_MAX_DEVICES, address);
+  if (this->discovered_.size() == SCAN_MAX_DEVICES) {
+    ESP_LOGW(TAG, "Scan is full at %u devices; 0x%06" PRIX32 " and any further ones are not listed",
+             static_cast<unsigned>(SCAN_MAX_DEVICES), address);
     return;
   }
   if (this->scan_listening_) {
