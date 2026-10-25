@@ -11,13 +11,7 @@ class MasterbusNumber : public number::Number, public MasterbusEntity {
 
   void dump_config() override;
 
-  void publish_masterbus_value(const MasterbusValue &value) override {
-    if (value.type != MasterbusValueType::MASTERBUS_VALUE_TYPE_FLOAT) {
-      this->publish_masterbus_unavailable();
-      return;
-    }
-    this->publish_state(value.as_float);
-  }
+  void publish_masterbus_float(float value) override { this->publish_state(value); }
   void publish_masterbus_unavailable() override { this->publish_state(NAN); }
 
  protected:

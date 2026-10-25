@@ -11,7 +11,9 @@ class MasterbusSensor : public sensor::Sensor, public MasterbusEntity {
 
   void dump_config() override;
 
-  void publish_masterbus_value(const MasterbusValue &value) override;
+  void publish_masterbus_float(float value) override { this->publish_state(value); }
+  void publish_masterbus_boolean(bool value) override { this->publish_state(value ? 1.0f : 0.0f); }
+  void publish_masterbus_index(uint32_t index) override { this->publish_state(static_cast<float>(index)); }
   void publish_masterbus_unavailable() override { this->publish_state(NAN); }
 };
 

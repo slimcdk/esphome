@@ -53,23 +53,6 @@ class MasterbusInfoEntity {
 /// or a serial number, so this is generous; anything longer is truncated rather than dropped.
 static constexpr uint8_t MASTERBUS_TEXT_LENGTH = 32;
 
-/** A decoded field value.
- *
- * The text, time and date types all reach an entity as `as_text`: rendering them is the decoder's
- * job, so an entity only ever has to display what it is handed. That text points into the
- * decoder's own buffer and is only valid for the duration of the publish call; an entity that
- * needs to keep it must copy it.
- */
-struct MasterbusValue {
-  MasterbusValueType type;
-  union {
-    float as_float;
-    bool as_boolean;
-    uint32_t as_raw;      // a list index, as the number the device numbers its options by
-    const char *as_text;  // NUL terminated, used for the text, time and date types
-  };
-};
-
 /** One configured field of one MasterBus device, rendered as an ESPHome entity.
  *
  * The address is device, tab and field number. The declared value type is what the entity expects
@@ -109,11 +92,19 @@ class MasterbusEntity : public PollingComponent {
   /// that follows its device, which is what almost every field does.
   void check_stale(uint32_t now);
 
-  /// Publish a value the hub decoded for this entity's field.
-  virtual void publish_masterbus_value(const MasterbusValue &value) = 0;
+  /// Publish a value the hub decoded for this entity's field. The hub reads the 32 bits on the wire
+  /// as the entity's declared value type and makes the one call that type takes. Code generation
+  /// lets a platform declare only the types it can show, so it overrides those calls and no other.
+  virtual void publish_masterbus_float(float value) {}
+  virtual void publish_masterbus_boolean(bool value) {}
+  /// A list option, a device-list entry and an eventable all answer with the index of an entry.
+  virtual void publish_masterbus_index(uint32_t index) {}
+  /// Text, and a time or a date rendered as text. Rendering is the hub's job, so an entity only
+  /// shows what it is handed. The text is only borrowed for the duration of the call.
+  virtual void publish_masterbus_text(const char *text) {}
   /// Report that no trustworthy value is available, because the device is unreachable or the
   /// field is unset.
-  virtual void publish_masterbus_unavailable() = 0;
+  virtual void publish_masterbus_unavailable() {}
 
   MasterbusDevice *get_masterbus_device() const { return this->masterbus_device_; }
   uint16_t get_param() const { return this->param_; }
@@ -478,8 +469,8 @@ class MasterbusHub : public Component {
 #endif
 #ifdef USE_MASTERBUS_TEXT
   /// Where the string being read is assembled. It belongs to the hub rather than to a publish
-  /// call because a string arrives in chunks across several frames, and because a MasterbusValue
-  /// only ever borrows the text it carries.
+  /// call because a string arrives in chunks across several frames, and because an entity only
+  /// ever borrows the text it is handed.
   char value_text_[MASTERBUS_TEXT_LENGTH]{};
   /// The string read in flight, or nullptr. One slot is enough: a device answers one question at
   /// a time, and a text field that has to wait simply asks again on its next poll.
