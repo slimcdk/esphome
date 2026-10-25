@@ -322,7 +322,7 @@ void MasterbusHub::on_frame(uint32_t can_id, bool extended_id, bool rtr, const s
     const uint16_t field = encode_uint16(data[2], data[1]);
     const bool yes = encode_uint16(data[5], data[4]) != 0;
     for (auto *entity : this->entities_) {
-      if (entity->get_masterbus_device() != device || entity->get_tab() != tab || entity->get_param() != field)
+      if (!entity->is_field(device, tab, field))
         continue;
       if (writeable_answer) {
         entity->on_writeable_answer(yes);
@@ -581,7 +581,7 @@ void MasterbusHub::check_availability(uint32_t now) {
 #ifdef MASTERBUS_ENTITY_COUNT
 void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab tab, uint16_t param, float value) {
   for (auto *entity : this->entities_) {
-    if (entity->get_masterbus_device() != device || entity->get_tab() != tab || entity->get_param() != param)
+    if (!entity->is_field(device, tab, param))
       continue;
     // The answer arrived, whatever we end up able to make of it. Recording that before decoding
     // is what clears the outstanding poll, so a field whose value needs a second read is not left
