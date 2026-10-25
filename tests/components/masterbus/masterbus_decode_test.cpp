@@ -1311,8 +1311,8 @@ TEST_F(MasterbusTest, TheScanTakesOnlyTheAnswerToItsOwnQuestion) {
   EXPECT_EQ(field.maximum, 600.0f);
   EXPECT_FLOAT_EQ(field.step, 0.01f);
   EXPECT_EQ(field.factory, 50.0f);
-  EXPECT_EQ(field.writable, 0);
-  EXPECT_EQ(field.eventable, 0);
+  EXPECT_EQ(field.writeable, MasterbusAnswer::MASTERBUS_ANSWER_NO);
+  EXPECT_EQ(field.eventable, MasterbusAnswer::MASTERBUS_ANSWER_NO);
 }
 
 // The list walks echo their index already; the field number is checked as well.

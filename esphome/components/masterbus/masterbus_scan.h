@@ -36,10 +36,9 @@ struct MasterbusScannedField {
   float step;
   /// The factory value, likewise not a number where the device did not answer for it.
   float factory;
-  /// Whether the device says the field takes a write, and whether it is an event. -1 where the
-  /// device did not answer, otherwise 0 or 1.
-  int8_t writable;
-  int8_t eventable;
+  /// Whether the device says the field takes a write, and whether it is an event.
+  MasterbusAnswer writeable;
+  MasterbusAnswer eventable;
   /// Whether the field carries a name or a unit string at all, whatever the device then sent for
   /// it. A field with a name string the device would not hand over reads as an empty name.
   bool has_name;

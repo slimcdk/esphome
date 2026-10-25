@@ -254,7 +254,9 @@ static constexpr uint8_t STRING_REQUEST_TYPE = 0x0E;
 static constexpr uint8_t STRING_INFORMATION_TYPE = 0x0C;
 static constexpr uint8_t STRING_NOT_AVAILABLE_TYPE = 0x0D;
 static constexpr uint8_t STRING_REQUEST_MARKER = 0x30;
-static constexpr uint8_t STRING_CHUNK_LENGTH = 4;
+static constexpr uint8_t STRING_HEADER_LENGTH = 4;
+/// How much text one chunk carries, at most.
+static constexpr uint8_t STRING_CHUNK_TEXT_LENGTH = 4;
 
 /// How much of one string table entry a reader keeps, its terminator included. What a device keeps
 /// there is a name, a label or a serial number, and the longest seen runs to about fifteen
@@ -271,9 +273,9 @@ static constexpr uint8_t STRING_BUFFER_LENGTH = 32;
 inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8_t capacity,
                               bool *truncated = nullptr) {
   // A short answer is the last one: the device sends four bytes of text until it runs out.
-  bool ended = size < STRING_CHUNK_LENGTH + 4;
-  size_t at = static_cast<size_t>(data[3]) * 4;
-  for (size_t i = STRING_CHUNK_LENGTH; i < size; i++) {
+  bool ended = size < STRING_HEADER_LENGTH + STRING_CHUNK_TEXT_LENGTH;
+  size_t at = static_cast<size_t>(data[3]) * STRING_CHUNK_TEXT_LENGTH;
+  for (size_t i = STRING_HEADER_LENGTH; i < size; i++) {
     if (data[i] == 0) {
       ended = true;
       break;
@@ -292,7 +294,7 @@ inline bool take_string_chunk(const uint8_t *data, size_t size, char *out, uint8
 /// the next chunk could only be dropped. Nothing bounds a string but its terminator, so a reader
 /// stops here and reports the text as cut short rather than asking for ever.
 constexpr bool string_buffer_full(uint8_t chunk, uint8_t capacity) {
-  return (static_cast<size_t>(chunk) + 1) * 4 >= static_cast<size_t>(capacity) - 1;
+  return (static_cast<size_t>(chunk) + 1) * STRING_CHUNK_TEXT_LENGTH >= static_cast<size_t>(capacity) - 1;
 }
 
 /** One entry of a device's string table, read a chunk at a time into a buffer the caller owns.
@@ -324,7 +326,7 @@ class MasterbusStringRead {
 
   /// Offer an answer of the string family, whoever it was meant for.
   Result take(uint8_t type, const uint8_t *data, size_t size) {
-    if ((type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE) || size < STRING_CHUNK_LENGTH ||
+    if ((type != STRING_INFORMATION_TYPE && type != STRING_NOT_AVAILABLE_TYPE) || size < STRING_HEADER_LENGTH ||
         data[0] != STRING_REQUEST_MARKER || (data[1] | (data[2] << 8)) != this->id_ || data[3] != this->chunk_)
       return Result::RESULT_NOT_OURS;
     if (type == STRING_NOT_AVAILABLE_TYPE)
@@ -387,6 +389,9 @@ class MasterbusStringRead {
 static constexpr uint8_t GENERAL_COUNT_SELECTOR = 0x08;
 static constexpr uint8_t GENERAL_COUNT_REQUEST_LENGTH = 2;
 static constexpr uint8_t GENERAL_COUNT_INFORMATION_LENGTH = 4;
+/// Every answer of this family - a count, a string's id, a version - carries its value after the
+/// two byte header.
+static constexpr uint8_t GENERAL_VALUE_OFFSET = 2;
 
 static constexpr uint8_t GENERAL_COUNT_MONITORING_GROUPS = 0x02;
 static constexpr uint8_t GENERAL_COUNT_HISTORY_GROUPS = 0x04;
@@ -518,6 +523,11 @@ enum class MasterbusProperty : uint8_t {
 /// at the group that holds the events.
 static constexpr uint8_t PROPERTY_INDEX_OFFSET = 3;
 static constexpr uint8_t PROPERTY_VALUE_OFFSET = 4;
+/// How long an answer is whose value is a 16 bit number, a float, or the single byte of an
+/// event's field. A group answer is laid out the same way.
+static constexpr uint8_t PROPERTY_NUMBER_ANSWER_LENGTH = PROPERTY_VALUE_OFFSET + 2;
+static constexpr uint8_t PROPERTY_FLOAT_ANSWER_LENGTH = PROPERTY_VALUE_OFFSET + 4;
+static constexpr uint8_t PROPERTY_BYTE_ANSWER_LENGTH = PROPERTY_VALUE_OFFSET + 1;
 
 /// VERIFIED: the display type is what decides which ESPHome platform a field belongs to.
 /// Cross-checked against the vendor library's own value types over five fields: float fields
@@ -537,6 +547,18 @@ static constexpr uint8_t PROPERTY_VALUE_OFFSET = 4;
 /// The vendor's tool asks a float field for its minimum, maximum, step and unit and expects them;
 /// of every other field it takes silence for minimum 0, maximum 1, step 1 and no unit. It expects
 /// eventable only on the monitoring tab, of dropdowns, checkboxes, buttons and switches.
+
+/// A device's answer to a yes-or-no property of a field, such as whether it takes a write, or that
+/// it has not given one.
+enum class MasterbusAnswer : uint8_t {
+  MASTERBUS_ANSWER_UNKNOWN,
+  MASTERBUS_ANSWER_NO,
+  MASTERBUS_ANSWER_YES,
+};
+
+constexpr MasterbusAnswer masterbus_answer(bool yes) {
+  return yes ? MasterbusAnswer::MASTERBUS_ANSWER_YES : MasterbusAnswer::MASTERBUS_ANSWER_NO;
+}
 
 // ---------------------------------------------------------------------------
 // Groups

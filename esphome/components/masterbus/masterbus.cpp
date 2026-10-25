@@ -318,7 +318,7 @@ void MasterbusHub::on_entity_frame_(const MasterbusDevice *device, uint8_t type,
   // A device's word on whether a field takes a write, or is an event, is broadcast like any answer,
   // so it counts whoever asked for it.
   MasterbusTab tab;
-  if (property_information_tab(type, tab) && data.size() >= 6 &&
+  if (property_information_tab(type, tab) && data.size() >= PROPERTY_NUMBER_ANSWER_LENGTH &&
       (data[0] == static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE) ||
        data[0] == static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE))) {
     const bool writeable_answer = data[0] == static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE);
@@ -438,11 +438,12 @@ bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property
 }
 
 bool MasterbusEntity::write(float value, bool read_back) {
-  if (this->writeable_ == 0) {
+  if (this->writeable_ == MasterbusAnswer::MASTERBUS_ANSWER_NO) {
     this->warn_takes_no_write_();
     return false;
   }
-  if (this->writeable_ == 1 && this->eventable_ != -1)
+  if (this->writeable_ == MasterbusAnswer::MASTERBUS_ANSWER_YES &&
+      this->eventable_ != MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN)
     return this->perform_write_(value, read_back);
   // A write already waiting for the answers just takes the newer value.
   const bool asked = this->write_pending_;
@@ -455,7 +456,7 @@ bool MasterbusEntity::write(float value, bool read_back) {
   MasterbusHub *hub = this->masterbus_device_->get_hub();
   const uint32_t address = this->masterbus_device_->get_address();
   bool sent = true;
-  if (this->writeable_ == -1)
+  if (this->writeable_ == MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN)
     sent = hub->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE, this->param_, this->tab_);
   if (sent)
     sent = hub->request_property(address, MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE, this->param_, this->tab_);
@@ -469,22 +470,24 @@ bool MasterbusEntity::write(float value, bool read_back) {
 }
 
 void MasterbusEntity::on_writeable_answer(bool writeable) {
-  this->writeable_ = writeable ? 1 : 0;
+  this->writeable_ = masterbus_answer(writeable);
   this->write_if_answered_();
 }
 
 void MasterbusEntity::on_eventable_answer(bool eventable) {
-  this->eventable_ = eventable ? 1 : 0;
+  this->eventable_ = masterbus_answer(eventable);
   this->write_if_answered_();
 }
 
 void MasterbusEntity::write_if_answered_() {
   // A no is enough to refuse; a yes waits to hear whether the field is an event.
-  if (!this->write_pending_ || this->writeable_ == -1 || (this->writeable_ == 1 && this->eventable_ == -1))
+  if (!this->write_pending_ || this->writeable_ == MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN ||
+      (this->writeable_ == MasterbusAnswer::MASTERBUS_ANSWER_YES &&
+       this->eventable_ == MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN))
     return;
   this->write_pending_ = false;
   this->cancel_timeout(WRITEABLE_TIMEOUT_ID);
-  if (this->writeable_ == 1) {
+  if (this->writeable_ == MasterbusAnswer::MASTERBUS_ANSWER_YES) {
     this->perform_write_(this->pending_value_, this->pending_read_back_);
     return;
   }
@@ -500,7 +503,7 @@ void MasterbusEntity::questions_unanswered_() {
   if (!this->write_pending_)
     return;
   this->write_pending_ = false;
-  if (this->writeable_ == -1) {
+  if (this->writeable_ == MasterbusAnswer::MASTERBUS_ANSWER_UNKNOWN) {
     // A configuration field is a setting, and the vendor's own tool never writes one the device has
     // not said it takes. It is asked again before the next write.
     if (this->tab_ == MasterbusTab::MASTERBUS_TAB_CONFIGURATION) {
