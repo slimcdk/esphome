@@ -21,6 +21,31 @@ class MasterbusHub;
 /// The tab's name, for a log line.
 const LogString *masterbus_tab_to_string(MasterbusTab tab);
 
+#ifdef USE_MASTERBUS_DEVICE_LIST
+/// What a device-list field needs beyond any other field: the device each of its options stands
+/// for, and the questions it has asked about its list. Only a device-list field carries one, so the
+/// other entities, which are nearly all of them, pay a pointer for it.
+struct MasterbusDeviceList {
+  MasterbusDeviceList(const uint32_t *addresses, size_t count) : addresses(addresses), count(count) {}
+
+  const uint32_t *addresses;
+  size_t count;
+  // The last position looked up, the device found there and when, so the same position reported
+  // again within the update interval is not asked about again.
+  uint32_t looked_up_at{0};
+  uint32_t looked_up_device{0};
+  // The device a write is searching the list for.
+  uint32_t search_device{0};
+  uint8_t looked_up_position{0};
+  // The position a lookup waiting for its answer asked about, and the one a search has got to.
+  uint8_t lookup_position{0};
+  uint8_t search_position{0};
+  bool looked_up{false};
+  bool lookup_pending{false};
+  bool search_pending{false};
+};
+
+#endif
 /** One configured field of one MasterBus device, rendered as an ESPHome entity.
  *
  * The address is device, tab and field number. The declared value type is what the entity expects
@@ -104,6 +129,26 @@ class MasterbusEntity : public PollingComponent {
   /// field number is a field of its own.
   bool is_eventable() const { return this->eventable_ == MasterbusAnswer::MASTERBUS_ANSWER_YES; }
 
+#ifdef USE_MASTERBUS_DEVICE_LIST
+  /// The device each option of a device-list field stands for, in the options' order. Such a field
+  /// answers with a position in the device's own list of the bus, which is sorted by address and
+  /// moves whenever a device joins or leaves, so a position read off one scan names another device
+  /// once the bus has changed. The entity asks which device sits at the position and shows the
+  /// option for that device instead.
+  void set_device_list(MasterbusDeviceList *list) { this->device_list_ = list; }
+  bool has_device_list() const { return this->device_list_ != nullptr; }
+  /// The position a device-list field reported; anything past the largest one a list request can
+  /// carry names no entry.
+  void on_device_list_position(uint32_t position);
+  /// A device's word on what sits at a position of this field's list: a device, or the filler a
+  /// device answers with past the end.
+  void on_device_list_entry(uint8_t position, bool past_end, uint32_t address);
+  /// Write the device an option stands for. The device's list is searched for it from the top and
+  /// its position there, as the list is now, is what is written. Returns whether the search reached
+  /// the bus.
+  bool write_device(size_t option);
+#endif
+
  protected:
   /// The lines every entity adds to its config dump: which field of which device it is.
   void dump_masterbus_config_();
@@ -118,6 +163,15 @@ class MasterbusEntity : public PollingComponent {
   void read_back_();
   /// Say that a write was dropped because the device says the field takes none.
   void warn_takes_no_write_();
+#ifdef USE_MASTERBUS_DEVICE_LIST
+  /// Show the option for a device, or the field unavailable if no option stands for it.
+  void publish_device_(uint32_t address, bool looked_up);
+  bool ask_device_list_entry_(uint8_t position);
+  /// The device did not say in time what sits at a position: the field is shown unavailable, or
+  /// the write that was searching for its device is dropped.
+  void device_lookup_unanswered_();
+  void device_search_unanswered_();
+#endif
 
   MasterbusDevice *masterbus_device_;
   uint32_t stale_timeout_ms_{0};
@@ -136,6 +190,9 @@ class MasterbusEntity : public PollingComponent {
   bool write_pending_{false};
   bool pending_read_back_{false};
   float pending_value_{0.0f};
+#ifdef USE_MASTERBUS_DEVICE_LIST
+  MasterbusDeviceList *device_list_{nullptr};
+#endif
   uint16_t param_;
   MasterbusTab tab_;
   MasterbusValueType value_type_;
@@ -315,9 +372,6 @@ class MasterbusHub final : public Component {
                      MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
   bool request_group_index(uint32_t address, uint16_t group, uint16_t index,
                            MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
-  /// One entry of a list property: an option's name, a device-list entry, an event's field.
-  bool request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
-                              MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
 
   /// Drive the field walk one step, at the given time. Called from a tick; public so a test can
   /// step it deliberately, and move the clock on to the question a device never answers.
@@ -335,6 +389,11 @@ class MasterbusHub final : public Component {
   /// Ask a device for one property of one field.
   bool request_property(uint32_t address, MasterbusProperty property, uint16_t param,
                         MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
+#if defined(USE_MASTERBUS_SCAN) || defined(USE_MASTERBUS_DEVICE_LIST)
+  /// One entry of a list property: an option's name, a device-list entry, an event's field.
+  bool request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
+                              MasterbusTab tab = MasterbusTab::MASTERBUS_TAB_MONITORING);
+#endif
 
   /// The address this hub speaks as: what it asks for announcements under, and what it writes after
   /// every write as the node that made it. The vendor library's own by default.

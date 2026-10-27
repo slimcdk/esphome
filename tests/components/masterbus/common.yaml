@@ -90,6 +90,16 @@ text_sensor:
     options:
       - English
       - Nederlands
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x008D
+    name: Battery event target shown
+    tab: configuration
+    value_type: device_id
+    update_interval: 5min
+    options:
+      Battery: 0x6C1001
+      Display: 0x501001
 
 switch:
   # The same field as the binary sensor above, from the writing side. A real configuration picks
@@ -142,3 +152,15 @@ select:
     options:
       - Close relay
       - Open relay
+  # A device list: which device an event of the battery acts on. The device answers with a position
+  # in its own list of the bus, so each option names the address of the device it stands for.
+  - platform: masterbus
+    masterbus_device_id: mb_battery
+    param: 0x0089
+    name: Battery event target
+    tab: configuration
+    value_type: device_id
+    update_interval: 5min
+    options:
+      Battery: 0x6C1001
+      Display: 0x501001

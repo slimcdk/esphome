@@ -296,7 +296,7 @@ def test_sensor_rejects_types_it_cannot_render(value_type: str) -> None:
         SENSOR_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type}))
 
 
-@pytest.mark.parametrize("value_type", ["list_option", "device_id", "eventable"])
+@pytest.mark.parametrize("value_type", ["list_option", "eventable"])
 def test_text_sensor_shows_a_list_entry_by_the_names_it_is_given(
     value_type: str,
 ) -> None:
@@ -321,10 +321,68 @@ def test_text_sensor_with_its_own_text_takes_no_options(value_type: str) -> None
         )
 
 
-@pytest.mark.parametrize("value_type", ["list_option", "device_id", "eventable"])
-def test_select_takes_every_kind_of_list(value_type: str) -> None:
-    """A device list and an event field write the index of an entry, as a list option does."""
+@pytest.mark.parametrize("value_type", ["list_option", "eventable"])
+def test_select_takes_a_list_of_names(value_type: str) -> None:
+    """An event field writes the index of an entry, as a list option does."""
     SELECT_SCHEMA(_sensor(**{CONF_VALUE_TYPE: value_type, CONF_OPTIONS: ["A", "B"]}))
+
+
+# A device list answers with a position in the device's own list of the bus, which is sorted by
+# address and moves as devices come and go, so each option names the device it stands for.
+DEVICE_OPTIONS = {"Battery 1": 0x6C1001, "Charger": "0x281001"}
+
+
+@pytest.mark.parametrize("schema", [SELECT_SCHEMA, TEXT_SENSOR_SCHEMA])
+def test_a_device_list_names_the_device_each_option_stands_for(
+    schema: Callable[[ConfigType], ConfigType],
+) -> None:
+    config = schema(
+        _sensor(**{CONF_VALUE_TYPE: "device_id", CONF_OPTIONS: DEVICE_OPTIONS})
+    )
+    assert config[CONF_OPTIONS] == {"Battery 1": 0x6C1001, "Charger": 0x281001}
+
+
+@pytest.mark.parametrize("schema", [SELECT_SCHEMA, TEXT_SENSOR_SCHEMA])
+def test_a_device_list_given_only_names_is_refused(
+    schema: Callable[[ConfigType], ConfigType],
+) -> None:
+    with pytest.raises(cv.Invalid, match="address"):
+        schema(_sensor(**{CONF_VALUE_TYPE: "device_id", CONF_OPTIONS: ["A", "B"]}))
+
+
+@pytest.mark.parametrize("schema", [SELECT_SCHEMA, TEXT_SENSOR_SCHEMA])
+def test_a_list_option_given_addresses_is_refused(
+    schema: Callable[[ConfigType], ConfigType],
+) -> None:
+    with pytest.raises(cv.Invalid, match="device_id"):
+        schema(
+            _sensor(**{CONF_VALUE_TYPE: "list_option", CONF_OPTIONS: DEVICE_OPTIONS})
+        )
+
+
+def test_a_device_list_option_must_be_a_masterbus_address() -> None:
+    with pytest.raises(cv.Invalid, match="MasterBus address"):
+        SELECT_SCHEMA(
+            _sensor(**{CONF_VALUE_TYPE: "device_id", CONF_OPTIONS: {"A": 0x800000}})
+        )
+
+
+def test_a_device_list_names_each_device_once() -> None:
+    """Two options for one device would leave the second never shown."""
+    with pytest.raises(cv.Invalid, match="0x6C1001"):
+        SELECT_SCHEMA(
+            _sensor(
+                **{
+                    CONF_VALUE_TYPE: "device_id",
+                    CONF_OPTIONS: {"A": 0x6C1001, "B": 0x6C1001},
+                }
+            )
+        )
+
+
+def test_a_device_list_needs_an_option() -> None:
+    with pytest.raises(cv.Invalid, match="at least 1"):
+        SELECT_SCHEMA(_sensor(**{CONF_VALUE_TYPE: "device_id", CONF_OPTIONS: {}}))
 
 
 def test_button_takes_no_update_interval() -> None:
@@ -614,6 +672,8 @@ FIELD_ENTITIES = (
     ("mb_display", "display_page"),
     ("mb_display", "display_relay"),
     ("mb_battery", "battery_close_relay"),
+    ("mb_battery", "target_shown"),
+    ("mb_battery", "event_target"),
 )
 
 
@@ -695,6 +755,26 @@ def test_list_entities_carry_their_options_and_numbers_their_range(
     assert "display_backlight->traits.set_min_value(5.0f);" in main_cpp
     assert "display_backlight->traits.set_max_value(95.0f);" in main_cpp
     assert "display_backlight->traits.set_step(5.0f);" in main_cpp
+
+
+def test_a_device_list_hands_its_entities_the_addresses_of_their_options(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    main_cpp = generate_main(component_config_path("codegen.yaml"))
+    assert get_define_value("USE_MASTERBUS_DEVICE_LIST") is not None
+    assert "event_target->traits.set_options_static(" in main_cpp
+    assert "event_target->set_device_list(event_target_device_list);" in main_cpp
+    assert "target_shown->set_device_list(target_shown_device_list);" in main_cpp
+    assert "0x6C1001" in main_cpp and "0x501001" in main_cpp
+
+
+def test_no_device_list_leaves_the_lookup_out(
+    generate_main: Callable[[str | Path], str],
+    component_config_path: Callable[[str], Path],
+) -> None:
+    generate_main(component_config_path("full.yaml"))
+    assert get_define_value("USE_MASTERBUS_DEVICE_LIST") is None
 
 
 def test_a_text_field_compiles_the_string_read_in(

@@ -263,20 +263,17 @@ TEST_F(MasterbusTest, BooleanFieldReadsAsBoolean) {
   EXPECT_TRUE(relay->values[0].as_boolean);
 }
 
-// A device list and an event field answer the way a list option does: with the index of an entry
-// in a list the device holds. An index below zero is no entry at all, and must not wrap round to
-// the last one.
-TEST_F(MasterbusTest, ADeviceListAndAnEventFieldAnswerWithTheIndexOfAnEntry) {
-  auto *devices = this->add_sensor(9, MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID);
+// An event field answers the way a list option does: with the index of an entry in a list the
+// device holds. An index below zero is no entry at all, and must not wrap round to the last one.
+TEST_F(MasterbusTest, AnEventFieldAnswersWithTheIndexOfAnEntry) {
   auto *event = this->add_sensor(10, MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE);
-  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(9, 2.0f));
+  this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(10, 2.0f));
   this->hub_->on_frame(frame_id(MONITORING_INFORMATION_TYPE, BATTERY_1), true, false, monitoring_answer(10, -1.0f));
 
-  ASSERT_EQ(devices->values.size(), 1u);
-  EXPECT_EQ(devices->values[0].published, Published::PUBLISHED_INDEX);
-  EXPECT_EQ(devices->values[0].as_index, 2u);
-  ASSERT_EQ(event->values.size(), 1u);
-  EXPECT_EQ(event->values[0].as_index, UINT32_MAX);
+  ASSERT_EQ(event->values.size(), 2u);
+  EXPECT_EQ(event->values[0].published, Published::PUBLISHED_INDEX);
+  EXPECT_EQ(event->values[0].as_index, 2u);
+  EXPECT_EQ(event->values[1].as_index, UINT32_MAX);
 }
 
 // An index too large for any list, or infinite, is no entry either. Casting it would be undefined
@@ -2463,6 +2460,244 @@ TEST_F(MasterbusTest, AHubWithAnAddressOfItsOwnSpeaksUnderIt) {
   this->hub_->write_value(entity, 1.0f);
   const auto &after = this->canbus_.sent.back();
   EXPECT_EQ(encode_uint32(after.data[5], after.data[4], after.data[3], after.data[2]), 0x3BFFFEu);
+}
+
+// A device-list field answers with a position in the device's own list of the bus. That list is
+// sorted by address and moves when a device joins or leaves, so the entity asks which device sits
+// at the position and shows the option for that device. The addresses below are invented.
+static constexpr uint32_t DISPLAY_PANEL = 0x501001;
+static constexpr uint16_t TARGET_FIELD = 137;
+static const uint32_t TARGET_OPTIONS[] = {BATTERY_1, DISPLAY_PANEL};
+/// A device-list field's answer on the configuration tab, and a device's word on what sits at a
+/// position, the address packed the way an announcement packs it.
+static constexpr uint8_t CONFIGURATION_ANSWER_TYPE = 0x17;
+static constexpr uint8_t CONFIGURATION_PROPERTY_REQUEST_TYPE = 0x38;
+static constexpr uint8_t CONFIGURATION_PROPERTY_ANSWER_TYPE = 0x18;
+
+static std::vector<uint8_t> list_entry(uint16_t param, uint8_t position, uint32_t address) {
+  return {0x20,
+          static_cast<uint8_t>(param & 0xFF),
+          static_cast<uint8_t>(param >> 8),
+          position,
+          static_cast<uint8_t>(address >> 18),
+          static_cast<uint8_t>(address & 0xFF),
+          static_cast<uint8_t>((address >> 8) & 0xFF),
+          static_cast<uint8_t>((address >> 16) & 0x03)};
+}
+
+/// What a device answers one past the end of a list.
+static std::vector<uint8_t> list_filler(uint16_t param, uint8_t position) {
+  return {0x20, static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8), position, 0xFF, 0xFF, 0xFF, 0xFF};
+}
+
+static bool asks_list_entry(const canbus::CanFrame &frame, uint16_t param, uint8_t position) {
+  return (frame.can_id >> MESSAGE_TYPE_SHIFT) == CONFIGURATION_PROPERTY_REQUEST_TYPE &&
+         frame.can_data_length_code == 4 && frame.data[0] == 0x20 &&
+         encode_uint16(frame.data[2], frame.data[1]) == param && frame.data[3] == position;
+}
+
+// Lets a test stand in for the scheduler for a device-list field's questions.
+class DeviceListEntity : public RecordingEntity {
+ public:
+  using RecordingEntity::RecordingEntity;
+  using MasterbusEntity::device_lookup_unanswered_;
+  using MasterbusEntity::device_search_unanswered_;
+  using MasterbusEntity::questions_unanswered_;
+};
+
+class MasterbusDeviceListTest : public MasterbusTest {
+ protected:
+  void SetUp() override {
+    MasterbusTest::SetUp();
+    this->target_ = std::make_unique<DeviceListEntity>(this->battery_.get(), TARGET_FIELD,
+                                                       MasterbusTab::MASTERBUS_TAB_CONFIGURATION,
+                                                       MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID);
+    this->target_->set_device_list(&this->target_list_);
+    this->target_->set_update_interval(300000);
+    this->hub_->register_entity(this->target_.get());
+  }
+
+  void report_position(float position) {
+    this->hub_->on_frame(frame_id(CONFIGURATION_ANSWER_TYPE, BATTERY_1), true, false,
+                         monitoring_answer(TARGET_FIELD, position));
+  }
+  void answer_entry(uint8_t position, uint32_t address) {
+    this->hub_->on_frame(frame_id(CONFIGURATION_PROPERTY_ANSWER_TYPE, BATTERY_1), true, false,
+                         list_entry(TARGET_FIELD, position, address));
+  }
+
+  MasterbusDeviceList target_list_{TARGET_OPTIONS, 2};
+  std::unique_ptr<DeviceListEntity> target_;
+};
+
+TEST_F(MasterbusDeviceListTest, ADeviceListFieldShowsTheDeviceAtThePositionItReports) {
+  this->report_position(6.0f);
+
+  // Nothing is shown until the device has said who sits there.
+  EXPECT_TRUE(this->target_->values.empty());
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_TRUE(asks_list_entry(this->canbus_.sent[0], TARGET_FIELD, 6));
+  EXPECT_EQ(this->canbus_.sent[0].can_id & DEVICE_ADDRESS_MASK, BATTERY_1);
+
+  this->answer_entry(6, DISPLAY_PANEL);
+  ASSERT_EQ(this->target_->values.size(), 1u);
+  EXPECT_EQ(this->target_->values[0].published, Published::PUBLISHED_INDEX);
+  EXPECT_EQ(this->target_->values[0].as_index, 1u) << "the option for the display panel";
+}
+
+// A device joining the bus with a lower address moves every entry after it up one. The field then
+// reports a new position for the same device, and the entity still shows that device.
+TEST_F(MasterbusDeviceListTest, TheSameDeviceAtAMovedPositionIsStillShownAsThatDevice) {
+  this->report_position(5.0f);
+  this->answer_entry(5, BATTERY_1);
+  this->canbus_.clear();
+
+  this->report_position(6.0f);
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_TRUE(asks_list_entry(this->canbus_.sent[0], TARGET_FIELD, 6));
+  this->answer_entry(6, BATTERY_1);
+
+  ASSERT_EQ(this->target_->values.size(), 2u);
+  EXPECT_EQ(this->target_->values[0].as_index, 0u);
+  EXPECT_EQ(this->target_->values[1].as_index, 0u);
+}
+
+// The same position again within the field's interval is the same device: nothing is asked.
+TEST_F(MasterbusDeviceListTest, TheSamePositionWithinTheIntervalIsNotAskedAgain) {
+  this->report_position(6.0f);
+  this->answer_entry(6, DISPLAY_PANEL);
+  this->canbus_.clear();
+
+  this->report_position(6.0f);
+  EXPECT_TRUE(this->canbus_.sent.empty());
+  ASSERT_EQ(this->target_->values.size(), 2u);
+  EXPECT_EQ(this->target_->values[1].as_index, 1u);
+
+  // An interval later it is asked again, as a device can have moved into that position meanwhile.
+  {
+    LoopBlockingGuard clock{nullptr, nullptr, 300000};
+    this->report_position(6.0f);
+  }
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_TRUE(asks_list_entry(this->canbus_.sent[0], TARGET_FIELD, 6));
+}
+
+// A position below zero names no device, and must not wrap round to the last one.
+TEST_F(MasterbusDeviceListTest, APositionBelowZeroNamesNoDeviceAndAsksNothing) {
+  this->report_position(-1.0f);
+
+  EXPECT_TRUE(this->canbus_.sent.empty());
+  EXPECT_TRUE(this->target_->values.empty());
+  EXPECT_EQ(this->target_->unavailable_count, 1);
+}
+
+TEST_F(MasterbusDeviceListTest, ADeviceThatIsNoneOfTheOptionsIsUnavailable) {
+  this->report_position(0.0f);
+  this->answer_entry(0, UNDECLARED_DEVICE);
+
+  EXPECT_TRUE(this->target_->values.empty());
+  EXPECT_EQ(this->target_->unavailable_count, 1);
+}
+
+// Asked past the end of its list, a device answers with filler rather than a device.
+TEST_F(MasterbusDeviceListTest, APositionPastTheEndOfTheListIsUnavailable) {
+  this->report_position(7.0f);
+  this->hub_->on_frame(frame_id(CONFIGURATION_PROPERTY_ANSWER_TYPE, BATTERY_1), true, false,
+                       list_filler(TARGET_FIELD, 7));
+
+  EXPECT_TRUE(this->target_->values.empty());
+  EXPECT_EQ(this->target_->unavailable_count, 1);
+}
+
+TEST_F(MasterbusDeviceListTest, ALookupNobodyAnswersLeavesTheFieldUnavailable) {
+  this->report_position(6.0f);
+  this->target_->device_lookup_unanswered_();
+
+  EXPECT_TRUE(this->target_->values.empty());
+  EXPECT_EQ(this->target_->unavailable_count, 1);
+  // A late answer for a lookup given up on is not shown either.
+  this->answer_entry(6, BATTERY_1);
+  EXPECT_TRUE(this->target_->values.empty());
+}
+
+// A lookup is a request like any other, and an entity given no update_interval never transmits.
+TEST_F(MasterbusDeviceListTest, AFieldThatNeverPollsDoesNotLookUpItsPosition) {
+  this->target_->set_update_interval(SCHEDULER_DONT_RUN);
+  this->report_position(6.0f);
+
+  EXPECT_TRUE(this->canbus_.sent.empty());
+  EXPECT_TRUE(this->target_->values.empty());
+}
+
+// Another field's entries, or another device's, do not answer this field's lookup.
+TEST_F(MasterbusDeviceListTest, OnlyTheFieldsOwnEntryAnswersItsLookup) {
+  this->report_position(6.0f);
+  this->hub_->on_frame(frame_id(CONFIGURATION_PROPERTY_ANSWER_TYPE, BATTERY_1), true, false,
+                       list_entry(TARGET_FIELD + 4, 6, BATTERY_1));
+  this->hub_->on_frame(frame_id(CONFIGURATION_PROPERTY_ANSWER_TYPE, BATTERY_1), true, false,
+                       list_entry(TARGET_FIELD, 5, BATTERY_1));
+  EXPECT_TRUE(this->target_->values.empty());
+
+  this->answer_entry(6, BATTERY_1);
+  ASSERT_EQ(this->target_->values.size(), 1u);
+}
+
+// Choosing a device writes its position in the device's list as it is now: the list is searched
+// for it from the top, and the write itself then goes the way any write does.
+TEST_F(MasterbusDeviceListTest, ChoosingADeviceWritesItsPositionInTheListAsItIsNow) {
+  EXPECT_TRUE(this->target_->write_device(1));
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_TRUE(asks_list_entry(this->canbus_.sent[0], TARGET_FIELD, 0));
+
+  this->answer_entry(0, UNDECLARED_DEVICE);
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  EXPECT_TRUE(asks_list_entry(this->canbus_.sent[1], TARGET_FIELD, 1));
+  this->answer_entry(1, DISPLAY_PANEL);
+
+  // Found at position 1: the questions every first write asks, and then the write.
+  ASSERT_EQ(this->canbus_.sent.size(), 4u);
+  EXPECT_EQ(this->canbus_.sent[2].data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE));
+  EXPECT_EQ(this->canbus_.sent[3].data[0], static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE));
+  this->hub_->on_frame(frame_id(CONFIGURATION_PROPERTY_ANSWER_TYPE, BATTERY_1), true, false,
+                       {0x0B, TARGET_FIELD, 0x00, 0x00, 0x01, 0x00});
+  this->hub_->on_frame(frame_id(CONFIGURATION_PROPERTY_ANSWER_TYPE, BATTERY_1), true, false,
+                       {0x0D, TARGET_FIELD, 0x00, 0x00, 0x00, 0x00});
+  ASSERT_EQ(this->canbus_.sent.size(), 5u);
+  const auto &write = this->canbus_.sent[4];
+  EXPECT_EQ(write.can_id >> MESSAGE_TYPE_SHIFT, 0x37);
+  ASSERT_EQ(write.can_data_length_code, WRITE_LENGTH);
+  EXPECT_EQ(encode_uint16(write.data[1], write.data[0]), TARGET_FIELD);
+  float value;
+  const uint32_t bits = encode_uint32(write.data[5], write.data[4], write.data[3], write.data[2]);
+  memcpy(&value, &bits, sizeof(value));
+  EXPECT_FLOAT_EQ(value, 1.0f);
+}
+
+// A device that is not on the bus has no position to write: the search reaches the end of the list
+// and nothing is written.
+TEST_F(MasterbusDeviceListTest, ADeviceTheListDoesNotHoldIsNotWritten) {
+  EXPECT_TRUE(this->target_->write_device(1));
+  this->answer_entry(0, BATTERY_1);
+  this->hub_->on_frame(frame_id(CONFIGURATION_PROPERTY_ANSWER_TYPE, BATTERY_1), true, false,
+                       list_filler(TARGET_FIELD, 1));
+
+  ASSERT_EQ(this->canbus_.sent.size(), 2u);
+  for (const auto &frame : this->canbus_.sent)
+    EXPECT_NE(frame.can_id >> MESSAGE_TYPE_SHIFT, 0x37) << "a write went out";
+}
+
+TEST_F(MasterbusDeviceListTest, ASearchNobodyAnswersWritesNothing) {
+  EXPECT_TRUE(this->target_->write_device(0));
+  this->target_->device_search_unanswered_();
+  this->answer_entry(0, BATTERY_1);
+
+  ASSERT_EQ(this->canbus_.sent.size(), 1u);
+  EXPECT_TRUE(asks_list_entry(this->canbus_.sent[0], TARGET_FIELD, 0));
+}
+
+TEST_F(MasterbusDeviceListTest, AnOptionPastTheConfiguredOnesIsNotWritten) {
+  EXPECT_FALSE(this->target_->write_device(2));
+  EXPECT_TRUE(this->canbus_.sent.empty());
 }
 
 }  // namespace esphome::masterbus::testing

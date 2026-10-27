@@ -8,13 +8,16 @@ from esphome.types import ConfigType
 from .. import (
     CONF_MASTERBUS_DEVICE_ID,
     LIST_VALUE_TYPES,
-    OPTIONS,
     MasterbusDevice,
     MasterbusEntity,
     entity_schema,
     masterbus_ns,
     new_entity,
+    option_names,
+    raw_options,
     register_info_sensor,
+    set_device_options,
+    validate_options,
 )
 
 CODEOWNERS = ["@slimcdk"]
@@ -65,8 +68,9 @@ FIELD_SCHEMA = cv.All(
             default_value_type="text",
         )
     )
-    .extend({cv.Optional(CONF_OPTIONS): OPTIONS}),
+    .extend({cv.Optional(CONF_OPTIONS): raw_options}),
     _validate_options,
+    validate_options,
 )
 
 _DEVICE_SCHEMA = cv.Schema(
@@ -108,8 +112,10 @@ async def to_code(config: ConfigType) -> None:
         )
         return
     var = await new_entity(text_sensor.new_text_sensor, config)
-    if options := config.get(CONF_OPTIONS):
+    if CONF_OPTIONS in config:
+        options = option_names(config)
         table = cg.shared_progmem_array(
             "masterbus_text_options", cg.const_char_ptr, options
         )
         cg.add(var.set_options(table, len(options)))
+        await set_device_options(var, config)

@@ -18,6 +18,13 @@ void MasterbusSelect::publish_masterbus_index(uint32_t index) {
 }
 
 void MasterbusSelect::control(size_t index) {
+#ifdef USE_MASTERBUS_DEVICE_LIST
+  // A device travels as its position in the device's list as it is now, which has to be found.
+  if (this->has_device_list()) {
+    this->write_device(index);
+    return;
+  }
+#endif
   // A list option travels as its index, in the same float a number would use.
   this->write(static_cast<float>(index));
 }
