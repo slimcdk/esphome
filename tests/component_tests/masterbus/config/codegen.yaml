@@ -54,6 +54,17 @@ text_sensor:
       - English
       - Nederlands
   - platform: masterbus
+    id: target_shown
+    masterbus_device_id: mb_battery
+    param: 0x008D
+    name: Event 2 target
+    tab: configuration
+    value_type: device_id
+    update_interval: 5min
+    options:
+      Battery: 0x6C1001
+      Display: 0x501001
+  - platform: masterbus
     id: battery_serial
     masterbus_device_id: mb_battery
     type: serial_number
@@ -84,6 +95,17 @@ select:
     options:
       - Battery
       - Charger
+  - platform: masterbus
+    id: event_target
+    masterbus_device_id: mb_battery
+    param: 0x0089
+    name: Event 1 target
+    tab: configuration
+    value_type: device_id
+    update_interval: 5min
+    options:
+      Battery: 0x6C1001
+      Display: 0x501001
 
 switch:
   - platform: masterbus

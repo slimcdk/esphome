@@ -33,6 +33,12 @@ static constexpr uint32_t WRITEABLE_TIMEOUT_MS = 500;
 static constexpr uint32_t READ_BACK_DELAY_MS = 200;
 static constexpr uint32_t WRITEABLE_TIMEOUT_ID = 0;
 static constexpr uint32_t READ_BACK_TIMEOUT_ID = 1;
+#ifdef USE_MASTERBUS_DEVICE_LIST
+// A device has as long to say what sits at a position of a list as to say whether a field takes a
+// write.
+static constexpr uint32_t DEVICE_LOOKUP_TIMEOUT_ID = 2;
+static constexpr uint32_t DEVICE_SEARCH_TIMEOUT_ID = 3;
+#endif
 
 const LogString *masterbus_tab_to_string(MasterbusTab tab) {
   switch (tab) {
@@ -179,13 +185,6 @@ bool MasterbusHub::request_group_index(uint32_t address, uint16_t group, uint16_
        static_cast<uint8_t>(group & 0xFF), static_cast<uint8_t>(group >> 8), static_cast<uint8_t>(index)});
 }
 
-bool MasterbusHub::request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
-                                          MasterbusTab tab) {
-  return this->send_(
-      tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).request, address,
-      {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8), index});
-}
-
 void MasterbusHub::start_scan() {
   // The walk reads the list as it goes, so it is not emptied under it.
   if (this->scanner_.is_running()) {
@@ -315,9 +314,24 @@ void MasterbusHub::on_entity_frame_(const MasterbusDevice *device, uint8_t type,
   if (this->text_reader_.on_frame(type, address, data, App.get_loop_component_start_time()))
     return;
 #endif
+  MasterbusTab tab;
+#ifdef USE_MASTERBUS_DEVICE_LIST
+  // What sits at a position of a device list, whoever asked. Past the end a device answers with
+  // filler, which is no device.
+  if (property_information_tab(type, tab) && data.size() >= PROPERTY_FLOAT_ANSWER_LENGTH &&
+      data[0] == static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE)) {
+    const uint16_t field = encode_uint16(data[2], data[1]);
+    const uint8_t *packed = data.data() + PROPERTY_VALUE_OFFSET;
+    const bool past_end = encode_uint32(packed[3], packed[2], packed[1], packed[0]) == UINT32_MAX;
+    for (auto *entity : this->entities_) {
+      if (entity->has_device_list() && entity->is_field(device, tab, field))
+        entity->on_device_list_entry(data[PROPERTY_INDEX_OFFSET], past_end, decode_announced_address(packed));
+    }
+    return;
+  }
+#endif
   // A device's word on whether a field takes a write, or is an event, is broadcast like any answer,
   // so it counts whoever asked for it.
-  MasterbusTab tab;
   if (property_information_tab(type, tab) && data.size() >= PROPERTY_NUMBER_ANSWER_LENGTH &&
       (data[0] == static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_WRITEABLE) ||
        data[0] == static_cast<uint8_t>(MasterbusProperty::MASTERBUS_PROPERTY_EVENTABLE))) {
@@ -437,6 +451,15 @@ bool MasterbusHub::request_property(uint32_t address, MasterbusProperty property
       {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8)});
 }
 
+#if defined(USE_MASTERBUS_SCAN) || defined(USE_MASTERBUS_DEVICE_LIST)
+bool MasterbusHub::request_property_entry(uint32_t address, MasterbusProperty property, uint16_t param, uint8_t index,
+                                          MasterbusTab tab) {
+  return this->send_(
+      tab_message(tab, MasterbusTabMessage::MASTERBUS_TAB_MESSAGE_PROPERTY).request, address,
+      {static_cast<uint8_t>(property), static_cast<uint8_t>(param & 0xFF), static_cast<uint8_t>(param >> 8), index});
+}
+#endif
+
 bool MasterbusEntity::write(float value, bool read_back) {
   if (this->writeable_ == MasterbusAnswer::MASTERBUS_ANSWER_NO) {
     this->warn_takes_no_write_();
@@ -498,6 +521,123 @@ void MasterbusEntity::warn_takes_no_write_() {
   ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " takes no write, by the device's own word; not written",
            this->param_, this->masterbus_device_->get_address());
 }
+
+#ifdef USE_MASTERBUS_DEVICE_LIST
+void MasterbusEntity::on_device_list_position(uint32_t position) {
+  if (position > UINT8_MAX) {
+    this->publish_masterbus_unavailable();
+    return;
+  }
+  MasterbusDeviceList &list = *this->device_list_;
+  const auto at = static_cast<uint8_t>(position);
+  const uint32_t now = App.get_loop_component_start_time();
+  // A device can move into a position as well as out of it, so a position is only taken to hold the
+  // same device for as long as the field would otherwise go without asking.
+  if (list.looked_up && at == list.looked_up_position && now - list.looked_up_at < this->get_update_interval()) {
+    this->publish_device_(list.looked_up_device, false);
+    return;
+  }
+  // A lookup is a request like any other, and an entity given no update_interval never transmits.
+  if (this->get_update_interval() == SCHEDULER_DONT_RUN || (list.lookup_pending && at == list.lookup_position))
+    return;
+  if (!this->ask_device_list_entry_(at))
+    return;
+  list.lookup_pending = true;
+  list.lookup_position = at;
+  this->set_timeout(DEVICE_LOOKUP_TIMEOUT_ID, WRITEABLE_TIMEOUT_MS, [this]() { this->device_lookup_unanswered_(); });
+}
+
+void MasterbusEntity::on_device_list_entry(uint8_t position, bool past_end, uint32_t address) {
+  MasterbusDeviceList &list = *this->device_list_;
+  if (list.search_pending && position == list.search_position) {
+    this->cancel_timeout(DEVICE_SEARCH_TIMEOUT_ID);
+    if (address == list.search_device && !past_end) {
+      list.search_pending = false;
+      this->write(static_cast<float>(position));
+    } else if (past_end || position == UINT8_MAX) {
+      list.search_pending = false;
+      ESP_LOGW(TAG, "Device 0x%06" PRIX32 " is not in the list field %u of device 0x%06" PRIX32 " holds; not written",
+               list.search_device, this->param_, this->masterbus_device_->get_address());
+    } else if (this->ask_device_list_entry_(++list.search_position)) {
+      this->set_timeout(DEVICE_SEARCH_TIMEOUT_ID, WRITEABLE_TIMEOUT_MS,
+                        [this]() { this->device_search_unanswered_(); });
+    } else {
+      list.search_pending = false;
+    }
+  }
+  if (!list.lookup_pending || position != list.lookup_position)
+    return;
+  list.lookup_pending = false;
+  this->cancel_timeout(DEVICE_LOOKUP_TIMEOUT_ID);
+  if (past_end) {
+    list.looked_up = false;
+    this->publish_masterbus_unavailable();
+    return;
+  }
+  list.looked_up = true;
+  list.looked_up_position = position;
+  list.looked_up_device = address;
+  list.looked_up_at = App.get_loop_component_start_time();
+  this->publish_device_(address, true);
+}
+
+void MasterbusEntity::publish_device_(uint32_t address, bool looked_up) {
+  const MasterbusDeviceList &list = *this->device_list_;
+  for (size_t option = 0; option < list.count; option++) {
+    if (list.addresses[option] == address) {
+      this->publish_masterbus_index(option);
+      return;
+    }
+  }
+  // Said once per lookup rather than on every answer that repeats it.
+  if (looked_up) {
+    ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " names device 0x%06" PRIX32 ", which none of its options is",
+             this->param_, this->masterbus_device_->get_address(), address);
+  }
+  this->publish_masterbus_unavailable();
+}
+
+bool MasterbusEntity::write_device(size_t option) {
+  MasterbusDeviceList &list = *this->device_list_;
+  if (option >= list.count) {
+    ESP_LOGW(TAG, "Field %u has no option %u to write", this->param_, static_cast<unsigned>(option));
+    return false;
+  }
+  list.search_device = list.addresses[option];
+  list.search_position = 0;
+  if (!this->ask_device_list_entry_(0))
+    return false;
+  list.search_pending = true;
+  this->set_timeout(DEVICE_SEARCH_TIMEOUT_ID, WRITEABLE_TIMEOUT_MS, [this]() { this->device_search_unanswered_(); });
+  return true;
+}
+
+bool MasterbusEntity::ask_device_list_entry_(uint8_t position) {
+  return this->masterbus_device_->get_hub()->request_property_entry(this->masterbus_device_->get_address(),
+                                                                    MasterbusProperty::MASTERBUS_PROPERTY_LIST_DEVICE,
+                                                                    this->param_, position, this->tab_);
+}
+
+void MasterbusEntity::device_lookup_unanswered_() {
+  MasterbusDeviceList &list = *this->device_list_;
+  if (!list.lookup_pending)
+    return;
+  list.lookup_pending = false;
+  list.looked_up = false;
+  ESP_LOGD(TAG, "Field %u of device 0x%06" PRIX32 " did not say what sits at position %u of its list", this->param_,
+           this->masterbus_device_->get_address(), list.lookup_position);
+  this->publish_masterbus_unavailable();
+}
+
+void MasterbusEntity::device_search_unanswered_() {
+  MasterbusDeviceList &list = *this->device_list_;
+  if (!list.search_pending)
+    return;
+  list.search_pending = false;
+  ESP_LOGW(TAG, "Field %u of device 0x%06" PRIX32 " did not say what sits at position %u of its list; not written",
+           this->param_, this->masterbus_device_->get_address(), list.search_position);
+}
+#endif
 
 void MasterbusEntity::questions_unanswered_() {
   if (!this->write_pending_)
@@ -616,12 +756,19 @@ void MasterbusHub::publish_value_(const MasterbusDevice *device, MasterbusTab ta
         continue;
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_LIST_OPTION:
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_DEVICE_ID:
-      case MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE:
+      case MasterbusValueType::MASTERBUS_VALUE_TYPE_EVENTABLE: {
         // Each answers with the index of an entry in a list the device holds. One that is negative,
         // infinite or too large to be an index is no entry, rather than cast round to some other.
-        entity->publish_masterbus_index(value >= 0.0f && value < 4294967296.0f ? static_cast<uint32_t>(value)
-                                                                               : UINT32_MAX);
+        const uint32_t index = value >= 0.0f && value < 4294967296.0f ? static_cast<uint32_t>(value) : UINT32_MAX;
+#ifdef USE_MASTERBUS_DEVICE_LIST
+        if (entity->has_device_list()) {
+          entity->on_device_list_position(index);
+          continue;
+        }
+#endif
+        entity->publish_masterbus_index(index);
         continue;
+      }
 #ifdef USE_MASTERBUS_TEXT
       case MasterbusValueType::MASTERBUS_VALUE_TYPE_TEXT:
         // A text field answers with the number of an entry in the device's string table, not with

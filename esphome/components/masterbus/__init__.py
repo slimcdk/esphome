@@ -12,6 +12,7 @@ from esphome.const import (
     CONF_ADDRESS,
     CONF_DEVICES,
     CONF_ID,
+    CONF_OPTIONS,
     CONF_PLATFORM,
     CONF_TIMEOUT,
     CONF_UPDATE_INTERVAL,
@@ -48,6 +49,7 @@ masterbus_ns = cg.esphome_ns.namespace("masterbus")
 MasterbusHub = masterbus_ns.class_("MasterbusHub", cg.Component)
 MasterbusDevice = masterbus_ns.class_("MasterbusDevice")
 MasterbusEntity = masterbus_ns.class_("MasterbusEntity", cg.PollingComponent)
+MasterbusDeviceList = masterbus_ns.struct("MasterbusDeviceList")
 
 MasterbusTab = masterbus_ns.enum("MasterbusTab", is_class=True)
 MasterbusValueType = masterbus_ns.enum("MasterbusValueType", is_class=True)
@@ -61,6 +63,7 @@ TABS = {
 }
 
 VALUE_TYPE_TEXT = "text"
+VALUE_TYPE_DEVICE_ID = "device_id"
 # A list field answers with the index of an entry, so the entries' names have to be given.
 LIST_VALUE_TYPES = ("list_option", "device_id", "eventable")
 
@@ -71,7 +74,7 @@ VALUE_TYPES = {
     "boolean": MasterbusValueType.MASTERBUS_VALUE_TYPE_BOOLEAN,
     "list_option": MasterbusValueType.MASTERBUS_VALUE_TYPE_LIST_OPTION,
     VALUE_TYPE_TEXT: MasterbusValueType.MASTERBUS_VALUE_TYPE_TEXT,
-    "device_id": MasterbusValueType.MASTERBUS_VALUE_TYPE_DEVICE_ID,
+    VALUE_TYPE_DEVICE_ID: MasterbusValueType.MASTERBUS_VALUE_TYPE_DEVICE_ID,
     "eventable": MasterbusValueType.MASTERBUS_VALUE_TYPE_EVENTABLE,
 }
 
@@ -92,6 +95,86 @@ class MasterbusData:
 
 # The names of a list field's entries, in the device's own order. A scan reports them.
 OPTIONS = cv.All(cv.ensure_list(cv.string_strict), cv.Length(min=1))
+
+
+def raw_options(value: Any) -> Any:
+    """A list field's options as written: names, or for a device list names and addresses. Which
+    is right depends on the field's value type, so validate_options() checks them once that is
+    known."""
+    return value if isinstance(value, dict) else cv.ensure_list(cv.string_strict)(value)
+
+
+def _device_options(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise cv.Invalid(
+            f"a {VALUE_TYPE_DEVICE_ID} field answers with a position in the device's own list of "
+            f"the bus, which moves as devices join and leave it, so each of '{CONF_OPTIONS}' names "
+            f"the address of the device it stands for, as 'name: address'"
+        )
+    if not value:
+        raise cv.Invalid(f"'{CONF_OPTIONS}' must hold at least 1 device")
+    options: dict[str, int] = {}
+    named: dict[int, str] = {}
+    for name, address in value.items():
+        name, address = cv.string_strict(name), _address(address)
+        if address in named:
+            raise cv.Invalid(
+                f"0x{address:06X} is the device of both '{named[address]}' and '{name}'; the "
+                f"device decides which one is shown, so give each device one option"
+            )
+        named[address] = name
+        options[name] = address
+    return options
+
+
+def validate_options(config: ConfigType) -> ConfigType:
+    """Check a list field's options against its value type: a device list names the device each
+    option stands for, and every other list names its entries in the device's own order."""
+    if CONF_OPTIONS not in config:
+        return config
+    options = config[CONF_OPTIONS]
+    if config[CONF_VALUE_TYPE] == VALUE_TYPE_DEVICE_ID:
+        config[CONF_OPTIONS] = _device_options(options)
+    elif isinstance(options, dict):
+        raise cv.Invalid(
+            f"only a {VALUE_TYPE_DEVICE_ID} field names a device for each of its options; a "
+            f"{config[CONF_VALUE_TYPE]} field lists the names of its entries, in the device's own "
+            f"order"
+        )
+    else:
+        config[CONF_OPTIONS] = OPTIONS(options)
+    return config
+
+
+def option_names(config: ConfigType) -> list[str]:
+    """The names a list field shows, in the order its entity numbers them."""
+    return list(config[CONF_OPTIONS])
+
+
+async def set_device_options(var: MockObj, config: ConfigType) -> None:
+    """Hand a device list's entity the address each of its options stands for."""
+    if config[CONF_VALUE_TYPE] != VALUE_TYPE_DEVICE_ID:
+        return
+    addresses = list(config[CONF_OPTIONS].values())
+    array = cg.static_const_array(
+        ID(f"{config[CONF_ID]}_devices", is_declaration=True, type=cg.uint32),
+        cg.ArrayInitializer(
+            *(cg.RawExpression(f"0x{address:06X}") for address in addresses)
+        ),
+    )
+    device_list = cg.new_Pvariable(
+        ID(
+            f"{config[CONF_ID]}_device_list",
+            is_declaration=True,
+            type=MasterbusDeviceList,
+        ),
+        array,
+        len(addresses),
+    )
+    cg.add(var.set_device_list(device_list))
+    cg.add_define("USE_MASTERBUS_DEVICE_LIST")
+
+
 # A time without an answer, in milliseconds. Zero would read as never waiting at all.
 TIMEOUT = cv.All(cv.positive_not_null_time_period, cv.positive_time_period_milliseconds)
 
