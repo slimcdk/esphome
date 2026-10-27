@@ -8,8 +8,9 @@ ESPHOME_LOG_TAG(TAG, "masterbus.select");
 
 void MasterbusSelect::publish_masterbus_index(uint32_t index) {
   if (!this->has_index(index)) {
-    ESP_LOGW(TAG, "Field %u reported option %" PRIu32 ", which is beyond the configured options", this->get_param(),
-             index);
+    ESP_LOGW(TAG, "'%s': field %u of device 0x%06" PRIX32 " reported option %" PRIu32 ", beyond the %u configured",
+             LOG_STR_ARG(this->get_log_name()), this->get_param(), this->masterbus_device_->get_address(), index,
+             static_cast<unsigned>(this->size()));
     this->publish_masterbus_unavailable();
     return;
   }
